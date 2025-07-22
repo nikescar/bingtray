@@ -2,6 +2,8 @@
 
 A cross-platform wallpaper manager that downloads and manages Bing's weekly wallpapers.
 
+![bingcli](./imgs/bingcli.gif "Bingcli")
+
 ## Project Structure
 
 This project is organized as a Rust workspace with three packages:
