@@ -210,7 +210,7 @@ jobs:
                   tar -cvpzf "${i}.tar.gz" --directory=${i} .
               fi
           done
-          cp artifacts/bingtray-*.tar.gz distbin/
+          cp artifacts/bing*.tar.gz distbin/
 
       - name: Release
         uses: softprops/action-gh-release@v2
