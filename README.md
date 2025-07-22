@@ -28,7 +28,7 @@ Run the GUI (currently falls back to CLI mode):
 $ bingtray-gui
 ```
 
-Run GUI with CLI commands:
+Run CLI from GUI binary:
 ```bash
 # run cli application from gui binary
 $ bingtray-gui --cli

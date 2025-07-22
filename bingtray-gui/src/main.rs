@@ -222,6 +222,44 @@ impl BingTrayApp {
         Ok(false)
     }
     
+    fn has_next_wallpaper_available(&self) -> bool {
+        // Check if there are images in unprocessed folder
+        if let Ok(entries) = std::fs::read_dir(&self.config.unprocessed_dir) {
+            let unprocessed_count = entries
+                .filter_map(|entry| entry.ok())
+                .filter(|entry| {
+                    entry.path().extension()
+                        .and_then(|ext| ext.to_str())
+                        .map(|ext| ext.to_lowercase() == "jpg")
+                        .unwrap_or(false)
+                })
+                .count();
+            
+            if unprocessed_count > 0 {
+                return true;
+            }
+        }
+        
+        // Check if there are available market codes to download from
+        let market_codes = load_market_codes(&self.config).unwrap_or_default();
+        let old_codes = get_old_market_codes(&market_codes);
+        old_codes.len() > 0
+    }
+
+    fn can_keep_current_image(&self) -> bool {
+        if let Some(ref image_path) = self.current_image {
+            // Check if the image is not already in keepfavorite folder
+            !image_path.starts_with(&self.config.keepfavorite_dir)
+        } else {
+            false // No current image
+        }
+    }
+
+    fn can_blacklist_current_image(&self) -> bool {
+        // Can blacklist if there's a current image (regardless of its location)
+        self.current_image.is_some()
+    }
+
     fn get_status_info(&self) -> (String, String, usize) {
         let title = self.get_current_image_title();
         
@@ -259,9 +297,28 @@ impl BingTrayApp {
         println!("Current wallpaper: {}", title);
         println!("Last tried market: {} | Available markets: {}", last_tried, available_count);
         println!();
-        println!("1. Next wallpaper");
-        println!("2. Keep \"{}\"", title);
-        println!("3. Blacklist \"{}\"", title);
+        
+        let has_next_available = self.has_next_wallpaper_available();
+        let can_keep = self.can_keep_current_image();
+        let can_blacklist = self.can_blacklist_current_image();
+        
+        if has_next_available {
+            println!("1. Next wallpaper");
+        } else {
+            println!("1. Next wallpaper (unavailable - no images/markets)");
+        }
+        
+        if can_keep {
+            println!("2. Keep \"{}\"", title);
+        } else {
+            println!("2. Keep \"{}\" (unavailable)", title);
+        }
+        
+        if can_blacklist {
+            println!("3. Blacklist \"{}\"", title);
+        } else {
+            println!("3. Blacklist \"{}\" (unavailable)", title);
+        }
         println!("4. Next Kept wallpaper");
         println!("5. Exit");
         print!("\nSelect an option (1-5): ");
@@ -277,18 +334,30 @@ impl BingTrayApp {
             
             match input.trim() {
                 "1" => {
-                    if let Err(e) = self.set_next_wallpaper() {
-                        eprintln!("Failed to set next wallpaper: {}", e);
+                    if self.has_next_wallpaper_available() {
+                        if let Err(e) = self.set_next_wallpaper() {
+                            eprintln!("Failed to set next wallpaper: {}", e);
+                        }
+                    } else {
+                        println!("Next wallpaper is not available - no images in unprocessed folder and no available market codes");
                     }
                 }
                 "2" => {
-                    if let Err(e) = self.keep_current_image() {
-                        eprintln!("Failed to keep image: {}", e);
+                    if self.can_keep_current_image() {
+                        if let Err(e) = self.keep_current_image() {
+                            eprintln!("Failed to keep image: {}", e);
+                        }
+                    } else {
+                        println!("Keep current image is not available - no current image or image is already in favorites");
                     }
                 }
                 "3" => {
-                    if let Err(e) = self.blacklist_current_image() {
-                        eprintln!("Failed to blacklist image: {}", e);
+                    if self.can_blacklist_current_image() {
+                        if let Err(e) = self.blacklist_current_image() {
+                            eprintln!("Failed to blacklist image: {}", e);
+                        }
+                    } else {
+                        println!("Blacklist current image is not available - no current image");
                     }
                 }
                 "4" => {
@@ -327,15 +396,19 @@ fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>) {
     );
     
     // Create action menu items (clickable)
-    let next_item = MenuItem::new("1. Next wallpaper", true, None);
+    let has_next_available = app.has_next_wallpaper_available();
+    let can_keep = app.can_keep_current_image();
+    let can_blacklist = app.can_blacklist_current_image();
+    
+    let next_item = MenuItem::new("1. Next wallpaper", has_next_available, None);
     let keep_item = MenuItem::new(
         format!("2. Keep \"{}\"", title), 
-        true, 
+        can_keep, 
         None
     );
     let blacklist_item = MenuItem::new(
         format!("3. Blacklist \"{}\"", title), 
-        true, 
+        can_blacklist, 
         None
     );
     let kept_item = MenuItem::new("4. Next Kept wallpaper", true, None);
@@ -363,6 +436,12 @@ fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>) {
     ]).expect("Failed to append menu items");
 
     (tray_menu, menu_item_ids)
+}
+
+fn update_tray_menu(tray_icon: &tray_icon::TrayIcon, app: &BingTrayApp, menu_items: &mut Vec<tray_icon::menu::MenuId>) {
+    let (new_menu, new_menu_ids) = create_tray_menu(app);
+    *menu_items = new_menu_ids;
+    tray_icon.set_menu(Some(Box::new(new_menu)));
 }
 
 fn load_icon() -> tray_icon::Icon {
@@ -470,28 +549,48 @@ fn main() -> Result<()> {
 
                 if !menu_items.is_empty() {
                     if event.id == menu_items[0] {
-                        // Next wallpaper
-                        println!("Executing: Next wallpaper");
-                        if let Err(e) = app.set_next_wallpaper() {
-                            eprintln!("Failed to set next wallpaper: {}", e);
+                        // Next wallpaper - only execute if available
+                        if app.has_next_wallpaper_available() {
+                            println!("Executing: Next wallpaper");
+                            if let Err(e) = app.set_next_wallpaper() {
+                                eprintln!("Failed to set next wallpaper: {}", e);
+                            } else if let Some(ref icon) = tray_icon {
+                                update_tray_menu(icon, &app, &mut menu_items);
+                            }
+                        } else {
+                            println!("Next wallpaper is not available - no images in unprocessed folder and no available market codes");
                         }
                     } else if event.id == menu_items[1] {
-                        // Keep current image
-                        println!("Executing: Keep current image");
-                        if let Err(e) = app.keep_current_image() {
-                            eprintln!("Failed to keep image: {}", e);
+                        // Keep current image - only execute if available
+                        if app.can_keep_current_image() {
+                            println!("Executing: Keep current image");
+                            if let Err(e) = app.keep_current_image() {
+                                eprintln!("Failed to keep image: {}", e);
+                            } else if let Some(ref icon) = tray_icon {
+                                update_tray_menu(icon, &app, &mut menu_items);
+                            }
+                        } else {
+                            println!("Keep current image is not available - no current image or image is already in favorites");
                         }
                     } else if event.id == menu_items[2] {
-                        // Blacklist current image
-                        println!("Executing: Blacklist current image");
-                        if let Err(e) = app.blacklist_current_image() {
-                            eprintln!("Failed to blacklist image: {}", e);
+                        // Blacklist current image - only execute if available
+                        if app.can_blacklist_current_image() {
+                            println!("Executing: Blacklist current image");
+                            if let Err(e) = app.blacklist_current_image() {
+                                eprintln!("Failed to blacklist image: {}", e);
+                            } else if let Some(ref icon) = tray_icon {
+                                update_tray_menu(icon, &app, &mut menu_items);
+                            }
+                        } else {
+                            println!("Blacklist current image is not available - no current image");
                         }
                     } else if event.id == menu_items[3] {
                         // Next kept wallpaper
                         println!("Executing: Next kept wallpaper");
                         if let Err(e) = app.set_kept_wallpaper() {
                             eprintln!("Failed to set kept wallpaper: {}", e);
+                        } else if let Some(ref icon) = tray_icon {
+                            update_tray_menu(icon, &app, &mut menu_items);
                         }
                     } else if event.id == menu_items[4] {
                         // Exit
