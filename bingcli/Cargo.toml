@@ -1,0 +1,14 @@
+[package]
+name = "bingcli"
+version = "0.0.1"
+edition = "2021"
+
+[[bin]]
+name = "bingcli"
+path = "src/main.rs"
+
+[dependencies]
+bingtray-core = { path = "../bingtray-core" }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }

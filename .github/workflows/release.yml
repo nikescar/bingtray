@@ -1,0 +1,225 @@
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+env:
+  RUST_VERSION: 1.86.0
+  BIN_NAME: "bingtray-gui"
+
+jobs:
+  build:
+    name: Build - ${{ matrix.platform.name }}
+    # By default, runs on Ubuntu, otherwise, override with the desired os
+    runs-on: ${{ matrix.platform.os || 'ubuntu-22.04' }}
+    strategy:
+      matrix:
+        # Set platforms you want to build your binaries on
+        platform:
+          # Linux
+          - name: Linux x86_64
+            target: x86_64-unknown-linux-musl
+            build-args: "--release"
+
+          - name: Linux x86
+            target: i686-unknown-linux-musl
+            build-args: "--release"
+
+          - name: Linux aarch64
+            target: aarch64-unknown-linux-musl
+            build-args: "--release"
+
+          - name: Linux armv7hf
+            target: armv7-unknown-linux-musleabihf
+            build-args: "--release"
+
+          - name: Linux armv6
+            target: arm-unknown-linux-musleabihf
+            build-args: "--release"
+
+          # - name: Freebsd x86_64
+          #   target: x86_64-unknown-freebsd
+          #   build-args: "--release"
+
+          # - name: Freebsd x86
+          #   target: i686-unknown-freebsd
+          #   build-args: "--release"
+
+          - name: Android aarch64
+            target: aarch64-linux-android
+            build-args: "--release"
+
+          - name: Android armv7
+            target: armv7-linux-androideabi
+            build-args: "--release"
+
+          #- name: Linux mips
+          #  target: mips-unknown-linux-musl
+
+          #- name: Linux mips64
+          #  target: mips64-unknown-linux-muslabi64
+
+          # Mac OS
+          - name: MacOS x86_64
+            os: macos-latest
+            target: x86_64-apple-darwin
+            build-args: "--release"
+
+          - name: MacOS aarch64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            build-args: "--release"
+
+          # - name: iOS x86_64
+          #   target: x86_64-apple-ios
+
+
+          #- name: iOS aarch64
+          #  target: aarch64-apple-ios
+
+
+          # Windows
+          - name: Windows x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            build-args: "--profile release-with-symbols"
+
+          - name: Windows x86
+            os: windows-latest
+            target: i686-pc-windows-msvc
+            build-args: "--profile release-with-symbols"
+
+    steps:
+      - name: Install package for linux
+        if: contains(matrix.platform.target, 'linux')
+        run: sudo apt install musl-tools libgtk-3-dev libxdo-dev libappindicator3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libwayland-dev libcairo2-dev libpixman-1-dev libpango1.0-dev libxdo-dev librust-glib-sys-dev librust-gio-sys-dev librust-gobject-sys-dev librust-gdk-sys-dev libwebkit2gtk-4.1-dev librust-gdk-pixbuf-sys-dev librust-cairo-sys-rs-dev librust-pango-sys-dev librust-atk-sys-dev libgdk-pixbuf2.0-dev libatk1.0-dev musl-dev
+
+      - name: Set PKG_CONFIG environment variables
+        if: contains(matrix.platform.target, 'linux')
+        run: |
+          export PKG_CONFIG_ALLOW_CROSS=1
+          export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-musl/pkgconfig"
+        
+      - name: Install package for Android
+        if: contains(matrix.platform.target, 'android')
+        run: sudo apt install android-libunwind android-libunwind-dev  libunwind-dev
+
+      - name: Set up JDK 17
+        if: contains(matrix.platform.target, 'android')
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Android SDK
+        if: contains(matrix.platform.target, 'android')
+        uses: android-actions/setup-android@v3
+
+      - name: Checkout Git repo
+        uses: actions/checkout@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      # Linux & Windows
+      - name: Install rust toolchain for Linux
+        uses: actions-rs/toolchain@v1
+        with:
+          # We setup Rust toolchain and the desired target
+          profile: minimal
+          toolchain: "${{ env.RUST_VERSION }}"
+          override: true
+          target: ${{ matrix.platform.target }}
+          components: rustfmt, clippy
+
+      - name: Install package for Android
+        if: contains(matrix.platform.target, 'android')
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Show command used for Cargo
+        run: |
+          echo "cargo command is: ${{ env.CARGO }}"
+          echo "target flag is: ${{ env.BUILD_ARGS }}"
+
+      - name: Cross Cli Build ${{ matrix.platform.name }} binary
+        uses: actions-rs/cargo@v1
+        # We use cross-rs if not running on x86_64 architecture on Linux
+        with:
+          command: build
+          use-cross: ${{ !contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'freebsd') }}
+          # args: ${{ matrix.platform.build-args }} --package ${{ env.BIN_NAME }} --target ${{ matrix.platform.target }}
+          args: ${{ matrix.platform.build-args }} --package bingcli --target ${{ matrix.platform.target }}
+
+      - name: Native Gui Build ${{ matrix.platform.name }} binary
+        if: contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: ${{ matrix.platform.build-args }} --package bingtray-gui
+
+      - name: Store artifact Cli
+        uses: actions/upload-artifact@v4
+        with:
+          # Finally, we store the binary as GitHub artifact for later usage
+          name: bingcli-${{ matrix.platform.target }}
+          path: target/${{ matrix.platform.target }}/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingcli-*
+          retention-days: 1
+
+      - name: Store artifact Gui
+        uses: actions/upload-artifact@v4
+        with:
+          # Finally, we store the binary as GitHub artifact for later usage
+          name: bingtray-gui-${{ matrix.platform.target }}
+          path: target/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingtray-*
+          retention-days: 1
+
+  release:
+    name: Release
+    needs: [ build ]
+    # We run the release job only if a tag starts with 'v' letter
+    if: startsWith( github.ref, 'refs/tags/v' )
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Git repo
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      # Download all artifacts
+      - uses: actions/download-artifact@v4.1.7
+        with:
+          path: artifacts
+
+      - name: list artifacts
+        run: |
+          find artifacts/
+          mkdir distbin/
+
+          for i in ./artifacts/* 
+          do
+              if [ -d "$i" ]
+              then
+                  cp LICENSE* "$i"
+                  cp README.md "$i"
+                  rm -rf "$i/bingtray-*.d" 1>/dev/null 2>&1 || true
+                  chmod +x "$i/bingcli" 1>/dev/null 2>&1 || true
+                  chmod +x "$i/bingtray-gui" 1>/dev/null 2>&1 || true
+                  chmod +x "$i/bingtray-gui.exe" 1>/dev/null 2>&1 || true
+                  chmod +x "$i/bingcli.exe" 1>/dev/null 2>&1 || true
+                  tar -cvpzf "${i}.tar.gz" --directory=${i} .
+              fi
+          done
+          cp artifacts/bingtray-*.tar.gz distbin/
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        if: github.ref_type == 'tag'
+        with:
+          tag_name: ${{ github.ref_name }}
+          fail_on_unmatched_files: true
+          # draft: true
+          make_latest: true
+          files: distbin/*
+          token: ${{ secrets.RELEASE_TOKEN }}
+

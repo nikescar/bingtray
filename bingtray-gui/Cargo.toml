@@ -1,0 +1,80 @@
+[package]
+name = "bingtray-gui"
+version = "0.0.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[[bin]]
+name = "bingtray-gui"
+path = "src/main.rs"
+
+[dependencies]
+bingtray-core = { path = "../bingtray-core" }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+clap = { workspace = true }
+tray-icon = "0.18"
+tao = "0.30"
+
+
+[target."cfg(target_os = \"windows\")".dependencies.windows-sys]
+version = "0.59"
+features = [
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_Foundation",
+  "Win32_System_SystemServices",
+  "Win32_Graphics_Gdi",
+  "Win32_UI_Shell",
+]
+
+[target."cfg(target_os = \"linux\")".dependencies]
+libappindicator = "0.9"
+dirs = "6"
+
+[target."cfg(target_os = \"linux\")".dev-dependencies]
+gtk = "0.18"
+
+[target."cfg(target_os = \"macos\")".dependencies]
+objc2 = "0.6"
+objc2-core-graphics = { version = "0.3", default-features = false, features = [
+  "std",
+  "CGDirectDisplay",
+] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "CFCGTypes",
+  "CFRunLoop",
+] }
+objc2-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "block2",
+  "objc2-core-foundation",
+  "NSArray",
+  "NSData",
+  "NSEnumerator",
+  "NSGeometry",
+  "NSString",
+  "NSThread",
+] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "objc2-core-foundation",
+  "NSButton",
+  "NSCell",
+  "NSControl",
+  "NSEvent",
+  "NSImage",
+  "NSMenu",
+  "NSResponder",
+  "NSStatusBar",
+  "NSStatusBarButton",
+  "NSStatusItem",
+  "NSTrackingArea",
+  "NSView",
+  "NSWindow",
+] }
+
+[target."cfg(any(target_os = \"linux\", target_os = \"macos\"))".dependencies]
+png = "0.17"
+

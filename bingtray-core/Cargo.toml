@@ -1,0 +1,15 @@
+[package]
+name = "bingtray-core"
+version = "0.0.1"
+edition = "2021"
+
+[dependencies]
+directories = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+attohttpc = { workspace = true }
+anyhow = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
+scraper = { workspace = true }

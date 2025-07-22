@@ -1,86 +1,67 @@
 # BingTray - Bing Wallpaper Manager
 
-A Rust application that automatically downloads and sets Bing daily wallpapers as your desktop background.
+A cross-platform wallpaper manager that downloads and manages Bing's weekly wallpapers.
 
-## Features
+## Project Structure
 
-- Automatically downloads Bing daily wallpapers from various market regions
-- Supports multiple Linux desktop environments (GNOME, KDE, XFCE, MATE, etc.)
-- Blacklist unwanted wallpapers
-- Keep favorite wallpapers
-- Automatic wallpaper rotation
-- Command-line interface
+This project is organized as a Rust workspace with three packages:
 
-## Requirements
-
-For GUI functionality on Linux, you may need to install:
-
-```bash
-# Ubuntu/Debian
-sudo apt-get install libgtk-3-dev libpango1.0-dev libgdk-pixbuf-2.0-dev libatk1.0-dev libglib2.0-dev
-
-# Or for other distros, install equivalent GTK development packages
-```
-
-## Installation
-
-1. Clone this repository
-2. Install Rust if you haven't already: https://rustup.rs/
-3. Build the project:
-
-```bash
-cargo build --release
-```
+- **`bingtray-core`**: Core library containing all the wallpaper management logic
+- **`bingcli`**: Command-line interface application  
+- **`bingtray-gui`**: GUI application that can also run as CLI when given arguments
 
 ## Usage
 
-### Interactive Mode
+### CLI Application
 
-Run the main application:
-
+Run the interactive CLI menu:
 ```bash
-cargo run
+$ bingcli
 ```
 
-This will start an interactive command-line interface where you can:
-1. Set next wallpaper
-2. Keep current wallpaper (moves to favorites)
-3. Blacklist current wallpaper
-4. Download more wallpapers
-5. Exit
+### GUI Application
 
-### Test Mode
-
-Run the test binary to check functionality:
-
+Run the GUI (currently falls back to CLI mode):
 ```bash
-cargo run --bin test
+$ bingtray-gui
 ```
+
+Run GUI with CLI commands:
+```bash
+# run cli application from gui binary
+$ bingtray-gui --cli
+```
+
+- **Intelligent scheduling**: Downloads new wallpapers when needed (every 7 days per market)
 
 ## Configuration
 
-The application creates a configuration directory at `~/.config/bingtray/` with:
+The application creates configuration files in:
+- Linux: `~/.config/bingtray/`
 
-- `marketcodes.conf` - List of Bing market codes and last visit timestamps
-- `blacklist.conf` - Hashes of blacklisted wallpapers
-- `unprocessed/` - Downloaded wallpapers ready to be used
-- `keepfavorite/` - Wallpapers you've marked as favorites
+### Directory structure:
+- `unprocessed/`: Downloaded wallpapers waiting to be used
+- `keepfavorite/`: Wallpapers you've marked as favorites
+- `blacklist.conf`: Hash list of blacklisted images
+- `marketcodes.conf`: Market codes and last download timestamps
+
+## Usage
+
+After starting the application, you'll see a tray icon with the following options:
+
+- **Next wallpaper**: Set the next available wallpaper from the unprocessed folder
+- **Keep "[title]"**: Move the current wallpaper to favorites and set the next one
+- **Blacklist "[title]"**: Remove the current wallpaper and add it to blacklist
+- **Exit**: Close the application
 
 ## Supported Desktop Environments
 
-- GNOME / Unity / Cinnamon (via gsettings)
-- MATE (via gsettings/mateconftool-2)
+- Windows
+- Mac OSX
+- GNOME/Unity/Cinnamon (via gsettings)
+- MATE (via gsettings)
 - XFCE4 (via xfconf-query)
 - LXDE (via pcmanfm)
-- Various window managers (via fbsetbg, bsetbg, etc.)
-
-## How It Works
-
-1. Downloads wallpapers from Bing's API using various market codes (en-US, ja-JP, etc.)
-2. Stores images with format: `{title}.{hash}.jpg`
-3. Detects your desktop environment and uses appropriate commands to set wallpaper
-4. Manages a rotation system and respects your preferences (blacklist/favorites)
-
-## Building for Different Targets
-
-The project is designed to work on Linux systems. For other platforms, wallpaper setting functionality may need to be adapted.
+- Fluxbox/JWM/Openbox/AfterStep (via fbsetbg)
+- IceWM (via icewmbg)
+- Blackbox (via bsetbg)
