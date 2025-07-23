@@ -2,7 +2,7 @@
 
 A cross-platform wallpaper manager that downloads and manages Bing's weekly wallpapers. bing wallpapers are updated weekly in 43 global stores. each store has different sets of 8 images many of them are shared beween markets. We are visiting random market wallpaper list and download new images if we dont have them. If you exhausted all market images, you have wait for a week to get new images. 
 
-![bingcli](./imgs/bingcli.gif "Bingcli")
+![bingtray-gui](./imgs/bingtray-gui.gif "Bingtray-gui")
 
 ## Usage
 
@@ -20,7 +20,7 @@ $ bingtray-gui --cli
 The application creates configuration files in:
 - Linux: `~/.config/bingtray/`
 - MAC OSX: ``
-- Windows: ``
+- Windows: `C:\Users\{Username}\Appdata\Roaming\bingtray`
 
 ### Directory structure:
 - `unprocessed/`: Downloaded wallpapers waiting to be used
