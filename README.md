@@ -4,27 +4,14 @@ A cross-platform wallpaper manager that downloads and manages Bing's weekly wall
 
 ![bingcli](./imgs/bingcli.gif "Bingcli")
 
-**Windows users  : you might take anoying to see a new powershell windows open, everytime you change wallpaper. If you dont want to see them. clone this repository and build it yourself with "powershell_script" feature. we are not providing virustotal detected binaries from offiial github repository.**
-
 ## Usage
 
-### CLI Application
-
-Run the interactive CLI menu:
 ```bash
+# Run the interactive CLI menu:
 $ bingcli
-```
-
-### GUI Application
-
-Run the GUI (currently falls back to CLI mode):
-```bash
+# Run the GUI (currently falls back to CLI mode):
 $ bingtray-gui
-```
-
-Run CLI from GUI binary:
-```bash
-# run cli application from gui binary
+# Run cli application from gui binary
 $ bingtray-gui --cli
 ```
 
@@ -32,6 +19,8 @@ $ bingtray-gui --cli
 
 The application creates configuration files in:
 - Linux: `~/.config/bingtray/`
+- MAC OSX: ``
+- Windows: ``
 
 ### Directory structure:
 - `unprocessed/`: Downloaded wallpapers waiting to be used
@@ -68,7 +57,6 @@ By default, the Windows implementation uses `Command::new` to call PowerShell di
 # Build with powershell_script crate feature
 cargo build --features powershell_script
 ```
-
 
 ## Todos
 
