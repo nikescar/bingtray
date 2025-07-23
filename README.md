@@ -39,7 +39,7 @@ After starting the application, you'll see a tray icon with the following option
 
 ## Supported Desktop Environments
 
-- **Windows**: Uses PowerShell via `Command::new` (default) or via `powershell_script` crate (optional feature)
+- **Windows**: Via winapi
 - **Mac OSX**: Via AppleScript
 - **GNOME/Unity/Cinnamon**: Via gsettings
 - **MATE**: Via gsettings
@@ -48,15 +48,6 @@ After starting the application, you'll see a tray icon with the following option
 - **Fluxbox/JWM/Openbox/AfterStep**: Via fbsetbg
 - **IceWM**: Via icewmbg
 - **Blackbox**: Via bsetbg
-
-### Windows PowerShell Options
-
-By default, the Windows implementation uses `Command::new` to call PowerShell directly. If you prefer to use the `powershell_script` crate (which some antivirus software may flag), you can enable it as a feature:
-
-```bash
-# Build with powershell_script crate feature
-cargo build --features powershell_script
-```
 
 ## Todos
 
