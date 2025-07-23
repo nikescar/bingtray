@@ -1,16 +1,10 @@
 # BingTray - Bing Wallpaper Manager
 
-A cross-platform wallpaper manager that downloads and manages Bing's weekly wallpapers.
+A cross-platform wallpaper manager that downloads and manages Bing's weekly wallpapers. bing wallpapers are updated weekly in 43 global stores. each store has different sets of 8 images many of them are shared beween markets. We are visiting random market wallpaper list and download new images if we dont have them. If you exhausted all market images, you have wait for a week to get new images. 
 
 ![bingcli](./imgs/bingcli.gif "Bingcli")
 
-## Project Structure
-
-This project is organized as a Rust workspace with three packages:
-
-- **`bingtray-core`**: Core library containing all the wallpaper management logic
-- **`bingcli`**: Command-line interface application  
-- **`bingtray-gui`**: GUI application that can also run as CLI when given arguments
+**Windows users  : you might take anoying to see a new powershell windows open, everytime you change wallpaper. If you dont want to see them. clone this repository and build it yourself with "powershell_script" feature. we are not providing virustotal detected binaries from offiial github repository.**
 
 ## Usage
 
@@ -33,8 +27,6 @@ Run CLI from GUI binary:
 # run cli application from gui binary
 $ bingtray-gui --cli
 ```
-
-- **Intelligent scheduling**: Downloads new wallpapers when needed (every 7 days per market)
 
 ## Configuration
 
