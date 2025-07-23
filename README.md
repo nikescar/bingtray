@@ -61,3 +61,5 @@ cargo build --features powershell_script
 ## Todos
 
 * android? https://stackoverflow.com/a/46960602
+* remove windws i686 build due to virustotal detected - https://www.virustotal.com/gui/file-analysis/MTVlM2Q3MzFmMzNlMWM4MGVjNmNhNTNmM2Q3MjZjMzE6MTc1MzI1NzA0OA==
+
