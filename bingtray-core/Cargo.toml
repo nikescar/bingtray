@@ -13,9 +13,4 @@ chrono = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 scraper = { workspace = true }
-
-[features]
-powershell_script = ["dep:powershell_script"]
-
-[target.'cfg(windows)'.dependencies]
-powershell_script = { version = "1.1", optional = true }
+wallpaper = "3.2.0"

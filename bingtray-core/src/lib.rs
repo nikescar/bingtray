@@ -7,9 +7,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[cfg(all(target_os = "windows", feature = "powershell_script"))]
-use powershell_script::PsScriptBuilder;
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BingImage {
     pub url: String,
@@ -292,115 +289,27 @@ pub fn get_desktop_environment() -> String {
 pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
     let file_loc = file_path.to_string_lossy();
     
-    // First check the operating system
-    if cfg!(target_os = "windows") {
-        // Windows wallpaper setting
-        #[cfg(target_os = "windows")]
-        {
-            #[cfg(feature = "powershell_script")]
-            {
-                // Using PowerShell script crate (optional feature)
-                let ps_script = format!(r#"
-$path = "{}"
-
-$setwallpapersrc = @"
-using System.Runtime.InteropServices;
-
-public class Wallpaper
-{{
-  public const int SetDesktopWallpaper = 20;
-  public const int UpdateIniFile = 0x01;
-  public const int SendWinIniChange = 0x02;
-  [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-  private static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
-  public static void SetWallpaper(string path)
-  {{
-    SystemParametersInfo(SetDesktopWallpaper, 0, path, UpdateIniFile | SendWinIniChange);
-  }}
-}}
-"@
-Add-Type -TypeDefinition $setwallpapersrc
-
-[Wallpaper]::SetWallpaper($path)
-"#, file_loc);
-
-                let ps = PsScriptBuilder::new()
-                    .no_profile(true)
-                    .non_interactive(true)
-                    .hidden(true)
-                    .print_commands(false)
-                    .build();
-
-                match ps.run(&ps_script) {
-                    Ok(output) => {
-                        println!("PowerShell output: {}", output);
-                        return Ok(true);
-                    }
-                    Err(e) => {
-                        eprintln!("PowerShell error: {}", e);
-                        return Ok(false);
-                    }
-                }
+    // Use wallpaper crate for cross-platform wallpaper setting
+    match wallpaper::set_from_path(&file_loc) {
+        Ok(_) => {
+            println!("Wallpaper set successfully to: {}", file_loc);
+            Ok(true)
+        }
+        Err(e) => {
+            eprintln!("Failed to set wallpaper: {}", e);
+            
+            // Fallback to platform-specific methods for Linux if wallpaper crate fails
+            if cfg!(target_os = "linux") {
+                return set_wallpaper_linux_fallback(file_path);
             }
             
-            #[cfg(not(feature = "powershell_script"))]
-            {
-                // Default implementation using Command::new with PowerShell
-                let ps_script = format!(r#"
-$path = '{}'
-
-$setwallpapersrc = @'
-using System.Runtime.InteropServices;
-
-public class Wallpaper
-{{
-  public const int SetDesktopWallpaper = 20;
-  public const int UpdateIniFile = 0x01;
-  public const int SendWinIniChange = 0x02;
-  [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
-  private static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
-  public static void SetWallpaper(string path)
-  {{
-    SystemParametersInfo(SetDesktopWallpaper, 0, path, UpdateIniFile | SendWinIniChange);
-  }}
-}}
-'@
-Add-Type -TypeDefinition $setwallpapersrc
-
-[Wallpaper]::SetWallpaper($path)
-"#, file_loc);
-
-                let output = Command::new("powershell")
-                    .args(&[
-                        "-NoProfile",
-                        "-NonInteractive", 
-                        "-WindowStyle", "Hidden",
-                        "-Command", &ps_script
-                    ])
-                    .output()?;
-                
-                if output.status.success() {
-                    println!("PowerShell wallpaper set successfully");
-                    return Ok(true);
-                } else {
-                    eprintln!("PowerShell error: {}", String::from_utf8_lossy(&output.stderr));
-                    return Ok(false);
-                }
-            }
+            Ok(false)
         }
-        
-        #[cfg(not(target_os = "windows"))]
-        return Ok(false);
-    } else if cfg!(target_os = "macos") {
-        // macOS wallpaper setting
-        let script = format!("tell application \"System Events\" to set picture of every desktop to \"{}\"", file_loc);
-        let output = Command::new("osascript")
-            .args(&["-e", &script])
-            .output()?;
-        return Ok(output.status.success());
     }
-    
-    // Linux/Unix systems - get desktop environment
+}
+
+fn set_wallpaper_linux_fallback(file_path: &Path) -> Result<bool> {
+    let file_loc = file_path.to_string_lossy();
     let desktop_env = get_desktop_environment();
     
     match desktop_env.as_str() {
