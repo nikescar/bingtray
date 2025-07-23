@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[cfg(target_os = "windows")]
+#[cfg(all(target_os = "windows", feature = "powershell_script"))]
 use powershell_script::PsScriptBuilder;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -294,10 +294,13 @@ pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
     
     // First check the operating system
     if cfg!(target_os = "windows") {
-        // Windows wallpaper setting using PowerShell script crate
+        // Windows wallpaper setting
         #[cfg(target_os = "windows")]
         {
-            let ps_script = format!(r#"
+            #[cfg(feature = "powershell_script")]
+            {
+                // Using PowerShell script crate (optional feature)
+                let ps_script = format!(r#"
 $path = "{}"
 
 $setwallpapersrc = @"
@@ -321,20 +324,66 @@ Add-Type -TypeDefinition $setwallpapersrc
 [Wallpaper]::SetWallpaper($path)
 "#, file_loc);
 
-            let ps = PsScriptBuilder::new()
-                .no_profile(true)
-                .non_interactive(true)
-                .hidden(true)
-                .print_commands(false)
-                .build();
+                let ps = PsScriptBuilder::new()
+                    .no_profile(true)
+                    .non_interactive(true)
+                    .hidden(true)
+                    .print_commands(false)
+                    .build();
 
-            match ps.run(&ps_script) {
-                Ok(output) => {
-                    println!("PowerShell output: {}", output);
-                    return Ok(true);
+                match ps.run(&ps_script) {
+                    Ok(output) => {
+                        println!("PowerShell output: {}", output);
+                        return Ok(true);
+                    }
+                    Err(e) => {
+                        eprintln!("PowerShell error: {}", e);
+                        return Ok(false);
+                    }
                 }
-                Err(e) => {
-                    eprintln!("PowerShell error: {}", e);
+            }
+            
+            #[cfg(not(feature = "powershell_script"))]
+            {
+                // Default implementation using Command::new with PowerShell
+                let ps_script = format!(r#"
+$path = '{}'
+
+$setwallpapersrc = @'
+using System.Runtime.InteropServices;
+
+public class Wallpaper
+{{
+  public const int SetDesktopWallpaper = 20;
+  public const int UpdateIniFile = 0x01;
+  public const int SendWinIniChange = 0x02;
+  [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+  private static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+  public static void SetWallpaper(string path)
+  {{
+    SystemParametersInfo(SetDesktopWallpaper, 0, path, UpdateIniFile | SendWinIniChange);
+  }}
+}}
+'@
+Add-Type -TypeDefinition $setwallpapersrc
+
+[Wallpaper]::SetWallpaper($path)
+"#, file_loc);
+
+                let output = Command::new("powershell")
+                    .args(&[
+                        "-NoProfile",
+                        "-NonInteractive", 
+                        "-WindowStyle", "Hidden",
+                        "-Command", &ps_script
+                    ])
+                    .output()?;
+                
+                if output.status.success() {
+                    println!("PowerShell wallpaper set successfully");
+                    return Ok(true);
+                } else {
+                    eprintln!("PowerShell error: {}", String::from_utf8_lossy(&output.stderr));
                     return Ok(false);
                 }
             }
