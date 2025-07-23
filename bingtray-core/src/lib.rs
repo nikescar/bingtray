@@ -7,12 +7,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+#[cfg(target_os = "windows")]
+use powershell_script::PsScriptBuilder;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BingImage {
     pub url: String,
     pub title: String,
-    pub hsh: String,
-    pub copyright: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -169,7 +170,7 @@ pub fn download_image(image: &BingImage, target_dir: &Path) -> Result<PathBuf> {
     Ok(filepath)
 }
 
-fn sanitize_filename(filename: &str) -> String {
+pub fn sanitize_filename(filename: &str) -> String {
     let sanitized = filename
         .chars()
         .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
@@ -212,17 +213,17 @@ pub fn get_next_image(config: &Config) -> Result<Option<PathBuf>> {
         let index = now % images.len();
         let selected_image = &images[index];
         
-        // Check if the image is blacklisted
-        if let Some(filename) = selected_image.file_stem().and_then(|s| s.to_str()) {
-            if is_blacklisted(config, filename)? {
-                // Remove the blacklisted file and continue searching
-                if let Err(e) = fs::remove_file(selected_image) {
-                    eprintln!("Warning: Failed to remove blacklisted file {}: {}", 
-                             selected_image.display(), e);
-                }
-                continue; // Try again with remaining files
-            }
-        }
+        // // Check if the image is blacklisted
+        // if let Some(filename) = selected_image.file_stem().and_then(|s| s.to_str()) {
+        //     if is_blacklisted(config, filename)? {
+        //         // Remove the blacklisted file and continue searching
+        //         if let Err(e) = fs::remove_file(selected_image) {
+        //             eprintln!("Warning: Failed to remove blacklisted file {}: {}", 
+        //                      selected_image.display(), e);
+        //         }
+        //         continue; // Try again with remaining files
+        //     }
+        // }
         
         return Ok(Some(selected_image.clone()));
     }
@@ -252,6 +253,7 @@ pub fn blacklist_image(config: &Config, image_path: &Path) -> Result<()> {
 
 pub fn is_blacklisted(config: &Config, filename: &str) -> Result<bool> {
     let blacklist = fs::read_to_string(&config.blacklist_file).unwrap_or_default();
+    println!("Checking if {} is blacklisted : {}", filename, blacklist.lines().any(|line| line.trim() == filename));
     Ok(blacklist.lines().any(|line| line.trim() == filename))
 }
 
@@ -292,23 +294,53 @@ pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
     
     // First check the operating system
     if cfg!(target_os = "windows") {
-        // Windows wallpaper setting
-        let output = Command::new("reg")
-            .args(&["add", "HKCU\\Control Panel\\Desktop", "/v", "Wallpaper", "/t", "REG_SZ", "/d", &file_loc, "/f"])
-            .output()?;
-        
-        if output.status.success() {
-            Command::new("reg")
-                .args(&["add", "HKCU\\Control Panel\\Desktop", "/v", "WallpaperStyle", "/t", "REG_SZ", "/d", "22", "/f"])
-                .output()?;
-            Command::new("reg")
-                .args(&["add", "HKCU\\Control Panel\\Desktop", "/v", "TileWallpaper", "/t", "REG_SZ", "/d", "0", "/f"])
-                .output()?;
-            let refresh_output = Command::new("RUNDLL32.EXE")
-                .args(&["user32.dll,UpdatePerUserSystemParameters"])
-                .output()?;
-            return Ok(refresh_output.status.success());
+        // Windows wallpaper setting using PowerShell script crate
+        #[cfg(target_os = "windows")]
+        {
+            let ps_script = format!(r#"
+$path = "{}"
+
+$setwallpapersrc = @"
+using System.Runtime.InteropServices;
+
+public class Wallpaper
+{{
+  public const int SetDesktopWallpaper = 20;
+  public const int UpdateIniFile = 0x01;
+  public const int SendWinIniChange = 0x02;
+  [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
+  private static extern int SystemParametersInfo(int uAction, int uParam, string lpvParam, int fuWinIni);
+  public static void SetWallpaper(string path)
+  {{
+    SystemParametersInfo(SetDesktopWallpaper, 0, path, UpdateIniFile | SendWinIniChange);
+  }}
+}}
+"@
+Add-Type -TypeDefinition $setwallpapersrc
+
+[Wallpaper]::SetWallpaper($path)
+"#, file_loc);
+
+            let ps = PsScriptBuilder::new()
+                .no_profile(true)
+                .non_interactive(true)
+                .hidden(true)
+                .print_commands(false)
+                .build();
+
+            match ps.run(&ps_script) {
+                Ok(output) => {
+                    println!("PowerShell output: {}", output);
+                    return Ok(true);
+                }
+                Err(e) => {
+                    eprintln!("PowerShell error: {}", e);
+                    return Ok(false);
+                }
+            }
         }
+        
+        #[cfg(not(target_os = "windows"))]
         return Ok(false);
     } else if cfg!(target_os = "macos") {
         // macOS wallpaper setting
@@ -412,10 +444,28 @@ pub fn download_images_for_market(config: &Config, market_code: &str) -> Result<
     let mut downloaded_count = 0;
     
     for image in images {
-        if !is_blacklisted(config, &image.hsh)? {
-            if let Ok(_) = download_image(&image, &config.unprocessed_dir) {
-                downloaded_count += 1;
+        let mut display_name = image.url
+            .split("th?id=")
+            .nth(1)
+            .and_then(|s| s.split('_').next())
+            .unwrap_or(&image.title)
+            .to_string();
+        display_name = sanitize_filename(&display_name);
+
+        let unprocessed_path = config.unprocessed_dir.join(format!("{}.jpg", display_name));
+        let keepfavorite_path = config.keepfavorite_dir.join(format!("{}.jpg", display_name));
+        if !unprocessed_path.exists() && !keepfavorite_path.exists() && !is_blacklisted(config, &display_name)? {
+            match download_image(&image, &config.unprocessed_dir) {
+                Ok(filepath) => {
+                    println!("Downloaded image: {}", filepath.display());
+                    downloaded_count += 1;
+                }
+                Err(e) => {
+                    eprintln!("Failed to download image {}: {}", display_name, e);
+                }
             }
+        } else {
+            println!("Skipping already downloaded or blacklisted image: {}", display_name);
         }
     }
     

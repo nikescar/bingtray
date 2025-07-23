@@ -51,7 +51,7 @@ The application creates configuration files in:
 
 After starting the application, you'll see a tray icon with the following options:
 
-- **Next wallpaper**: Set the next available wallpaper from the unprocessed folder
+- **Next Market wallpaper**: Set the next available wallpaper from the unprocessed folder
 - **Keep "[title]"**: Move the current wallpaper to favorites and set the next one
 - **Blacklist "[title]"**: Remove the current wallpaper and add it to blacklist
 - **Exit**: Close the application
@@ -67,3 +67,8 @@ After starting the application, you'll see a tray icon with the following option
 - Fluxbox/JWM/Openbox/AfterStep (via fbsetbg)
 - IceWM (via icewmbg)
 - Blackbox (via bsetbg)
+
+
+## Todos
+
+* android? https://stackoverflow.com/a/46960602

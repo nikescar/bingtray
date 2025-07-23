@@ -13,3 +13,6 @@ chrono = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 scraper = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+powershell_script = "1.1"

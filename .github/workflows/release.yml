@@ -202,7 +202,8 @@ jobs:
               then
                   cp LICENSE* "$i"
                   cp README.md "$i"
-                  rm -rf "$i/bingtray-*.d" 1>/dev/null 2>&1 || true
+                  rm "$i/bingcli.d" 1>/dev/null 2>&1 || true
+                  rm "$i/bingtray-gui.d" 1>/dev/null 2>&1 || true
                   chmod +x "$i/bingcli" 1>/dev/null 2>&1 || true
                   chmod +x "$i/bingtray-gui" 1>/dev/null 2>&1 || true
                   chmod +x "$i/bingtray-gui.exe" 1>/dev/null 2>&1 || true

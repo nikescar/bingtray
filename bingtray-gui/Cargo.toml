@@ -10,6 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 bingtray-core = { path = "../bingtray-core" }
+bingcli = { path = "../bingcli" }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 rand = { workspace = true }
