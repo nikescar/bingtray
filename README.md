@@ -49,6 +49,9 @@ After starting the application, you'll see a tray icon with the following option
 - **IceWM**: Via icewmbg
 - **Blackbox**: Via bsetbg
 
+<details markdown>
+<summary> Todos </summary>
+
 ## Todos
 
 * android? https://stackoverflow.com/a/46960602
@@ -60,3 +63,5 @@ After starting the application, you'll see a tray icon with the following option
 https://github.com/niumoo/bing-wallpaper/tree/main
 * version code
 * check update
+
+</details>
