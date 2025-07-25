@@ -189,15 +189,17 @@ mod app {
         pub fn can_keep_current_image(&self) -> bool {
             if let Some(ref image_path) = self.current_image {
                 // Check if the image is not already in keepfavorite folder
-                !image_path.starts_with(&self.config.keepfavorite_dir)
+                // AND check if there are files in unprocessed folder
+                !image_path.starts_with(&self.config.keepfavorite_dir) && 
+                !need_more_images(&self.config).unwrap_or(true)
             } else {
                 false // No current image
             }
         }
 
         pub fn can_blacklist_current_image(&self) -> bool {
-            // Can blacklist if there's a current image (regardless of its location)
-            self.current_image.is_some()
+            // Can blacklist if there's a current image AND there are files in unprocessed folder
+            self.current_image.is_some() && !need_more_images(&self.config).unwrap_or(true)
         }
 
         pub fn has_kept_wallpapers_available(&self) -> bool {
@@ -213,6 +215,18 @@ mod app {
                     .count();
                 
                 kept_count > 0
+            } else {
+                false
+            }
+        }
+
+        pub fn has_unprocessed_files(&self) -> bool {
+            !need_more_images(&self.config).unwrap_or(true)
+        }
+
+        pub fn is_current_image_in_favorites(&self) -> bool {
+            if let Some(ref current_image) = self.current_image {
+                current_image.starts_with(&self.config.keepfavorite_dir)
             } else {
                 false
             }
@@ -355,7 +369,15 @@ mod app {
                                 eprintln!("Failed to keep image: {}", e);
                             }
                         } else {
-                            println!("Keep current image is not available - no current image or image is already in favorites");
+                            if self.current_image.is_none() {
+                                println!("Keep current image is not available - no current image");
+                            } else if let Some(ref image_path) = self.current_image {
+                                if image_path.starts_with(&self.config.keepfavorite_dir) {
+                                    println!("Keep current image is not available - image is already in favorites");
+                                } else {
+                                    println!("Keep current image is not available - no files in unprocessed folder");
+                                }
+                            }
                         }
                     }
                     "3" => {
@@ -364,7 +386,11 @@ mod app {
                                 eprintln!("Failed to blacklist image: {}", e);
                             }
                         } else {
-                            println!("Blacklist current image is not available - no current image");
+                            if self.current_image.is_none() {
+                                println!("Blacklist current image is not available - no current image");
+                            } else {
+                                println!("Blacklist current image is not available - no files in unprocessed folder");
+                            }
                         }
                     }
                     "4" => {

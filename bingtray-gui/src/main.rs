@@ -87,6 +87,14 @@ impl BingTrayApp {
         self.cli_app.has_kept_wallpapers_available()
     }
 
+    fn has_unprocessed_files(&self) -> bool {
+        self.cli_app.has_unprocessed_files()
+    }
+
+    fn is_current_image_in_favorites(&self) -> bool {
+        self.cli_app.is_current_image_in_favorites()
+    }
+
     fn get_status_info(&self) -> (String, String, usize) {
         let title = self.get_current_image_title();
         let (last_tried, available_count) = self.cli_app.get_market_status();
@@ -435,7 +443,15 @@ fn main() -> Result<()> {
                                 update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
                             }
                         } else {
-                            println!("Keep current image is not available - no current image or image is already in favorites");
+                            if !app.has_unprocessed_files() {
+                                println!("Keep current image is not available - no files in unprocessed folder");
+                            } else if app.get_current_image_title() == "(no image)" {
+                                println!("Keep current image is not available - no current image");
+                            } else if app.is_current_image_in_favorites() {
+                                println!("Keep current image is not available - image is already in favorites");
+                            } else {
+                                println!("Keep current image is not available");
+                            }
                         }
                     } else if event.id == menu_items[3 + offset] {
                         // 3. Blacklist current image - only execute if available
@@ -447,7 +463,13 @@ fn main() -> Result<()> {
                                 update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
                             }
                         } else {
-                            println!("Blacklist current image is not available - no current image");
+                            if !app.has_unprocessed_files() {
+                                println!("Blacklist current image is not available - no files in unprocessed folder");
+                            } else if app.get_current_image_title() == "(no image)" {
+                                println!("Blacklist current image is not available - no current image");
+                            } else {
+                                println!("Blacklist current image is not available");
+                            }
                         }
                     } else if event.id == menu_items[4 + offset] {
                         // 4. Next kept wallpaper - only execute if available
