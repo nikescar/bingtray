@@ -106,10 +106,10 @@ impl BingTrayApp {
     }
 }
 
-fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>) {
+fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>, Option<String>) {
     let tray_menu = Menu::new();
     let (title, last_tried, available_count) = app.get_status_info();
-    let (copyright_text, _copyrightlink) = app.get_current_image_copyright();
+    let (copyright_text, copyrightlink) = app.get_current_image_copyright();
     
     // Create info items (non-clickable)
     let info_item = MenuItem::new(
@@ -117,15 +117,19 @@ fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>) {
         false, 
         None
     );
+    
+    // Make copyright item clickable if there's a link
+    let has_copyright_link = !copyrightlink.is_empty() && copyrightlink != "(no copyright info)";
     let copyright_item = MenuItem::new(
         if copyright_text.len() > 50 {
             format!("{}...", &copyright_text[..47])
         } else {
-            copyright_text
+            format!("{}", copyright_text)
         },
-        false, 
+        has_copyright_link, 
         None
     );
+    
     let status_item = MenuItem::new(
         format!("Last: {} | Available: {}", last_tried, available_count), 
         false, 
@@ -152,15 +156,27 @@ fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>) {
     let kept_item = MenuItem::new("4. Next Kept wallpaper", true, None);
     let quit_item = MenuItem::new("5. Exit", true, None);
 
-    // Store the menu item IDs in order
-    let menu_item_ids = vec![
-        cache_item.id().clone(),
-        next_item.id().clone(),
-        keep_item.id().clone(), 
-        blacklist_item.id().clone(),
-        kept_item.id().clone(),
-        quit_item.id().clone(),
-    ];
+    // Store the menu item IDs in order - copyright item is first if clickable
+    let menu_item_ids = if has_copyright_link {
+        vec![
+            copyright_item.id().clone(),
+            cache_item.id().clone(),
+            next_item.id().clone(),
+            keep_item.id().clone(), 
+            blacklist_item.id().clone(),
+            kept_item.id().clone(),
+            quit_item.id().clone(),
+        ]
+    } else {
+        vec![
+            cache_item.id().clone(),
+            next_item.id().clone(),
+            keep_item.id().clone(), 
+            blacklist_item.id().clone(),
+            kept_item.id().clone(),
+            quit_item.id().clone(),
+        ]
+    };
 
     tray_menu.append_items(&[
         &info_item,
@@ -176,12 +192,14 @@ fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>) {
         &quit_item,
     ]).expect("Failed to append menu items");
 
-    (tray_menu, menu_item_ids)
+    let copyright_link = if has_copyright_link { Some(copyrightlink) } else { None };
+    (tray_menu, menu_item_ids, copyright_link)
 }
 
-fn update_tray_menu(tray_icon: &tray_icon::TrayIcon, app: &BingTrayApp, menu_items: &mut Vec<tray_icon::menu::MenuId>) {
-    let (new_menu, new_menu_ids) = create_tray_menu(app);
+fn update_tray_menu(tray_icon: &tray_icon::TrayIcon, app: &BingTrayApp, menu_items: &mut Vec<tray_icon::menu::MenuId>, copyright_link: &mut Option<String>) {
+    let (new_menu, new_menu_ids, new_copyright_link) = create_tray_menu(app);
     *menu_items = new_menu_ids;
+    *copyright_link = new_copyright_link;
     tray_icon.set_menu(Some(Box::new(new_menu)));
 }
 
@@ -296,6 +314,7 @@ fn main() -> Result<()> {
     let mut menu_items = Vec::new();
     let mut app_initialized = false;
     let mut lazy_init_done = false;
+    let mut copyright_link: Option<String> = None;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -303,10 +322,11 @@ fn main() -> Result<()> {
         match event {
             Event::NewEvents(tao::event::StartCause::Init) => {
                 let icon = load_icon();
-                let (tray_menu, menu_ids) = create_tray_menu(&app);
+                let (tray_menu, menu_ids, copy_link) = create_tray_menu(&app);
                 
-                // Store the menu item IDs
+                // Store the menu item IDs and copyright link
                 menu_items = menu_ids;
+                copyright_link = copy_link;
 
                 tray_icon = Some(
                     TrayIconBuilder::new()
@@ -351,7 +371,7 @@ fn main() -> Result<()> {
                     } else {
                         lazy_init_done = true;
                         if let Some(ref icon) = tray_icon {
-                            update_tray_menu(icon, &app, &mut menu_items);
+                            update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
                         }
                         // Return early to let the user click again after initialization
                         return;
@@ -359,63 +379,77 @@ fn main() -> Result<()> {
                 }
 
                 if !menu_items.is_empty() {
-                    if event.id == menu_items[0] {
-                        // Cache Dir Contents
-                        println!("Executing: Cache Dir Contents");
-                        if let Err(e) = app.open_cache_directory() {
-                            eprintln!("Failed to open cache directory: {}", e);
-                        }
-                    } else if event.id == menu_items[1] {
-                        // Next market wallpaper - only execute if available
-                        if app.has_next_market_wallpaper_available() {
-                            println!("Executing: Next market wallpaper");
-                            if let Err(e) = app.set_next_market_wallpaper() {
-                                eprintln!("Failed to set next market wallpaper: {}", e);
-                            } else if let Some(ref icon) = tray_icon {
-                                update_tray_menu(icon, &app, &mut menu_items);
+                    // Check if we have a copyright link and if the first menu item was clicked
+                    if copyright_link.is_some() && event.id == menu_items[0] {
+                        // Copyright link clicked
+                        if let Some(ref link) = copyright_link {
+                            println!("Opening copyright link: {}", link);
+                            if let Err(e) = open::that(link) {
+                                eprintln!("Failed to open copyright link: {}", e);
                             }
-                        } else {
-                            println!("Next market wallpaper is not available - no images in unprocessed folder and no available market codes");
                         }
-                    } else if event.id == menu_items[2] {
-                        // Keep current image - only execute if available
-                        if app.can_keep_current_image() {
-                            println!("Executing: Keep current image");
-                            if let Err(e) = app.keep_current_image() {
-                                eprintln!("Failed to keep image: {}", e);
-                            } else if let Some(ref icon) = tray_icon {
-                                update_tray_menu(icon, &app, &mut menu_items);
-                            }
-                        } else {
-                            println!("Keep current image is not available - no current image or image is already in favorites");
-                        }
-                    } else if event.id == menu_items[3] {
-                        // Blacklist current image - only execute if available
-                        if app.can_blacklist_current_image() {
-                            println!("Executing: Blacklist current image");
-                            if let Err(e) = app.blacklist_current_image() {
-                                eprintln!("Failed to blacklist image: {}", e);
-                            } else if let Some(ref icon) = tray_icon {
-                                update_tray_menu(icon, &app, &mut menu_items);
-                            }
-                        } else {
-                            println!("Blacklist current image is not available - no current image");
-                        }
-                    } else if event.id == menu_items[4] {
-                        // Next kept wallpaper
-                        println!("Executing: Next kept wallpaper");
-                        if let Err(e) = app.set_kept_wallpaper() {
-                            eprintln!("Failed to set kept wallpaper: {}", e);
-                        } else if let Some(ref icon) = tray_icon {
-                            update_tray_menu(icon, &app, &mut menu_items);
-                        }
-                    } else if event.id == menu_items[5] {
-                        // Exit
-                        println!("Executing: Exit");
-                        tray_icon.take();
-                        *control_flow = ControlFlow::Exit;
                     } else {
-                        println!("Unknown menu item clicked: {:?}", event.id);
+                        // Adjust indices based on whether copyright link is present
+                        let offset = if copyright_link.is_some() { 1 } else { 0 };
+                        
+                        if event.id == menu_items[0 + offset] {
+                            // Cache Dir Contents
+                            println!("Executing: Cache Dir Contents");
+                            if let Err(e) = app.open_cache_directory() {
+                                eprintln!("Failed to open cache directory: {}", e);
+                            }
+                        } else if event.id == menu_items[1 + offset] {
+                            // Next market wallpaper - only execute if available
+                            if app.has_next_market_wallpaper_available() {
+                                println!("Executing: Next market wallpaper");
+                                if let Err(e) = app.set_next_market_wallpaper() {
+                                    eprintln!("Failed to set next market wallpaper: {}", e);
+                                } else if let Some(ref icon) = tray_icon {
+                                    update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
+                                }
+                            } else {
+                                println!("Next market wallpaper is not available - no images in unprocessed folder and no available market codes");
+                            }
+                        } else if event.id == menu_items[2 + offset] {
+                            // Keep current image - only execute if available
+                            if app.can_keep_current_image() {
+                                println!("Executing: Keep current image");
+                                if let Err(e) = app.keep_current_image() {
+                                    eprintln!("Failed to keep image: {}", e);
+                                } else if let Some(ref icon) = tray_icon {
+                                    update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
+                                }
+                            } else {
+                                println!("Keep current image is not available - no current image or image is already in favorites");
+                            }
+                        } else if event.id == menu_items[3 + offset] {
+                            // Blacklist current image - only execute if available
+                            if app.can_blacklist_current_image() {
+                                println!("Executing: Blacklist current image");
+                                if let Err(e) = app.blacklist_current_image() {
+                                    eprintln!("Failed to blacklist image: {}", e);
+                                } else if let Some(ref icon) = tray_icon {
+                                    update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
+                                }
+                            } else {
+                                println!("Blacklist current image is not available - no current image");
+                            }
+                        } else if event.id == menu_items[4 + offset] {
+                            // Next kept wallpaper
+                            println!("Executing: Next kept wallpaper");
+                            if let Err(e) = app.set_kept_wallpaper() {
+                                eprintln!("Failed to set kept wallpaper: {}", e);
+                            } else if let Some(ref icon) = tray_icon {
+                                update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
+                            }
+                        } else if event.id == menu_items[5 + offset] {
+                            // Exit
+                            println!("Executing: Exit");
+                            tray_icon.take();
+                            *control_flow = ControlFlow::Exit;
+                        } else {
+                            println!("Unknown menu item clicked: {:?}", event.id);
+                        }
                     }
                 }
             }
