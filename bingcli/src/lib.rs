@@ -322,22 +322,6 @@ mod app {
             io::stdout().flush().unwrap();
         }
 
-        pub fn get_current_image_copyright(&self) -> (String, String) {
-            if let Some(ref image_path) = self.current_image {
-                if let Some(filename) = image_path.file_stem().and_then(|s| s.to_str()) {
-                    // Get from metadata.conf
-                    if let Some((copyright_text, copyrightlink)) = get_image_metadata(&self.config, filename) {
-                        return (copyright_text, copyrightlink);
-                    }
-                }
-            }
-            ("(no copyright info)".to_string(), "".to_string())
-        }
-
-        pub fn open_cache_directory(&self) -> Result<()> {
-            bingtray_core::open_config_directory(&self.config)
-        }
-        
         pub fn run(&mut self) -> Result<()> {
             loop {
                 self.show_menu();
@@ -414,6 +398,7 @@ mod app {
             Ok(())
         }
         
+
         pub fn get_current_image_copyright(&self) -> (String, String) {
             if let Some(ref image_path) = self.current_image {
                 if let Some(filename) = image_path.file_stem().and_then(|s| s.to_str()) {

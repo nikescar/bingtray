@@ -351,6 +351,7 @@ fn main() -> Result<()> {
     let mut tray_icon = None;
     let mut menu_items = Vec::new();
     let mut copyright_link: Option<String> = None;
+    let mut app_initialized = false;
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -378,8 +379,10 @@ fn main() -> Result<()> {
                     app_initialized = true;
                     println!("Tray icon created, starting background initialization...");
                     
-                    // Do a minimal initialization to show the menu, 
-                    // but delay the actual download until first menu interaction
+                    // Initialize the app
+                    if let Err(e) = app.initialize() {
+                        eprintln!("Failed to initialize app: {}", e);
+                    }
                 }
 
                 // Request redraw for macOS
@@ -498,7 +501,7 @@ fn main() -> Result<()> {
                         tray_icon.take();
                         *control_flow = ControlFlow::Exit;
                     } else {
-                        lazy_init_done = true;
+                        let lazy_init_done = true;
                         if let Some(ref icon) = tray_icon {
                             update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
                         }
