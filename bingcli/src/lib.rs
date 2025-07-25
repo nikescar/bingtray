@@ -200,6 +200,24 @@ mod app {
             self.current_image.is_some()
         }
 
+        pub fn has_kept_wallpapers_available(&self) -> bool {
+            if let Ok(entries) = std::fs::read_dir(&self.config.keepfavorite_dir) {
+                let kept_count = entries
+                    .filter_map(|entry| entry.ok())
+                    .filter(|entry| {
+                        entry.path().extension()
+                            .and_then(|ext| ext.to_str())
+                            .map(|ext| ext.to_lowercase() == "jpg")
+                            .unwrap_or(false)
+                    })
+                    .count();
+                
+                kept_count > 0
+            } else {
+                false
+            }
+        }
+
         pub fn get_status_info(&self) -> (String, String, usize) {
             let title = self.get_current_image_title();
             
@@ -260,6 +278,7 @@ mod app {
             let has_next_available = self.has_next_market_wallpaper_available();
             let can_keep = self.can_keep_current_image();
             let can_blacklist = self.can_blacklist_current_image();
+            let has_kept_available = self.has_kept_wallpapers_available();
             
             println!("0. Cache Dir Contents");
             if has_next_available {
@@ -279,7 +298,12 @@ mod app {
             } else {
                 println!("3. Blacklist \"{}\" (unavailable)", title);
             }
-            println!("4. Next Kept wallpaper");
+            
+            if has_kept_available {
+                println!("4. Next Kept wallpaper");
+            } else {
+                println!("4. Next Kept wallpaper (unavailable - no kept wallpapers)");
+            }
             println!("5. Exit");
             print!("\nSelect an option (0-5): ");
             io::stdout().flush().unwrap();
@@ -344,8 +368,12 @@ mod app {
                         }
                     }
                     "4" => {
-                        if let Err(e) = self.set_kept_wallpaper() {
-                            eprintln!("Failed to set kept wallpaper: {}", e);
+                        if self.has_kept_wallpapers_available() {
+                            if let Err(e) = self.set_kept_wallpaper() {
+                                eprintln!("Failed to set kept wallpaper: {}", e);
+                            }
+                        } else {
+                            println!("Next kept wallpaper is not available - no kept wallpapers in favorites folder");
                         }
                     }
                     "5" => {
