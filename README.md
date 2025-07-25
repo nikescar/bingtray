@@ -1,5 +1,7 @@
 # BingTray - Bing Wallpaper Manager
 
+Similar App : [Bigwallpaper Desktop](https://bingwallpaper.microsoft.com/Windows/bing/bing-wallpaper/) [Bigwallpaper Android](https://play.google.com/store/apps/details?id=com.microsoft.bing.wallpapers)
+
 A cross-platform wallpaper manager that downloads and manages Bing's weekly wallpapers. bing wallpapers are updated weekly in 43 global stores. each store has different sets of 8 images many of them are shared beween markets. We are visiting random market wallpaper list and download new images if we dont have them. If you exhausted all market images, you have wait for a week to get new images. 
 
 ![bingtray-gui](./imgs/bingtray-gui.gif "Bingtray-gui")
@@ -49,6 +51,9 @@ After starting the application, you'll see a tray icon with the following option
 - **IceWM**: Via icewmbg
 - **Blackbox**: Via bsetbg
 
+<details markdown>
+<summary> Todos </summary>
+
 ## Todos
 
 * android? https://stackoverflow.com/a/46960602
@@ -60,3 +65,6 @@ After starting the application, you'll see a tray icon with the following option
 https://github.com/niumoo/bing-wallpaper/tree/main
 * version code
 * check update
+* download progress on gui
+
+</details>

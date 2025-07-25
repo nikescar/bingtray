@@ -96,11 +96,20 @@ impl BingTrayApp {
     fn run_cli_mode(&mut self) -> Result<()> {
         self.cli_app.run()
     }
+    
+    fn get_current_image_copyright(&self) -> (String, String) {
+        self.cli_app.get_current_image_copyright()
+    }
+    
+    fn open_cache_directory(&self) -> Result<()> {
+        self.cli_app.open_cache_directory()
+    }
 }
 
 fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>) {
     let tray_menu = Menu::new();
     let (title, last_tried, available_count) = app.get_status_info();
+    let (copyright_text, copyrightlink) = app.get_current_image_copyright();
     
     // Create info items (non-clickable)
     let info_item = MenuItem::new(
@@ -108,6 +117,19 @@ fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>) {
         false, 
         None
     );
+    
+    // Make copyright item clickable if there's a link
+    let has_copyright_link = !copyrightlink.is_empty() && copyrightlink != "(no copyright info)";
+    let copyright_item = MenuItem::new(
+        if copyright_text.len() > 50 {
+            format!("{}...", &copyright_text[..47])
+        } else {
+            format!("{}", copyright_text)
+        },
+        has_copyright_link, 
+        None
+    );
+    
     let status_item = MenuItem::new(
         format!("Last: {} | Available: {}", last_tried, available_count), 
         false, 
@@ -119,6 +141,7 @@ fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>) {
     let can_keep = app.can_keep_current_image();
     let can_blacklist = app.can_blacklist_current_image();
     
+    let cache_item = MenuItem::new("0. Cache Dir Contents", true, None);
     let next_item = MenuItem::new("1. Next Market wallpaper", has_next_available, None);
     let keep_item = MenuItem::new(
         format!("2. Keep \"{}\"", title), 
@@ -133,19 +156,34 @@ fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>) {
     let kept_item = MenuItem::new("4. Next Kept wallpaper", true, None);
     let quit_item = MenuItem::new("5. Exit", true, None);
 
-    // Store the menu item IDs in order
-    let menu_item_ids = vec![
-        next_item.id().clone(),
-        keep_item.id().clone(), 
-        blacklist_item.id().clone(),
-        kept_item.id().clone(),
-        quit_item.id().clone(),
-    ];
+    // Store the menu item IDs in order - copyright item is first if clickable
+    let menu_item_ids = if has_copyright_link {
+        vec![
+            copyright_item.id().clone(),
+            cache_item.id().clone(),
+            next_item.id().clone(),
+            keep_item.id().clone(), 
+            blacklist_item.id().clone(),
+            kept_item.id().clone(),
+            quit_item.id().clone(),
+        ]
+    } else {
+        vec![
+            cache_item.id().clone(),
+            next_item.id().clone(),
+            keep_item.id().clone(), 
+            blacklist_item.id().clone(),
+            kept_item.id().clone(),
+            quit_item.id().clone(),
+        ]
+    };
 
     tray_menu.append_items(&[
         &info_item,
+        &copyright_item,
         &status_item,
         &PredefinedMenuItem::separator(),
+        &cache_item,
         &next_item,
         &keep_item,
         &blacklist_item,
@@ -154,12 +192,14 @@ fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>) {
         &quit_item,
     ]).expect("Failed to append menu items");
 
-    (tray_menu, menu_item_ids)
+    let copyright_link = if has_copyright_link { Some(copyrightlink) } else { None };
+    (tray_menu, menu_item_ids, copyright_link)
 }
 
-fn update_tray_menu(tray_icon: &tray_icon::TrayIcon, app: &BingTrayApp, menu_items: &mut Vec<tray_icon::menu::MenuId>) {
-    let (new_menu, new_menu_ids) = create_tray_menu(app);
+fn update_tray_menu(tray_icon: &tray_icon::TrayIcon, app: &BingTrayApp, menu_items: &mut Vec<tray_icon::menu::MenuId>, copyright_link: &mut Option<String>) {
+    let (new_menu, new_menu_ids, new_copyright_link) = create_tray_menu(app);
     *menu_items = new_menu_ids;
+    *copyright_link = new_copyright_link;
     tray_icon.set_menu(Some(Box::new(new_menu)));
 }
 
@@ -243,9 +283,9 @@ fn main() -> Result<()> {
         }
     }
     
-    // Initialize app
+    // Initialize app but don't run initialize() yet - we'll do that after tray icon is created
     let mut app = BingTrayApp::new()?;
-    app.initialize()?;
+    // app.initialize()?;
     
     // Check if CLI mode is requested
     if cli.cli {

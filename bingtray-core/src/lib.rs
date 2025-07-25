@@ -7,10 +7,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BingImage {
     pub url: String,
     pub title: String,
+    pub copyright: Option<String>,
+    pub copyrightlink: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -25,6 +27,7 @@ pub struct Config {
     pub keepfavorite_dir: PathBuf,
     pub blacklist_file: PathBuf,
     pub marketcodes_file: PathBuf,
+    pub metadata_file: PathBuf,
 }
 
 impl Config {
@@ -37,6 +40,7 @@ impl Config {
         let keepfavorite_dir = config_dir.join("keepfavorite");
         let blacklist_file = config_dir.join("blacklist.conf");
         let marketcodes_file = config_dir.join("marketcodes.conf");
+        let metadata_file = config_dir.join("metadata.conf");
 
         // Create directories if they don't exist
         fs::create_dir_all(&config_dir)?;
@@ -48,12 +52,18 @@ impl Config {
             fs::write(&blacklist_file, "")?;
         }
 
+        // Create metadata.conf if it doesn't exist
+        if !metadata_file.exists() {
+            fs::write(&metadata_file, "")?;
+        }
+
         Ok(Config {
             config_dir,
             unprocessed_dir,
             keepfavorite_dir,
             blacklist_file,
             marketcodes_file,
+            metadata_file,
         })
     }
 }
@@ -129,7 +139,7 @@ pub fn get_bing_images(market_code: &str) -> Result<Vec<BingImage>> {
     Ok(bing_response.images)
 }
 
-pub fn download_image(image: &BingImage, target_dir: &Path) -> Result<PathBuf> {
+pub fn download_image(image: &BingImage, target_dir: &Path, config: &Config) -> Result<PathBuf> {
     let url = if image.url.starts_with("http") {
         image.url.clone()
     } else {
@@ -162,6 +172,11 @@ pub fn download_image(image: &BingImage, target_dir: &Path) -> Result<PathBuf> {
         let response = attohttpc::get(&url).send()?;
         let bytes = response.bytes()?;
         fs::write(&filepath, bytes)?;
+    }
+    
+    // Save metadata if available
+    if let (Some(copyright), Some(copyrightlink)) = (&image.copyright, &image.copyrightlink) {
+        save_image_metadata(config, &sanitize_filename(&display_name), copyright, copyrightlink)?;
     }
     
     Ok(filepath)
@@ -397,11 +412,12 @@ fn set_wallpaper_linux_fallback(file_path: &Path) -> Result<bool> {
     }
 }
 
-pub fn download_images_for_market(config: &Config, market_code: &str) -> Result<usize> {
+pub fn download_images_for_market(config: &Config, market_code: &str) -> Result<(usize, Vec<BingImage>)> {
     let images = get_bing_images(market_code)?;
     let mut downloaded_count = 0;
+    let mut downloaded_images = Vec::new();
     
-    for image in images {
+    for (_, image) in images.iter().enumerate() {
         let mut display_name = image.url
             .split("th?id=")
             .nth(1)
@@ -413,10 +429,11 @@ pub fn download_images_for_market(config: &Config, market_code: &str) -> Result<
         let unprocessed_path = config.unprocessed_dir.join(format!("{}.jpg", display_name));
         let keepfavorite_path = config.keepfavorite_dir.join(format!("{}.jpg", display_name));
         if !unprocessed_path.exists() && !keepfavorite_path.exists() && !is_blacklisted(config, &display_name)? {
-            match download_image(&image, &config.unprocessed_dir) {
+            match download_image(&image, &config.unprocessed_dir, config) {
                 Ok(filepath) => {
                     println!("Downloaded image: {}", filepath.display());
                     downloaded_count += 1;
+                    downloaded_images.push((*image).clone());
                 }
                 Err(e) => {
                     eprintln!("Failed to download image {}: {}", display_name, e);
@@ -427,7 +444,101 @@ pub fn download_images_for_market(config: &Config, market_code: &str) -> Result<
         }
     }
     
-    Ok(downloaded_count)
+    Ok((downloaded_count, downloaded_images))
+}
+
+pub fn save_image_metadata(config: &Config, filename: &str, copyright: &str, copyrightlink: &str) -> Result<()> {
+    let metadata = fs::read_to_string(&config.metadata_file).unwrap_or_default();
+    
+    // Extract text in parentheses from copyright
+    let copyright_text = if let Some(start) = copyright.find('(') {
+        if let Some(end) = copyright.find(')') {
+            if end > start {
+                copyright[start+1..end].to_string()
+            } else {
+                copyright.to_string()
+            }
+        } else {
+            copyright.to_string()
+        }
+    } else {
+        copyright.to_string()
+    };
+    
+    // Check if entry already exists and replace it
+    let mut lines: Vec<String> = metadata.lines().map(|s| s.to_string()).collect();
+    let mut found = false;
+    
+    for line in &mut lines {
+        if line.starts_with(&format!("{}|", filename)) {
+            *line = format!("{}|{}|{}", filename, copyright_text, copyrightlink);
+            found = true;
+            break;
+        }
+    }
+    
+    if !found {
+        lines.push(format!("{}|{}|{}", filename, copyright_text, copyrightlink));
+    }
+    
+    let content = lines.join("\n");
+    if !content.is_empty() {
+        fs::write(&config.metadata_file, content + "\n")?;
+    }
+    
+    Ok(())
+}
+
+pub fn get_image_metadata(config: &Config, filename: &str) -> Option<(String, String)> {
+    let metadata = fs::read_to_string(&config.metadata_file).unwrap_or_default();
+    for line in metadata.lines() {
+        let parts: Vec<&str> = line.split('|').collect();
+        if parts.len() >= 3 && parts[0] == filename {
+            return Some((parts[1].to_string(), parts[2].to_string()));
+        }
+    }
+    None
+}
+
+pub fn open_config_directory(config: &Config) -> Result<()> {
+    let config_path = &config.config_dir;
+    
+    #[cfg(target_os = "windows")]
+    {
+        Command::new("explorer")
+            .arg(config_path)
+            .spawn()?;
+    }
+    
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(config_path)
+            .spawn()?;
+    }
+    
+    #[cfg(target_os = "linux")]
+    {
+        // Try different file managers in order of preference
+        let file_managers = ["xdg-open", "nautilus", "dolphin", "thunar", "pcmanfm", "nemo"];
+        let mut opened = false;
+        
+        for fm in &file_managers {
+            if let Ok(_child) = Command::new(fm)
+                .arg(config_path)
+                .spawn() 
+            {
+                opened = true;
+                break;
+            }
+        }
+        
+        if !opened {
+            eprintln!("Could not find a suitable file manager to open {}", config_path.display());
+        }
+    }
+    
+    Ok(())
 }
 
 pub fn need_more_images(config: &Config) -> Result<bool> {

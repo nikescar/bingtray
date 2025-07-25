@@ -43,7 +43,7 @@ mod app {
             
             if let Some(market_code) = old_codes.choose(&mut rand::thread_rng()) {
                 println!("Downloading images for market code: {}", market_code);
-                let count = download_images_for_market(&self.config, market_code)?;
+                let (count, _downloaded_images) = download_images_for_market(&self.config, market_code)?;
                 println!("Downloaded {} images", count);
                 
                 // Update timestamp
@@ -56,7 +56,6 @@ mod app {
         
         pub fn set_next_market_wallpaper(&mut self) -> Result<bool> {
             let mut market_codes = load_market_codes(&self.config)?;
-            let old_codes = get_old_market_codes(&market_codes);    
             self.download_new_images(&mut market_codes)?;
 
             if let Some(image_path) = get_next_image(&self.config)? {
@@ -237,6 +236,7 @@ mod app {
         
         pub fn show_menu(&self) {
             let title = self.get_current_image_title();
+            let (copyright_text, copyrightlink) = self.get_current_image_copyright();
             
             // Get market codes info
             let market_codes = load_market_codes(&self.config).unwrap_or_default();
@@ -252,6 +252,8 @@ mod app {
             
             println!("\n=== BingTray - Bing Wallpaper Manager ===");
             println!("Current wallpaper: {}", title);
+            println!("{}", copyright_text);
+            println!("{}", copyrightlink);
             println!("Last tried market: {} | Available markets: {}", last_tried, available_count);
             println!();
             
@@ -259,6 +261,7 @@ mod app {
             let can_keep = self.can_keep_current_image();
             let can_blacklist = self.can_blacklist_current_image();
             
+            println!("0. Cache Dir Contents");
             if has_next_available {
                 println!("1. Next Market wallpaper");
             } else {
@@ -278,8 +281,24 @@ mod app {
             }
             println!("4. Next Kept wallpaper");
             println!("5. Exit");
-            print!("\nSelect an option (1-5): ");
+            print!("\nSelect an option (0-5): ");
             io::stdout().flush().unwrap();
+        }
+
+        pub fn get_current_image_copyright(&self) -> (String, String) {
+            if let Some(ref image_path) = self.current_image {
+                if let Some(filename) = image_path.file_stem().and_then(|s| s.to_str()) {
+                    // Get from metadata.conf
+                    if let Some((copyright_text, copyrightlink)) = get_image_metadata(&self.config, filename) {
+                        return (copyright_text, copyrightlink);
+                    }
+                }
+            }
+            ("(no copyright info)".to_string(), "".to_string())
+        }
+
+        pub fn open_cache_directory(&self) -> Result<()> {
+            bingtray_core::open_config_directory(&self.config)
         }
         
         pub fn run(&mut self) -> Result<()> {
@@ -290,6 +309,13 @@ mod app {
                 io::stdin().read_line(&mut input)?;
                 
                 match input.trim() {
+                    "0" => {
+                        if let Err(e) = self.open_cache_directory() {
+                            eprintln!("Failed to open cache directory: {}", e);
+                        } else {
+                            println!("Cache directory opened in file manager");
+                        }
+                    }
                     "1" => {
                         if self.has_next_market_wallpaper_available() {
                             if let Err(e) = self.set_next_market_wallpaper() {
@@ -327,7 +353,7 @@ mod app {
                         break;
                     }
                     _ => {
-                        println!("Invalid option. Please select 1-5.");
+                        println!("Invalid option. Please select 0-5.");
                     }
                 }
             }
