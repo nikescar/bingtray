@@ -43,7 +43,7 @@ mod app {
             
             if let Some(market_code) = old_codes.choose(&mut rand::thread_rng()) {
                 println!("Downloading images for market code: {}", market_code);
-                let (count, _images) = download_images_for_market(&self.config, market_code)?;
+                let (count, _downloaded_images) = download_images_for_market(&self.config, market_code)?;
                 println!("Downloaded {} images", count);
                 
                 // Update timestamp
@@ -56,7 +56,6 @@ mod app {
         
         pub fn set_next_market_wallpaper(&mut self) -> Result<bool> {
             let mut market_codes = load_market_codes(&self.config)?;
-            let old_codes = get_old_market_codes(&market_codes);    
             self.download_new_images(&mut market_codes)?;
 
             if let Some(image_path) = get_next_image(&self.config)? {
@@ -189,15 +188,47 @@ mod app {
         pub fn can_keep_current_image(&self) -> bool {
             if let Some(ref image_path) = self.current_image {
                 // Check if the image is not already in keepfavorite folder
-                !image_path.starts_with(&self.config.keepfavorite_dir)
+                // AND check if there are files in unprocessed folder
+                !image_path.starts_with(&self.config.keepfavorite_dir) && 
+                !need_more_images(&self.config).unwrap_or(true)
             } else {
                 false // No current image
             }
         }
 
         pub fn can_blacklist_current_image(&self) -> bool {
-            // Can blacklist if there's a current image (regardless of its location)
-            self.current_image.is_some()
+            // Can blacklist if there's a current image AND there are files in unprocessed folder
+            self.current_image.is_some() && !need_more_images(&self.config).unwrap_or(true)
+        }
+
+        pub fn has_kept_wallpapers_available(&self) -> bool {
+            if let Ok(entries) = std::fs::read_dir(&self.config.keepfavorite_dir) {
+                let kept_count = entries
+                    .filter_map(|entry| entry.ok())
+                    .filter(|entry| {
+                        entry.path().extension()
+                            .and_then(|ext| ext.to_str())
+                            .map(|ext| ext.to_lowercase() == "jpg")
+                            .unwrap_or(false)
+                    })
+                    .count();
+                
+                kept_count > 0
+            } else {
+                false
+            }
+        }
+
+        pub fn has_unprocessed_files(&self) -> bool {
+            !need_more_images(&self.config).unwrap_or(true)
+        }
+
+        pub fn is_current_image_in_favorites(&self) -> bool {
+            if let Some(ref current_image) = self.current_image {
+                current_image.starts_with(&self.config.keepfavorite_dir)
+            } else {
+                false
+            }
         }
 
         pub fn get_status_info(&self) -> (String, String, usize) {
@@ -260,6 +291,7 @@ mod app {
             let has_next_available = self.has_next_market_wallpaper_available();
             let can_keep = self.can_keep_current_image();
             let can_blacklist = self.can_blacklist_current_image();
+            let has_kept_available = self.has_kept_wallpapers_available();
             
             println!("0. Cache Dir Contents");
             if has_next_available {
@@ -279,10 +311,31 @@ mod app {
             } else {
                 println!("3. Blacklist \"{}\" (unavailable)", title);
             }
-            println!("4. Next Kept wallpaper");
+            
+            if has_kept_available {
+                println!("4. Next Kept wallpaper");
+            } else {
+                println!("4. Next Kept wallpaper (unavailable - no kept wallpapers)");
+            }
             println!("5. Exit");
             print!("\nSelect an option (0-5): ");
             io::stdout().flush().unwrap();
+        }
+
+        pub fn get_current_image_copyright(&self) -> (String, String) {
+            if let Some(ref image_path) = self.current_image {
+                if let Some(filename) = image_path.file_stem().and_then(|s| s.to_str()) {
+                    // Get from metadata.conf
+                    if let Some((copyright_text, copyrightlink)) = get_image_metadata(&self.config, filename) {
+                        return (copyright_text, copyrightlink);
+                    }
+                }
+            }
+            ("(no copyright info)".to_string(), "".to_string())
+        }
+
+        pub fn open_cache_directory(&self) -> Result<()> {
+            bingtray_core::open_config_directory(&self.config)
         }
         
         pub fn run(&mut self) -> Result<()> {
@@ -315,7 +368,15 @@ mod app {
                                 eprintln!("Failed to keep image: {}", e);
                             }
                         } else {
-                            println!("Keep current image is not available - no current image or image is already in favorites");
+                            if self.current_image.is_none() {
+                                println!("Keep current image is not available - no current image");
+                            } else if let Some(ref image_path) = self.current_image {
+                                if image_path.starts_with(&self.config.keepfavorite_dir) {
+                                    println!("Keep current image is not available - image is already in favorites");
+                                } else {
+                                    println!("Keep current image is not available - no files in unprocessed folder");
+                                }
+                            }
                         }
                     }
                     "3" => {
@@ -324,12 +385,20 @@ mod app {
                                 eprintln!("Failed to blacklist image: {}", e);
                             }
                         } else {
-                            println!("Blacklist current image is not available - no current image");
+                            if self.current_image.is_none() {
+                                println!("Blacklist current image is not available - no current image");
+                            } else {
+                                println!("Blacklist current image is not available - no files in unprocessed folder");
+                            }
                         }
                     }
                     "4" => {
-                        if let Err(e) = self.set_kept_wallpaper() {
-                            eprintln!("Failed to set kept wallpaper: {}", e);
+                        if self.has_kept_wallpapers_available() {
+                            if let Err(e) = self.set_kept_wallpaper() {
+                                eprintln!("Failed to set kept wallpaper: {}", e);
+                            }
+                        } else {
+                            println!("Next kept wallpaper is not available - no kept wallpapers in favorites folder");
                         }
                     }
                     "5" => {

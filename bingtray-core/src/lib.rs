@@ -7,7 +7,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BingImage {
     pub url: String,
     pub title: String,
@@ -421,7 +421,7 @@ pub fn download_images_for_market(config: &Config, market_code: &str) -> Result<
     let mut downloaded_count = 0;
     let mut downloaded_images = Vec::new();
     
-    for image in images {
+    for (_, image) in images.iter().enumerate() {
         let mut display_name = image.url
             .split("th?id=")
             .nth(1)
@@ -437,7 +437,7 @@ pub fn download_images_for_market(config: &Config, market_code: &str) -> Result<
                 Ok(filepath) => {
                     println!("Downloaded image: {}", filepath.display());
                     downloaded_count += 1;
-                    downloaded_images.push(image);
+                    downloaded_images.push((*image).clone());
                 }
                 Err(e) => {
                     eprintln!("Failed to download image {}: {}", display_name, e);
@@ -452,7 +452,7 @@ pub fn download_images_for_market(config: &Config, market_code: &str) -> Result<
 }
 
 pub fn save_image_metadata(config: &Config, filename: &str, copyright: &str, copyrightlink: &str) -> Result<()> {
-    let mut metadata = fs::read_to_string(&config.metadata_file).unwrap_or_default();
+    let metadata = fs::read_to_string(&config.metadata_file).unwrap_or_default();
     
     // Extract text in parentheses from copyright
     let copyright_text = if let Some(start) = copyright.find('(') {
@@ -528,7 +528,7 @@ pub fn open_config_directory(config: &Config) -> Result<()> {
         let mut opened = false;
         
         for fm in &file_managers {
-            if let Ok(mut child) = Command::new(fm)
+            if let Ok(_child) = Command::new(fm)
                 .arg(config_path)
                 .spawn() 
             {
