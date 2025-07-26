@@ -1,0 +1,61 @@
+[package]
+name = "bingtray-and"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[lib]
+crate-type=["lib", "cdylib"]
+
+[dependencies]
+log = "0.4"
+bingtray-core = { path = "../bingtray-core" }
+eframe = "0.31.1"
+egui = "0.31.1"
+egui_extras = { version = "0.31.1", features=["image"] }
+image = { version = "0.25.5", features = ["jpeg", "png"] } # Add the types you want support for
+ehttp = "0.5"
+poll-promise = "0.3"
+
+[target.'cfg(not(target_os = "android"))'.dependencies.rfd]
+version = "0.15"
+
+[target.'cfg(not(target_os = "android"))'.dependencies.env_logger]
+version = "0.11"
+
+[target.'cfg(not(target_os = "android"))'.dependencies.eframe]
+version = "0.31.1"
+default-features = true
+
+[target.'cfg(target_os = "android")'.dependencies.android_logger]
+version = "0.15"
+default-features = false
+
+# JNI dependencies for Android wallpaper management
+[target.'cfg(target_os = "android")'.dependencies.jni]
+version = "0.21"
+
+[target.'cfg(target_os = "android")'.dependencies.ndk-context]
+version = "0.1"
+
+[target.'cfg(target_os = "android")'.dependencies.libc]
+version = "0.2"
+
+[target.'cfg(target_os = "android")'.dependencies.eframe]
+version = "0.31.1"
+default-features = false
+features = [
+    "wgpu",
+    "android-native-activity",
+    "default_fonts",
+]
+
+# Used to get same winit used by eframe.
+[target.'cfg(target_os = "android")'.dependencies.egui-winit]
+version = "0.31.1"
+default-features = false
+features = [
+    "clipboard",
+    "links",
+]

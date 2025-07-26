@@ -308,6 +308,16 @@ pub fn get_desktop_environment() -> String {
 pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
     let file_loc = file_path.to_string_lossy();
     
+    // Android-specific wallpaper setting
+    #[cfg(target_os = "android")]
+    {
+        // Try Android-specific wallpaper setting first
+        // This would require the bingtray-and crate to be available
+        // For now, we'll use a simple approach
+        eprintln!("Android wallpaper setting should be handled by bingtray-and crate");
+        return Ok(false);
+    }
+    
     // Use wallpaper crate for cross-platform wallpaper setting
     match wallpaper::set_from_path(&file_loc) {
         Ok(_) => {
