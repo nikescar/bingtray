@@ -3,6 +3,7 @@ name = "bingtray-gui"
 version = "0.0.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+build = "build.rs"
 
 [[bin]]
 name = "bingtray-gui"
@@ -80,3 +81,5 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
 [target."cfg(any(target_os = \"linux\", target_os = \"macos\"))".dependencies]
 png = "0.17"
 
+[build-dependencies]
+winres = "0.1.12"

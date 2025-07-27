@@ -21,7 +21,7 @@ pub fn set_wallpaper_from_path<P: AsRef<Path>>(image_path: P) -> std::io::Result
 
     let activity = unsafe { jni::objects::JObject::from_raw(ctx.context() as _) };
     let mut env = vm
-        .attach_current_thread()
+        .attach_current_thread_as_daemon()
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Failed to attach current thread"))?;
 
     // Get WallpaperManager instance with error handling
@@ -34,6 +34,9 @@ pub fn set_wallpaper_from_path<P: AsRef<Path>>(image_path: P) -> std::io::Result
         "(Landroid/content/Context;)Landroid/app/WallpaperManager;",
         &[JValue::Object(&activity)],
     ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get WallpaperManager instance: {}", e)))?;
+
+    // Extract the JObject from JValueGen to avoid move issues
+    let wallpaper_manager_obj = wallpaper_manager.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get wallpaper manager object: {}", e)))?;
 
     // Convert path to Java string
     let image_path_str = image_path.as_ref().to_str()
@@ -61,7 +64,7 @@ pub fn set_wallpaper_from_path<P: AsRef<Path>>(image_path: P) -> std::io::Result
 
     // Set wallpaper using InputStream - this is the potentially blocking operation
     let result = env.call_method(
-        wallpaper_manager.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get wallpaper manager object: {}", e)))?,
+        &wallpaper_manager_obj,
         "setStream",
         "(Ljava/io/InputStream;)V",
         &[JValue::Object(&file_input_stream)],
@@ -79,6 +82,17 @@ pub fn set_wallpaper_from_path<P: AsRef<Path>>(image_path: P) -> std::io::Result
     // Check results
     result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to set wallpaper: {}", e)))?;
     close_result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to close stream: {}", e)))?;
+
+    //clear of wallpapermanager
+    // let clear_result = env.call_method(
+    //     &wallpaper_manager_obj,
+    //     "clear",
+    //     "()V",
+    //     &[],
+    // ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to clear WallpaperManager: {}", e)))?;
+
+    // close, quit exit the rust app
+    
 
     Ok(true)
 }

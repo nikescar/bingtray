@@ -289,15 +289,23 @@ fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_promise: &mut O
                             // Immediately save the file and send initial progress
                             let save_result = std::fs::write(&temp_path, &image_data);
                             let temp_path_clone = temp_path.to_string();
-                            crate::set_wallpaper_from_path(&temp_path_clone);
-                            info!("Wallpaper set from path: {}", temp_path_clone);
-                            // Final UI update
-                            ui.colored_label(egui::Color32::GREEN, "Wallpaper set successfully!");
-                            // Give UI thread priority to update
-                            trace!("Requesting repaint after setting wallpaper");
+                            std::thread::spawn(move ||{
+                                let ret = crate::set_wallpaper_from_path(&temp_path_clone);
+                                info!("Android set_wallpaper_from_path: {:?}", ret);
+                            });
+                            info!("Wallpaper set from path: {}", temp_path.to_string());
+                            
+                            // ui.colored_label(egui::Color32::GREEN, "Wallpaper set successfully!");
+                            // // Give UI thread priority to update
+                            // trace!("Requesting repaint after setting wallpaper");
                             // Final yield to give UI thread priority after operation
                             std::thread::yield_now();
-                            ui.ctx().request_repaint();
+                            // ui.ctx().request_repaint();
+
+                            // // sleep 3 seconds
+                            // std::thread::sleep(std::time::Duration::from_secs(3));
+                            // // exit the app
+                            // ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
                         
                         } else {
                             error!("No image data available");
