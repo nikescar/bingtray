@@ -7,9 +7,9 @@ use jni::objects::{JObject, JValue};
 #[cfg(target_os = "android")]
 use ndk_context;
 
-/// Set wallpaper from image file path using Android WallpaperManager
+/// Set wallpaper from image bytes using Android WallpaperManager and ByteArrayInputStream
 #[cfg(target_os = "android")]
-pub fn set_wallpaper_from_path<P: AsRef<Path>>(image_path: P) -> std::io::Result<bool> {
+pub fn set_wallpaper_from_bytes(image_bytes: &[u8]) -> std::io::Result<bool> {
     // Create a VM for executing Java calls
     let ctx = ndk_context::android_context();
     let vm = unsafe { jni::JavaVM::from_raw(ctx.vm() as _) }.map_err(|_| {
@@ -21,7 +21,7 @@ pub fn set_wallpaper_from_path<P: AsRef<Path>>(image_path: P) -> std::io::Result
 
     let activity = unsafe { jni::objects::JObject::from_raw(ctx.context() as _) };
     let mut env = vm
-        .attach_current_thread_as_daemon()
+        .attach_current_thread()
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Failed to attach current thread"))?;
 
     // Get WallpaperManager instance with error handling
@@ -34,67 +34,75 @@ pub fn set_wallpaper_from_path<P: AsRef<Path>>(image_path: P) -> std::io::Result
         "(Landroid/content/Context;)Landroid/app/WallpaperManager;",
         &[JValue::Object(&activity)],
     ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get WallpaperManager instance: {}", e)))?;
+    info!("Getting WallpaperManager instance has done.");
 
-    // Extract the JObject from JValueGen to avoid move issues
-    let wallpaper_manager_obj = wallpaper_manager.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get wallpaper manager object: {}", e)))?;
+    // Create Java byte array from Rust bytes
+    let java_byte_array = env.byte_array_from_slice(image_bytes)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create Java byte array: {}", e)))?;
+    info!("Create Java byte array from Rust bytes.");
 
-    // Convert path to Java string
-    let image_path_str = image_path.as_ref().to_str()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid UTF-8 path"))?;
-    let java_path = env.new_string(image_path_str)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create Java string: {}", e)))?;
+    // Create Bitmap using BitmapFactory.decodeByteArray
+    let bitmap_factory_class = env.find_class("android/graphics/BitmapFactory")
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to find BitmapFactory class: {}", e)))?;
+    
+    let bitmap = env.call_static_method(
+        &bitmap_factory_class,
+        "decodeByteArray",
+        "([BII)Landroid/graphics/Bitmap;",
+        &[
+            JValue::Object(&JObject::from(java_byte_array)),
+            JValue::Int(0),
+            JValue::Int(image_bytes.len() as i32),
+        ],
+    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to decode bitmap from byte array: {}", e)))?;
 
-    // Create File object
-    let file_class = env.find_class("java/io/File")
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to find File class: {}", e)))?;
-    let file = env.new_object(
-        &file_class,
-        "(Ljava/lang/String;)V",
-        &[JValue::Object(&JObject::from(java_path))],
-    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create File object: {}", e)))?;
+    // Check if bitmap creation was successful
+    let bitmap_obj = bitmap.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get bitmap object: {}", e)))?;
+    if bitmap_obj.is_null() {
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to create bitmap from image data"));
+    }
 
-    // Create FileInputStream
-    let file_input_stream_class = env.find_class("java/io/FileInputStream")
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to find FileInputStream class: {}", e)))?;
-    let file_input_stream = env.new_object(
-        &file_input_stream_class,
-        "(Ljava/io/File;)V",
-        &[JValue::Object(&file)],
-    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create FileInputStream: {}", e)))?;
+    info!("Decoding bitmap from bytearray has done.");
+    std::thread::yield_now();
 
-    // Set wallpaper using InputStream - this is the potentially blocking operation
+    // Set wallpaper using setBitmap
     let result = env.call_method(
-        &wallpaper_manager_obj,
-        "setStream",
-        "(Ljava/io/InputStream;)V",
-        &[JValue::Object(&file_input_stream)],
-    );
-    info!("Setting wallpaper has done.");
+        wallpaper_manager.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get wallpaper manager object: {}", e)))?,
+        "setBitmap",
+        "(Landroid/graphics/Bitmap;)V",
+        &[JValue::Object(&bitmap_obj)],
+    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to set wallpaper bitmap: {}", e)))?;
+    info!("Setting wallpaper from bitmap has done.");
 
-    // Always close the stream, regardless of wallpaper setting result
-    let close_result = env.call_method(
-        &file_input_stream,
-        "close",
+    std::thread::yield_now();
+
+    //quit android application
+    let quit_result = env.call_method(
+        &activity,
+        "quit",
         "()V",
         &[],
-    );
-
-    // Check results
-    result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to set wallpaper: {}", e)))?;
-    close_result.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to close stream: {}", e)))?;
-
-    //clear of wallpapermanager
-    // let clear_result = env.call_method(
-    //     &wallpaper_manager_obj,
-    //     "clear",
-    //     "()V",
-    //     &[],
-    // ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to clear WallpaperManager: {}", e)))?;
-
-    // close, quit exit the rust app
-    
+    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to quit activity: {}", e)))?;
+    info!("Quitting Android application has done.");
 
     Ok(true)
+}
+
+/// Set wallpaper from image file path using Android WallpaperManager
+/// This function reads the file and calls set_wallpaper_from_bytes
+#[cfg(target_os = "android")]
+pub fn set_wallpaper_from_path<P: AsRef<Path>>(image_path: P) -> std::io::Result<bool> {
+    // Read the image file into bytes
+    let image_bytes = std::fs::read(image_path.as_ref())?;
+    
+    // Use the new bytes-based function
+    set_wallpaper_from_bytes(&image_bytes)
+}
+
+#[cfg(not(target_os = "android"))]
+pub fn set_wallpaper_from_bytes(_image_bytes: &[u8]) -> std::io::Result<bool> {
+    eprintln!("Android wallpaper setting not available on this platform");
+    Ok(false)
 }
 
 #[cfg(not(target_os = "android"))]

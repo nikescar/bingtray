@@ -5,6 +5,10 @@ license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["serde"]
+serde = ["dep:serde", "dep:serde_json"]
+
 [lib]
 crate-type=["lib", "cdylib"]
 
@@ -17,6 +21,8 @@ egui_extras = { version = "0.31.1", features=["image"] }
 image = { version = "0.25.5", features = ["jpeg", "png"] } # Add the types you want support for
 ehttp = "0.5"
 poll-promise = "0.3"
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
 
 [target.'cfg(not(target_os = "android"))'.dependencies.rfd]
 version = "0.15"

@@ -1,9 +1,9 @@
 mod http_app;
 pub mod gui_windows;
-mod svg_test;
+// mod svg_test;
 
 pub use http_app::HttpApp;
-pub use svg_test::SvgTest;
+// pub use svg_test::SvgTest;
 
 pub use {
     gui_windows::DemoWindows,

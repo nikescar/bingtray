@@ -65,7 +65,7 @@ impl Default for GuiGroups {
             // image_viewer: ImageViewer::default(),
             demos: GuiGroup::new(vec![
                 Box::<super::http_app::HttpApp>::default(),
-                Box::<super::svg_test::SvgTest>::default(),
+                // Box::<super::svg_test::SvgTest>::default(),
                 // Add actual demo modules here when available
             ]),
         }
@@ -136,11 +136,12 @@ impl Default for DemoWindows {
 impl DemoWindows {
     /// Show the app ui (menu bar and windows).
     pub fn ui(&mut self, ctx: &Context) {
-        if is_mobile(ctx) {
-            self.mobile_ui(ctx);
-        } else {
-            self.desktop_ui(ctx);
-        }
+        // if is_mobile(ctx) {
+        //     self.mobile_ui(ctx);
+        // } else {
+        //     self.desktop_ui(ctx);
+        // }
+        self.mobile_ui(ctx);
     }
 
     // fn http_app_is_open(&self) -> bool {

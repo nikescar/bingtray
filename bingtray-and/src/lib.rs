@@ -25,9 +25,31 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
     use eframe::Renderer;
 
     std::env::set_var("RUST_BACKTRACE", "full");
+    
+    // Simpler logger configuration
     android_logger::init_once(
-        android_logger::Config::default().with_max_level(log::LevelFilter::Trace),
+        android_logger::Config::default()
+            .with_max_level(log::LevelFilter::Info)
+            .with_tag("BingtrayApp"),
     );
+    
+    // Log initialization message to confirm logging is working
+    log::info!("Android logger initialized successfully");
+    log::info!("Starting bingtray-android application");
+    
+    // Also use println! as backup logging method
+    println!("BingtrayApp: Application starting");
+    eprintln!("BingtrayApp: Error stream test");
+    
+    // Set up panic handler to catch crashes
+    std::panic::set_hook(Box::new(|panic_info| {
+        log::error!("PANIC OCCURRED: {}", panic_info);
+        eprintln!("BingtrayApp PANIC: {}", panic_info);
+        if let Some(location) = panic_info.location() {
+            log::error!("Panic location: {}:{}", location.file(), location.line());
+            eprintln!("BingtrayApp PANIC LOCATION: {}:{}", location.file(), location.line());
+        }
+    }));
 
     let options = NativeOptions {
         android_app: Some(app),
@@ -65,7 +87,10 @@ impl eframe::App for DemoApp {
 pub use gui::{Demo, DemoWindows, View};
 
 #[cfg(target_os = "android")]
-pub use android_wallpaper::set_wallpaper_from_path;
+pub use android_wallpaper::{set_wallpaper_from_path, set_wallpaper_from_bytes};
+
+#[cfg(not(target_os = "android"))]
+pub use android_wallpaper::{set_wallpaper_from_path, set_wallpaper_from_bytes};
 
 /// View some Rust code with syntax highlighting and selection.
 pub(crate) fn rust_view_ui(ui: &mut egui::Ui, code: &str) {
@@ -82,6 +107,11 @@ pub fn is_mobile(ctx: &egui::Context) -> bool {
 }
 
 
+pub const LOREM_IPSUM: &str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.";
+
+pub const LOREM_IPSUM_LONG: &str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
+
+Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam various, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida. Duis ac tellus et risus vulputate vehicula. Donec lobortis risus a elit. Etiam tempor. Ut ullamcorper, ligula eu tempor congue, eros est euismod turpis, id tincidunt sapien risus a quam. Maecenas fermentum consequat mi. Donec fermentum. Pellentesque malesuada nulla a mi. Duis sapien sem, aliquet nec, commodo eget, consequat quis, neque. Aliquam faucibus, elit ut dictum aliquet, felis nisl adipiscing sapien, sed malesuada diam lacus eget erat. Cras mollis scelerisque nunc. Nullam arcu. Aliquam consequat. Curabitur augue lorem, dapibus quis, laoreet et, pretium ac, nisi. Aenean magna nisl, mollis quis, molestie eu, feugiat in, orci. In hac habitasse platea dictumst.";
 
 
 
