@@ -241,37 +241,18 @@ fn update_tray_menu(tray_icon: &tray_icon::TrayIcon, app: &BingTrayApp, menu_ite
 }
 
 fn load_icon() -> tray_icon::Icon {
-    // Create a simple icon programmatically since we don't have an icon file
-    let icon_size = 32;
-    let mut icon_rgba = vec![0u8; (icon_size * icon_size * 4) as usize];
+    // Embed the icon file at compile time
+    let icon_bytes = include_bytes!("../resources/logo.png");
     
-    // Create a simple pattern - blue background with white "B"
-    for y in 0..icon_size {
-        for x in 0..icon_size {
-            let idx = ((y * icon_size + x) * 4) as usize;
-            
-            // Background: blue
-            icon_rgba[idx] = 0;     // R
-            icon_rgba[idx + 1] = 100; // G
-            icon_rgba[idx + 2] = 200; // B
-            icon_rgba[idx + 3] = 255; // A
-            
-            // Draw a simple "B" pattern in white
-            if (x >= 8 && x <= 10) || 
-               (y >= 8 && y <= 10 && x >= 8 && x <= 20) ||
-               (y >= 15 && y <= 17 && x >= 8 && x <= 18) ||
-               (y >= 22 && y <= 24 && x >= 8 && x <= 20) ||
-               (x >= 18 && x <= 20 && ((y >= 11 && y <= 14) || (y >= 18 && y <= 21))) {
-                icon_rgba[idx] = 255;     // R
-                icon_rgba[idx + 1] = 255; // G
-                icon_rgba[idx + 2] = 255; // B
-                icon_rgba[idx + 3] = 255; // A
-            }
-        }
-    }
-    
-    tray_icon::Icon::from_rgba(icon_rgba, icon_size, icon_size)
-        .expect("Failed to create icon")
+    let (icon_rgba, icon_width, icon_height) = {
+        let image = image::load_from_memory(icon_bytes)
+            .expect("Failed to load embedded icon")
+            .into_rgba8();
+        let (width, height) = image.dimensions();
+        let rgba = image.into_raw();
+        (rgba, width, height)
+    };
+    tray_icon::Icon::from_rgba(icon_rgba, icon_width, icon_height).expect("Failed to create icon from embedded data")
 }
 
 #[cfg(target_os = "windows")]
@@ -425,6 +406,7 @@ fn main() -> Result<()> {
                                 let _ = std::process::Command::new("open").arg(link).spawn();
                             }
                         }
+                        return ; // Return early 
                     } else if event.id == menu_items[0 + offset] {
                         // 0. Cache Dir Contents
                         println!("Executing: Cache Dir Contents");

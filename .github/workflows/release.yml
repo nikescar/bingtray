@@ -50,6 +50,10 @@ jobs:
             target: aarch64-linux-android
             build-args: "--release"
 
+          - name: Android APK arm64
+            target: aarch64-linux-android
+            build-args: "--release"
+
           - name: Android armv7
             target: armv7-linux-androideabi
             build-args: "--release"
@@ -106,14 +110,14 @@ jobs:
         run: sudo apt install android-libunwind android-libunwind-dev  libunwind-dev
 
       - name: Set up JDK 17
-        if: contains(matrix.platform.target, 'android')
+        if: contains(matrix.platform.target, 'android') && !contains(matrix.platform.target, 'arm64') 
         uses: actions/setup-java@v3
         with:
           java-version: '17'
           distribution: 'temurin'
 
       - name: Setup Android SDK
-        if: contains(matrix.platform.target, 'android')
+        if: contains(matrix.platform.target, 'android') && !contains(matrix.platform.target, 'arm64') 
         uses: android-actions/setup-android@v3
 
       - name: Checkout Git repo
@@ -134,7 +138,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install package for Android
-        if: contains(matrix.platform.target, 'android')
+        if: contains(matrix.platform.target, 'android') && !contains(matrix.platform.target, 'arm64') 
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Show command used for Cargo
@@ -142,7 +146,11 @@ jobs:
           echo "cargo command is: ${{ env.CARGO }}"
           echo "target flag is: ${{ env.BUILD_ARGS }}"
 
-      - name: Cross Cli Build ${{ matrix.platform.name }} binary
+      - name: Native bingtray-and debug apk Build ${{ matrix.platform.name }} binary # android debug apk and release aab build
+        if: contains(matrix.platform.target, 'android') && contains(matrix.platform.target, 'arm64') 
+        run: cd bingtray-and && bash ./build.sh && x build --arch arm64 --platform android --release && cd ..
+
+      - name: Cross bingcli Build ${{ matrix.platform.name }} binary
         uses: actions-rs/cargo@v1
         # We use cross-rs if not running on x86_64 architecture on Linux
         with:
@@ -151,7 +159,7 @@ jobs:
           # args: ${{ matrix.platform.build-args }} --package ${{ env.BIN_NAME }} --target ${{ matrix.platform.target }}
           args: ${{ matrix.platform.build-args }} --package bingcli --target ${{ matrix.platform.target }}
 
-      - name: Native Gui Build ${{ matrix.platform.name }} binary
+      - name: Native bingtray-gui Build ${{ matrix.platform.name }} binary
         if: contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')
         uses: actions-rs/cargo@v1
         with:
@@ -172,6 +180,24 @@ jobs:
           # Finally, we store the binary as GitHub artifact for later usage
           name: bingtray-gui-${{ matrix.platform.target }}
           path: target/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingtray-*
+          retention-days: 1
+      
+      - name: Store artifact Android debug apk
+        if: contains(matrix.platform.target, 'android') && contains(matrix.platform.target, 'arm64')
+        uses: actions/upload-artifact@v4
+        with:
+          # Finally, we store the binary as GitHub artifact for later usage
+          name: bingtray-gui-${{ matrix.platform.target }}
+          path: target/x/debug/android/bingtray-and.apk
+          retention-days: 1
+      
+      - name: Store artifact Android release aab
+        if: contains(matrix.platform.target, 'android') && contains(matrix.platform.target, 'arm64')
+        uses: actions/upload-artifact@v4
+        with:
+          # Finally, we store the binary as GitHub artifact for later usage
+          name: bingtray-gui-${{ matrix.platform.target }}
+          path: target/x/release/android/bingtray-and.aab
           retention-days: 1
 
   release:

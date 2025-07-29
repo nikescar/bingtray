@@ -1,9 +1,6 @@
 # xbuild manifest file
 icon: "resources/logo.png"
 
-# Include Java source files for compilation
-java_files: ["src/java"]
-
 android: # https://github.com/rust-mobile/xbuild/blob/5662af28119361550f212f9a8067abb1c5ee3902/apk/src/manifest.rs
   manifest:
     package: "pe.nikescar.bingtray"

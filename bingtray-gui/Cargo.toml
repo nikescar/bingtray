@@ -17,9 +17,9 @@ chrono = { workspace = true }
 rand = { workspace = true }
 clap = { workspace = true }
 tray-icon = "0.18"
-tao = "0.30"
 open = "5.0"
-
+tao = "0.33"
+image = "0.25"
 
 [target."cfg(target_os = \"windows\")".dependencies.windows-sys]
 version = "0.59"

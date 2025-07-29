@@ -55,16 +55,14 @@ After starting the application, you'll see a tray icon with the following option
 <summary> Todos </summary>
 
 ## Todos
+* 
 
-* android? https://stackoverflow.com/a/46960602
-* remove windws i686 build due to virustotal detected - https://www.virustotal.com/gui/file-analysis/MTVlM2Q3MzFmMzNlMWM4MGVjNmNhNTNmM2Q3MjZjMzE6MTc1MzI1NzA0OA==
-* add remove config menu
-* add bing image history
-* add license on cli and gui and link
-* add history access of wallpapers from https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md
+
+## Later
+
+* add historical bing images from https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md
 https://github.com/niumoo/bing-wallpaper/tree/main
-* version code
-* check update
+* add version to app and check update
 * download progress on gui
-
+* remove windws i686 build due to virustotal detected - https://www.virustotal.com/gui/file-analysis/MTVlM2Q3MzFmMzNlMWM4MGVjNmNhNTNmM2Q3MjZjMzE6MTc1MzI1NzA0OA==
 </details>
