@@ -1,6 +1,6 @@
 # BingTray - Bing Wallpaper Manager
 
-Similar App : [Bigwallpaper Desktop](https://bingwallpaper.microsoft.com/Windows/bing/bing-wallpaper/) [Bigwallpaper Android](https://play.google.com/store/apps/details?id=com.microsoft.bing.wallpapers)
+Similar App : [Bigwallpaper Desktop](https://bingwallpaper.microsoft.com/Windows/bing/bing-wallpaper/)
 
 A cross-platform wallpaper manager that downloads and manages Bing's weekly wallpapers. bing wallpapers are updated weekly in 43 global stores. each store has different sets of 8 images many of them are shared beween markets. We are visiting random market wallpaper list and download new images if we dont have them. If you exhausted all market images, you have wait for a week to get new images. 
 
@@ -21,7 +21,7 @@ $ bingtray-gui --cli
 
 The application creates configuration files in:
 - Linux: `~/.config/bingtray/`
-- MAC OSX: ``
+- MAC OSX: `/Users/{Username}/Library/Application Support/bingtray`
 - Windows: `C:\Users\{Username}\Appdata\Roaming\bingtray`
 
 ### Directory structure:
@@ -33,11 +33,12 @@ The application creates configuration files in:
 ## Usage
 
 After starting the application, you'll see a tray icon with the following options:
-
-- **Next Market wallpaper**: Set the next available wallpaper from the unprocessed folder
-- **Keep "[title]"**: Move the current wallpaper to favorites and set the next one
-- **Blacklist "[title]"**: Remove the current wallpaper and add it to blacklist
-- **Exit**: Close the application
+- **0. Cache Dir Contents**: Open folder image and configs are saved
+- **1. Next Market wallpaper**: Set the next available wallpaper from the unprocessed folder
+- **2. Keep "[title]"**: Move the current wallpaper to favorites and set the next one
+- **3. Blacklist "[title]"**: Remove the current wallpaper and add it to blacklist
+- **4. Next Kept Wallpaper**: Get Next Kept Wallpaper 
+- **5. Exit**: Close the application
 
 ## Supported Desktop Environments
 
@@ -55,11 +56,7 @@ After starting the application, you'll see a tray icon with the following option
 <summary> Todos </summary>
 
 ## Todos
-* 
-
-
-## Later
-
+* two folders open error
 * add historical bing images from https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md
 https://github.com/niumoo/bing-wallpaper/tree/main
 * add version to app and check update

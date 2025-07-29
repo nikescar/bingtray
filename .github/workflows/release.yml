@@ -107,7 +107,7 @@ jobs:
         
       - name: Install package for Android
         if: contains(matrix.platform.target, 'android')
-        run: sudo apt install android-libunwind android-libunwind-dev  libunwind-dev
+        run: sudo apt install android-libunwind android-libunwind-dev libunwind-dev musl-tools llvm-14 clang llvm
 
       - name: Set up JDK 17
         if: contains(matrix.platform.target, 'android') && !contains(matrix.platform.target, 'arm64') 
@@ -138,7 +138,7 @@ jobs:
           components: rustfmt, clippy
 
       - name: Install package for Android
-        if: contains(matrix.platform.target, 'android') && !contains(matrix.platform.target, 'arm64') 
+        if: contains(matrix.platform.target, 'android')
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Show command used for Cargo
@@ -147,10 +147,11 @@ jobs:
           echo "target flag is: ${{ env.BUILD_ARGS }}"
 
       - name: Native bingtray-and debug apk Build ${{ matrix.platform.name }} binary # android debug apk and release aab build
-        if: contains(matrix.platform.target, 'android') && contains(matrix.platform.target, 'arm64') 
+        if: "contains(matrix.platform.name, 'Android APK arm64')" 
         run: cd bingtray-and && bash ./build.sh && x build --arch arm64 --platform android --release && cd ..
 
       - name: Cross bingcli Build ${{ matrix.platform.name }} binary
+        if: "!contains(matrix.platform.name, 'Android APK arm64')"
         uses: actions-rs/cargo@v1
         # We use cross-rs if not running on x86_64 architecture on Linux
         with:
@@ -160,13 +161,14 @@ jobs:
           args: ${{ matrix.platform.build-args }} --package bingcli --target ${{ matrix.platform.target }}
 
       - name: Native bingtray-gui Build ${{ matrix.platform.name }} binary
-        if: contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')
+        if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64')
         uses: actions-rs/cargo@v1
         with:
           command: build
           args: ${{ matrix.platform.build-args }} --package bingtray-gui
 
       - name: Store artifact Cli
+        if: "!contains(matrix.platform.name, 'Android APK arm64')"
         uses: actions/upload-artifact@v4
         with:
           # Finally, we store the binary as GitHub artifact for later usage
@@ -175,6 +177,7 @@ jobs:
           retention-days: 1
 
       - name: Store artifact Gui
+        if: "!contains(matrix.platform.name, 'Android APK arm64')"
         uses: actions/upload-artifact@v4
         with:
           # Finally, we store the binary as GitHub artifact for later usage
@@ -183,20 +186,20 @@ jobs:
           retention-days: 1
       
       - name: Store artifact Android debug apk
-        if: contains(matrix.platform.target, 'android') && contains(matrix.platform.target, 'arm64')
+        if: "contains(matrix.platform.name, 'Android APK arm64')"
         uses: actions/upload-artifact@v4
         with:
           # Finally, we store the binary as GitHub artifact for later usage
-          name: bingtray-gui-${{ matrix.platform.target }}
+          name: bingtray-and-arm64-debug.apk
           path: target/x/debug/android/bingtray-and.apk
           retention-days: 1
       
       - name: Store artifact Android release aab
-        if: contains(matrix.platform.target, 'android') && contains(matrix.platform.target, 'arm64')
+        if: "contains(matrix.platform.name, 'Android APK arm64')"
         uses: actions/upload-artifact@v4
         with:
           # Finally, we store the binary as GitHub artifact for later usage
-          name: bingtray-gui-${{ matrix.platform.target }}
+          name: bingtray-and-arm64-release.aab
           path: target/x/release/android/bingtray-and.aab
           retention-days: 1
 
@@ -226,6 +229,8 @@ jobs:
           do
               if [ -d "$i" ]
               then
+                  [[ "$i" == *".apk"* ]] && cp artifacts/bingtray-and-arm64-debug.apk/bingtray-and.apk distbin/bingtray-and-aarch64-debug.apk && continue
+                  [[ "$i" == *".aab"* ]] && cp artifacts/bingtray-and-arm64-release.aab/bingtray-and.aab distbin/bingtray-and-unsigned-release.aab && continue
                   cp LICENSE* "$i"
                   cp README.md "$i"
                   rm "$i/bingcli.d" 1>/dev/null 2>&1 || true
