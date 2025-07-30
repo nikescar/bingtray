@@ -4,6 +4,19 @@ Similar App : [Bigwallpaper Desktop](https://bingwallpaper.microsoft.com/Windows
 
 A cross-platform wallpaper manager that downloads and manages Bing's weekly wallpapers. bing wallpapers are updated weekly in 43 global stores. each store has different sets of 8 images many of them are shared beween markets. We are visiting random market wallpaper list and download new images if we dont have them. If you exhausted all market images, you have wait for a week to get new images. 
 
+## Download
+
+| Arch          | Windows        | MacOS         | Linux        | Android        | IOS         |
+|:--------------|:--------------:|--------------:|:-------------|:--------------:|--------------:|
+| X86_64(AMD64) | [CLI](https://github.com/nikescar/bingtray/releases/latest/download/bingcli-x86_64-pc-windows-msvc.tar.gz) \| [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-gui-x86_64-pc-windows-msvc.tar.gz) | [CLI](https://github.com/nikescar/bingtray/releases/latest/download/bingcli-x86_64-apple-darwin.tar.gz) \| [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-gui-x86_64-apple-darwin.tar.gz) | [CLI](https://github.com/nikescar/bingtray/releases/latest/download/bingcli-x86_64-unknown-linux-musl.tar.gz) \| [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-gui-x86_64-unknown-linux-musl.tar.gz) | - | - |
+| AARCH64(ARM64)| - | [CLI](https://github.com/nikescar/bingtray/releases/latest/download/bingcli-aarch64-apple-darwin.tar.gz) \| [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-gui-aarch64-apple-darwin.tar.gz) | [CLI](https://github.com/nikescar/bingtray/releases/latest/download/bingcli-aarch64-unknown-linux-musl.tar.gz) \| [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-gui-aarch64-linux-android.tar.gz) | [CLI](https://github.com/nikescar/bingtray/releases/latest/download/bingcli-aarch64-linux-android.tar.gz) \| [APK*](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-and-aarch64-debug.apk ) | - |
+
+[Latest Release](https://github.com/nikescar/bingtray/releases)<br/>
+\* Only Debug Apk, at the moment.
+<br/>
+<br/>
+
+
 ![bingtray-gui](./imgs/bingtray-gui.gif "Bingtray-gui")
 
 ## Usage
