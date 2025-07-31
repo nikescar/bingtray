@@ -1,7 +1,7 @@
 use eframe::NativeOptions;
-use bingtray_and::DemoApp;
-use egui::Vec2;
+use mobile::DemoApp;
 
+#[cfg(not(target_os = "ios"))]
 fn main() -> Result<(), eframe::Error> {
     // Initialize logging for desktop platforms
     #[cfg(not(target_os = "android"))]
@@ -17,4 +17,10 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
     DemoApp::run(native_options)
+}
+
+// iOS uses a different entry point through the ios_app module
+#[cfg(target_os = "ios")]
+fn main() {
+    // This function is not used on iOS, the actual entry point is main_rs() in ios_app.rs
 }

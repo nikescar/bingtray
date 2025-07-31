@@ -4,9 +4,7 @@ use egui::{Context, Modifiers, ScrollArea, Ui};
 
 // use super::HttpApp;
 // use super::ImageViewer;
-use crate::is_mobile;
 use crate::Demo;
-use crate::View;
 
 // ----------------------------------------------------------------------------
 

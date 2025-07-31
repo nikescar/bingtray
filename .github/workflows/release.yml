@@ -146,9 +146,9 @@ jobs:
           echo "cargo command is: ${{ env.CARGO }}"
           echo "target flag is: ${{ env.BUILD_ARGS }}"
 
-      - name: Native bingtray-and debug apk Build ${{ matrix.platform.name }} binary # android debug apk and release aab build
+      - name: Native mobile debug apk Build ${{ matrix.platform.name }} binary # android debug apk and release aab build
         if: "contains(matrix.platform.name, 'Android APK arm64')" 
-        run: cd bingtray-and && bash ./build.sh && x build --arch arm64 --platform android --release && cd ..
+        run: cd mobile && bash ./build.sh && x build --arch arm64 --platform android --release && cd ..
 
       - name: Cross bingcli Build ${{ matrix.platform.name }} binary
         if: "!contains(matrix.platform.name, 'Android APK arm64')"
@@ -190,8 +190,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           # Finally, we store the binary as GitHub artifact for later usage
-          name: bingtray-and-arm64-debug.apk
-          path: target/x/debug/android/bingtray-and.apk
+          name: mobile-arm64-debug.apk
+          path: target/x/debug/android/mobile.apk
           retention-days: 1
       
       - name: Store artifact Android release aab
@@ -199,8 +199,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           # Finally, we store the binary as GitHub artifact for later usage
-          name: bingtray-and-arm64-release.aab
-          path: target/x/release/android/bingtray-and.aab
+          name: mobile-arm64-release.aab
+          path: target/x/release/android/mobile.aab
           retention-days: 1
 
   release:
@@ -229,8 +229,8 @@ jobs:
           do
               if [ -d "$i" ]
               then
-                  [[ "$i" == *".apk"* ]] && cp artifacts/bingtray-and-arm64-debug.apk/bingtray-and.apk distbin/bingtray-and-aarch64-debug.apk && continue
-                  [[ "$i" == *".aab"* ]] && cp artifacts/bingtray-and-arm64-release.aab/bingtray-and.aab distbin/bingtray-and-unsigned-release.aab && continue
+                  [[ "$i" == *".apk"* ]] && cp artifacts/mobile-arm64-debug.apk/mobile.apk distbin/mobile-arm64-debug.apk && continue
+                  [[ "$i" == *".aab"* ]] && cp artifacts/mobile-arm64-release.aab/mobile.aab distbin/mobile-arm64-unsigned-release.aab && continue
                   cp LICENSE* "$i"
                   cp README.md "$i"
                   rm "$i/bingcli.d" 1>/dev/null 2>&1 || true

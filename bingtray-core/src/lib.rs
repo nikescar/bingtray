@@ -312,9 +312,9 @@ pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
     #[cfg(target_os = "android")]
     {
         // Try Android-specific wallpaper setting first
-        // This would require the bingtray-and crate to be available
+        // This would require the mobile crate to be available
         // For now, we'll use a simple approach
-        eprintln!("Android wallpaper setting should be handled by bingtray-and crate");
+        eprintln!("Android wallpaper setting should be handled by mobile crate");
         return Ok(false);
     }
     

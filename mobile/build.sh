@@ -93,5 +93,6 @@ export AR_aarch64_unknown_linux_musl=llvm-ar
 export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
 
 x build --arch arm64 --platform android
+# x build --arch x64 --platform android
 # adb devices
 # adb install ../../target/x/debug/android/Bingtray_android.apk

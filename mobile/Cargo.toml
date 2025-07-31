@@ -1,5 +1,5 @@
 [package]
-name = "bingtray-and"
+name = "mobile"
 version.workspace = true
 license.workspace = true
 edition.workspace = true
@@ -8,9 +8,10 @@ rust-version.workspace = true
 [features]
 default = ["serde"]
 serde = ["dep:serde", "dep:serde_json"]
+bevy = ["dep:bevy", "dep:bevy_egui"]
 
 [lib]
-crate-type=["lib", "cdylib"]
+crate-type=["lib", "cdylib", "staticlib"]
 
 [dependencies]
 log = "0.4"
@@ -45,6 +46,9 @@ version = "0.21"
 [target.'cfg(target_os = "android")'.dependencies.ndk-context]
 version = "0.1"
 
+[target.'cfg(target_os = "android")'.dependencies.ndk-sys]
+version = "0.6"
+
 [target.'cfg(target_os = "android")'.dependencies.libc]
 version = "0.2"
 
@@ -64,4 +68,23 @@ default-features = false
 features = [
     "clipboard",
     "links",
+]
+
+# Bevy dependencies for iOS
+[target.'cfg(target_os = "ios")'.dependencies.bevy]
+version = "0.16.0"
+default-features = false
+features = ["bevy_render", "bevy_core_pipeline", "bevy_sprite", "bevy_text", "bevy_ui", "bevy_winit"]
+optional = true
+
+[target.'cfg(target_os = "ios")'.dependencies.bevy_egui]
+version = "0.35.1"
+default-features = false
+optional = true
+
+[target.'cfg(target_os = "ios")'.dependencies.objc2-avf-audio]
+version = "0.3.0"
+features = [
+    "AVAudioSession",
+    "AVAudioSessionTypes",
 ]

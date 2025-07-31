@@ -5,7 +5,6 @@
 //! The demo is also used in benchmarks and tests.
 //!
 //! ## Feature flags
-#![cfg_attr(feature = "document-features", doc = document_features::document_features!())]
 
 #![allow(clippy::float_cmp)]
 #![allow(clippy::manual_range_contains)]
@@ -16,6 +15,10 @@ mod gui;
 
 // Android wallpaper management module
 mod android_wallpaper;
+
+// iOS Bevy app module
+#[cfg(target_os = "ios")]
+mod ios_app;
 
 #[cfg(target_os = "android")]
 use egui_winit::winit;
@@ -35,7 +38,7 @@ fn android_main(app: winit::platform::android::activity::AndroidApp) {
     
     // Log initialization message to confirm logging is working
     log::info!("Android logger initialized successfully");
-    log::info!("Starting bingtray-android application");
+    log::info!("Starting mobile application");
     
     // Also use println! as backup logging method
     println!("BingtrayApp: Application starting");
@@ -67,7 +70,7 @@ pub struct DemoApp {
 impl DemoApp {
     pub fn run(options: NativeOptions) -> Result<(), eframe::Error> {
         eframe::run_native(
-            "bingtray-android",
+            "bingtray-mobile",
             options,
             Box::new(|_cc| {
                 egui_extras::install_image_loaders(&_cc.egui_ctx);
@@ -87,10 +90,10 @@ impl eframe::App for DemoApp {
 pub use gui::{Demo, DemoWindows, View};
 
 #[cfg(target_os = "android")]
-pub use android_wallpaper::{set_wallpaper_from_path, set_wallpaper_from_bytes};
+pub use android_wallpaper::{set_wallpaper_from_path, set_wallpaper_from_bytes, set_wallpaper_with_crop_from_bytes};
 
 #[cfg(not(target_os = "android"))]
-pub use android_wallpaper::{set_wallpaper_from_path, set_wallpaper_from_bytes};
+pub use android_wallpaper::{set_wallpaper_from_path, set_wallpaper_from_bytes, set_wallpaper_with_crop_from_bytes};
 
 /// View some Rust code with syntax highlighting and selection.
 pub(crate) fn rust_view_ui(ui: &mut egui::Ui, code: &str) {
@@ -112,6 +115,10 @@ pub const LOREM_IPSUM: &str = "Lorem ipsum dolor sit amet, consectetur adipiscin
 pub const LOREM_IPSUM_LONG: &str = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.
 
 Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. Nullam various, turpis et commodo pharetra, est eros bibendum elit, nec luctus magna felis sollicitudin mauris. Integer in mauris eu nibh euismod gravida. Duis ac tellus et risus vulputate vehicula. Donec lobortis risus a elit. Etiam tempor. Ut ullamcorper, ligula eu tempor congue, eros est euismod turpis, id tincidunt sapien risus a quam. Maecenas fermentum consequat mi. Donec fermentum. Pellentesque malesuada nulla a mi. Duis sapien sem, aliquet nec, commodo eget, consequat quis, neque. Aliquam faucibus, elit ut dictum aliquet, felis nisl adipiscing sapien, sed malesuada diam lacus eget erat. Cras mollis scelerisque nunc. Nullam arcu. Aliquam consequat. Curabitur augue lorem, dapibus quis, laoreet et, pretium ac, nisi. Aenean magna nisl, mollis quis, molestie eu, feugiat in, orci. In hac habitasse platea dictumst.";
+
+/// Re-export iOS main function
+#[cfg(target_os = "ios")]
+pub use ios_app::main_rs;
 
 
 

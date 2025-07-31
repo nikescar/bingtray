@@ -3,7 +3,8 @@ use poll_promise::Promise;
 use egui::Vec2b;
 use log::{trace, warn, info, error};
 use std::time::SystemTime;
-use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use serde::Deserialize;
 
 #[derive(Deserialize, Debug)]
 struct BingImageData {
@@ -109,6 +110,12 @@ pub struct HttpApp {
     #[cfg_attr(feature = "serde", serde(skip))]
     selected_carousel_image: Option<CarouselImage>,
     #[cfg_attr(feature = "serde", serde(skip))]
+    main_panel_image: Option<CarouselImage>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    main_panel_promise: Option<Promise<ehttp::Result<CarouselImage>>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    image_cache: std::collections::HashMap<String, CarouselImage>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     bing_api_promise: Option<Promise<ehttp::Result<BingImageData>>>,
 }
 
@@ -132,6 +139,9 @@ impl Default for HttpApp {
             carousel_images: Vec::new(),
             carousel_promises: Vec::new(),
             selected_carousel_image: None,
+            main_panel_image: None,
+            main_panel_promise: None,
+            image_cache: std::collections::HashMap::new(),
             bing_api_promise: None,
         }
     }
@@ -166,7 +176,7 @@ impl crate::Demo for HttpApp {
 impl crate::View for HttpApp {
     fn ui(&mut self, ui: &mut egui::Ui) {
         let prev_url = self.url.clone();
-        let trigger_fetch = ui_url(ui, &mut self.url, &mut self.carousel_images, &mut self.carousel_promises, &mut self.selected_carousel_image, &mut self.bing_api_promise);
+        let trigger_fetch = ui_url(ui, &mut self.url, &mut self.carousel_images, &mut self.carousel_promises, &mut self.selected_carousel_image, &mut self.main_panel_image, &mut self.main_panel_promise, &mut self.image_cache, &mut self.bing_api_promise);
 
         if trigger_fetch {
             let ctx = ui.ctx().clone();
@@ -180,6 +190,28 @@ impl crate::View for HttpApp {
                 sender.send(resource);
             });
             self.promise = Some(promise);
+        }
+
+        // Handle main panel promise completion  
+        if let Some(main_promise) = &self.main_panel_promise {
+            if let Some(result) = main_promise.ready() {
+                match result {
+                    Ok(full_res_image) => {
+                        info!("Main panel high-res image loaded successfully");
+                        // Update the main panel image
+                        self.main_panel_image = Some(full_res_image.clone());
+                        // Cache the high-res image
+                        self.image_cache.insert(full_res_image.full_url.clone(), full_res_image.clone());
+                        // Clear the promise
+                        self.main_panel_promise = None;
+                        ui.ctx().request_repaint();
+                    }
+                    Err(e) => {
+                        error!("Failed to load main panel high-res image: {}", e);
+                        self.main_panel_promise = None;
+                    }
+                }
+            }
         }
 
         // Handle Bing API promise completion
@@ -286,7 +318,6 @@ impl crate::View for HttpApp {
                                     existing_img.image = carousel_image.image.clone();
                                     existing_img.image_bytes = carousel_image.image_bytes.clone();
                                     info!("Updated image in carousel by title for: {}", existing_img.title);
-                                    found = true;
                                     break;
                                 }
                             }
@@ -326,94 +357,96 @@ impl crate::View for HttpApp {
             }
         }
 
-        // Display selected carousel image
-        let mut updated_selected_image = None;
-        if let Some(selected_image) = &self.selected_carousel_image {
+        // Display main panel image (high resolution from selected carousel image)
+        if let Some(main_image) = &self.main_panel_image {
             ui.separator();
+            ui.label(format!("Main Panel: {}", main_image.title));
+            
             // Add wallpaper button for images
-            if ui.button("Set this Wallpaper").clicked() {
-                if let Some(bytes) = &selected_image.image_bytes {
-                    if !bytes.is_empty() {
-                        let image_data = bytes.clone();
-                        info!("Starting wallpaper setting with {} bytes", image_data.len());
-                        // Start wallpaper setting in background thread using bytes directly
-                        std::thread::spawn(move || {
-                            log::info!("BingtrayApp: Starting wallpaper setting from bytes in background thread");
-                            match crate::set_wallpaper_from_bytes(&image_data) {
-                                Ok(true) => {
-                                    log::info!("BingtrayApp: Wallpaper setting from bytes completed successfully");
+            ui.horizontal(|ui| {
+                if ui.button("Set this Wallpaper").clicked() {
+                    if let Some(bytes) = &main_image.image_bytes {
+                        if !bytes.is_empty() {
+                            let image_data = bytes.clone();
+                            info!("Starting wallpaper setting with {} bytes", image_data.len());
+                            // Start wallpaper setting in background thread using bytes directly
+                            std::thread::spawn(move || {
+                                log::info!("BingtrayApp: Starting wallpaper setting from bytes in background thread");
+                                match crate::set_wallpaper_from_bytes(&image_data) {
+                                    Ok(true) => {
+                                        log::info!("BingtrayApp: Wallpaper setting from bytes completed successfully");
+                                    }
+                                    Ok(false) => {
+                                        log::error!("BingtrayApp: Wallpaper setting from bytes failed");
+                                    }
+                                    Err(e) => {
+                                        log::error!("BingtrayApp: Error during wallpaper setting from bytes: {}", e);
+                                    }
                                 }
-                                Ok(false) => {
-                                    log::error!("BingtrayApp: Wallpaper setting from bytes failed");
-                                }
-                                Err(e) => {
-                                    log::error!("BingtrayApp: Error during wallpaper setting from bytes: {}", e);
-                                }
-                            }
-                        });
-                        // Immediately update UI status without waiting
-                        self.wallpaper_status = Some("✓ Wallpaper setting started (using bytes)".to_string());
-                        self.wallpaper_start_time = Some(SystemTime::now());
-                        ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
-                        log::info!("BingtrayApp: Finished processing wallpaper setting request from bytes");
+                            });
+                            // Immediately update UI status without waiting
+                            self.wallpaper_status = Some("✓ Wallpaper setting started (using bytes)".to_string());
+                            self.wallpaper_start_time = Some(SystemTime::now());
+                            ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+                            log::info!("BingtrayApp: Finished processing wallpaper setting request from bytes");
+                        } else {
+                            error!("No image data available");
+                            self.wallpaper_status = Some("✗ No image data available".to_string());
+                            self.wallpaper_start_time = Some(SystemTime::now());
+                        }
                     } else {
                         error!("No image data available");
                         self.wallpaper_status = Some("✗ No image data available".to_string());
                         self.wallpaper_start_time = Some(SystemTime::now());
                     }
-                } else {
-                    error!("No image data available");
-                    self.wallpaper_status = Some("✗ No image data available".to_string());
-                    self.wallpaper_start_time = Some(SystemTime::now());
                 }
-            }
+                
+                // if ui.button("Set with Crop").clicked() {
+                //     if let Some(bytes) = &main_image.image_bytes {
+                //         if !bytes.is_empty() {
+                //             let image_data = bytes.clone();
+                //             info!("Starting wallpaper setting with crop with {} bytes", image_data.len());
+                //             // Start wallpaper setting with crop in background thread
+                //             std::thread::spawn(move || {
+                //                 log::info!("BingtrayApp: Starting wallpaper setting with crop from bytes in background thread");
+                //                 match crate::set_wallpaper_with_crop_from_bytes(&image_data) {
+                //                     Ok(true) => {
+                //                         log::info!("BingtrayApp: Wallpaper setting with crop from bytes completed successfully");
+                //                     }
+                //                     Ok(false) => {
+                //                         log::error!("BingtrayApp: Wallpaper setting with crop from bytes failed");
+                //                     }
+                //                     Err(e) => {
+                //                         log::error!("BingtrayApp: Error during wallpaper setting with crop from bytes: {}", e);
+                //                     }
+                //                 }
+                //             });
+                //             // Immediately update UI status without waiting
+                //             self.wallpaper_status = Some("✓ Wallpaper crop setting started".to_string());
+                //             self.wallpaper_start_time = Some(SystemTime::now());
+                //             ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+                //             log::info!("BingtrayApp: Finished processing wallpaper crop setting request from bytes");
+                //         } else {
+                //             error!("No image data available");
+                //             self.wallpaper_status = Some("✗ No image data available".to_string());
+                //             self.wallpaper_start_time = Some(SystemTime::now());
+                //         }
+                //     } else {
+                //         error!("No image data available");
+                //         self.wallpaper_status = Some("✗ No image data available".to_string());
+                //         self.wallpaper_start_time = Some(SystemTime::now());
+                //     }
+                // }
+            });
             
-            // Check if we have a promise for the full resolution image
-            let mut found_full_image = false;
-            for promise in &self.carousel_promises {
-                if let Some(result) = promise.ready() {
-                    if let Ok(carousel_image) = result {
-                        if carousel_image.full_url == selected_image.full_url {
-                            // Create a fake response with the bytes from the full image
-                            let fake_response = ehttp::Response {
-                                url: carousel_image.full_url.clone(),
-                                status: 200,
-                                status_text: "OK".to_string(),
-                                ok: true,
-                                headers: ehttp::Headers::default(),
-                                bytes: Vec::new().into(), // We'll use the image from context
-                            };
-                            
-                            if let Some(image) = &carousel_image.image {
-                                let fake_resource = Resource {
-                                    response: fake_response,
-                                    text: None,
-                                    image: Some(image.clone()),
-                                    colored_text: None,
-                                };
-                                ui_resource(ui, &fake_resource, &mut self.wallpaper_status, &mut self.wallpaper_start_time);
-                                found_full_image = true;
-                                
-                                // Store the update for later
-                                updated_selected_image = Some(carousel_image.clone());
-                            }
-                            break;
-                        }
-                    }
-                }
+            // Display the main panel image
+            if let Some(image) = &main_image.image {
+                ui.add(image.clone().max_width(ui.available_width()));
             }
-            
-            if !found_full_image {
-                // Continue to show thumbnail while loading
-                if let Some(image) = &selected_image.image {
-                    ui.add(image.clone());
-                }
-            }
-        }
-        
-        // Update selected image outside of the borrow
-        if let Some(updated_image) = updated_selected_image {
-            self.selected_carousel_image = Some(updated_image);
+        } else if let Some(_selected_image) = &self.selected_carousel_image {
+            ui.separator();
+            ui.label("Loading high resolution image...");
+            ui.spinner();
         }
 
         // Handle wallpaper status display
@@ -445,8 +478,8 @@ impl crate::View for HttpApp {
     }
 }
 
-fn ui_url(ui: &mut egui::Ui, url: &mut String, carousel_images: &mut Vec<CarouselImage>, carousel_promises: &mut Vec<Promise<ehttp::Result<CarouselImage>>>, selected_carousel_image: &mut Option<CarouselImage>, bing_api_promise: &mut Option<Promise<ehttp::Result<BingImageData>>>) -> bool {
-    let mut trigger_fetch = false;
+fn ui_url(ui: &mut egui::Ui, _url: &mut String, carousel_images: &mut Vec<CarouselImage>, carousel_promises: &mut Vec<Promise<ehttp::Result<CarouselImage>>>, selected_carousel_image: &mut Option<CarouselImage>, main_panel_image: &mut Option<CarouselImage>, main_panel_promise: &mut Option<Promise<ehttp::Result<CarouselImage>>>, image_cache: &mut HashMap<String, CarouselImage>, bing_api_promise: &mut Option<Promise<ehttp::Result<BingImageData>>>) -> bool {
+    let trigger_fetch = false;
     #[cfg(target_os = "android")]
     ui.add_space(40.0);
 
@@ -461,14 +494,14 @@ fn ui_url(ui: &mut egui::Ui, url: &mut String, carousel_images: &mut Vec<Carouse
             ui.label(format!("Loaded {} images", carousel_images.len()));
             
             // Show debug info
-            let loaded_count = carousel_images.iter().filter(|img| img.image.is_some()).count();
-            ui.label(format!("Images with visuals: {}/{}", loaded_count, carousel_images.len()));
+            // let loaded_count = carousel_images.iter().filter(|img| img.image.is_some()).count();
+            // ui.label(format!("Images with visuals: {}/{}", loaded_count, carousel_images.len()));
             
             // Debug: show details of first image
-            if let Some(first_img) = carousel_images.first() {
-                ui.label(format!("First image: '{}' has_image={} url={}", 
-                    first_img.title, first_img.image.is_some(), first_img.thumbnail_url));
-            }
+            // if let Some(first_img) = carousel_images.first() {
+            //     ui.label(format!("First image: '{}' has_image={} url={}", 
+            //         first_img.title, first_img.image.is_some(), first_img.thumbnail_url));
+            // }
             
             egui::ScrollArea::horizontal()
                 .auto_shrink(false)
@@ -485,55 +518,64 @@ fn ui_url(ui: &mut egui::Ui, url: &mut String, carousel_images: &mut Vec<Carouse
                                     
                                     if response.clicked() {
                                         info!("Clicked on image {}: {}", i, carousel_image.title);
-                                        // When clicked, fetch the full resolution image
+                                        // Set this as the selected carousel image (for reference)
                                         *selected_carousel_image = Some(carousel_image.clone());
                                         
-                                        // Fetch full resolution image
-                                        let ctx = ui.ctx().clone();
-                                        let full_url = carousel_image.full_url.clone();
-                                        let carousel_image_clone = carousel_image.clone();
-                                        
-                                        info!("Fetching full resolution image: {}", full_url);
-                                        
-                                        let (sender, promise) = Promise::new();
-                                        let request = ehttp::Request::get(&full_url);
-                                        
-                                        ehttp::fetch(request, move |response| {
-                                            ctx.request_repaint();
-                                            let result = response.map(|response| {
-                                                info!("Received full image response: status={}, size={} bytes", response.status, response.bytes.len());
-                                                
-                                                if response.status != 200 {
-                                                    error!("Failed to fetch full image: status={}", response.status);
-                                                    return CarouselImage {
+                                        // Check if we already have this high-res image cached
+                                        if let Some(cached_image) = image_cache.get(&carousel_image.full_url) {
+                                            info!("Using cached high-res image for: {}", carousel_image.title);
+                                            *main_panel_image = Some(cached_image.clone());
+                                        } else {
+                                            // Clear any existing main panel promise
+                                            *main_panel_promise = None;
+                                            
+                                            // Fetch full resolution image for main panel
+                                            let ctx = ui.ctx().clone();
+                                            let full_url = carousel_image.full_url.clone();
+                                            let carousel_image_clone = carousel_image.clone();
+                                            
+                                            info!("Fetching full resolution image for main panel: {}", full_url);
+                                            
+                                            let (sender, promise) = Promise::new();
+                                            let request = ehttp::Request::get(&full_url);
+                                            
+                                            ehttp::fetch(request, move |response| {
+                                                ctx.request_repaint();
+                                                let result = response.map(|response| {
+                                                    info!("Received full image response: status={}, size={} bytes", response.status, response.bytes.len());
+                                                    
+                                                    if response.status != 200 {
+                                                        error!("Failed to fetch full image: status={}", response.status);
+                                                        return CarouselImage {
+                                                            title: carousel_image_clone.title.clone(),
+                                                            copyright: carousel_image_clone.copyright.clone(),
+                                                            thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
+                                                            full_url: carousel_image_clone.full_url.clone(),
+                                                            image: None,
+                                                            image_bytes: None,
+                                                        };
+                                                    }
+                                                    
+                                                    // Include the bytes in the context with original URL
+                                                    let image_bytes = response.bytes.to_vec();
+                                                    ctx.include_bytes(response.url.clone(), response.bytes.clone());
+                                                    ctx.request_repaint();
+                                                    let image = Image::from_uri(response.url.clone());
+                                                    
+                                                    CarouselImage {
                                                         title: carousel_image_clone.title.clone(),
                                                         copyright: carousel_image_clone.copyright.clone(),
                                                         thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
                                                         full_url: carousel_image_clone.full_url.clone(),
-                                                        image: None,
-                                                        image_bytes: None,
-                                                    };
-                                                }
-                                                
-                                                // Include the bytes in the context with original URL
-                                                let image_bytes = response.bytes.to_vec();
-                                                ctx.include_bytes(response.url.clone(), response.bytes.clone());
-                                                ctx.request_repaint();
-                                                let image = Image::from_uri(response.url.clone());
-                                                
-                                                CarouselImage {
-                                                    title: carousel_image_clone.title.clone(),
-                                                    copyright: carousel_image_clone.copyright.clone(),
-                                                    thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
-                                                    full_url: carousel_image_clone.full_url.clone(),
-                                                    image: Some(image),
-                                                    image_bytes: Some(image_bytes),
-                                                }
+                                                        image: Some(image),
+                                                        image_bytes: Some(image_bytes),
+                                                    }
+                                                });
+                                                sender.send(result);
                                             });
-                                            sender.send(result);
-                                        });
-                                        
-                                        carousel_promises.push(promise);
+                                            
+                                            *main_panel_promise = Some(promise);
+                                        }
                                     }
                                 } else {
                                     // Show placeholder while loading
@@ -568,6 +610,10 @@ fn ui_url(ui: &mut egui::Ui, url: &mut String, carousel_images: &mut Vec<Carouse
             // Clear existing images and promises
             carousel_images.clear();
             carousel_promises.clear();
+            image_cache.clear();
+            *main_panel_image = None;
+            *main_panel_promise = None;
+            *selected_carousel_image = None;
 
             // Fetch the Bing API data first
             let ctx = ui.ctx().clone();

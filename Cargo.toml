@@ -4,7 +4,7 @@ members = [
     "bingtray-core",
     "bingcli", 
     "bingtray-gui",
-    "bingtray-and"
+    "mobile"
 ]
 
 [workspace.package]
