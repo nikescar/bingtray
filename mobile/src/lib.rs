@@ -90,10 +90,10 @@ impl eframe::App for DemoApp {
 pub use gui::{Demo, DemoWindows, View};
 
 #[cfg(target_os = "android")]
-pub use android_wallpaper::{set_wallpaper_from_path, set_wallpaper_from_bytes, set_wallpaper_with_crop_from_bytes};
+pub use android_wallpaper::{set_wallpaper_from_path, set_wallpaper_from_bytes};
 
 #[cfg(not(target_os = "android"))]
-pub use android_wallpaper::{set_wallpaper_from_path, set_wallpaper_from_bytes, set_wallpaper_with_crop_from_bytes};
+pub use android_wallpaper::{set_wallpaper_from_path, set_wallpaper_from_bytes};
 
 /// View some Rust code with syntax highlighting and selection.
 pub(crate) fn rust_view_ui(ui: &mut egui::Ui, code: &str) {
