@@ -89,25 +89,25 @@ pub fn set_wallpaper_from_bytes(image_bytes: &[u8]) -> std::io::Result<bool> {
     //     warn!("Native activity pointer is null, cannot call ANativeActivity_finish");
     // }
 
-    // To show soft keyboard using InputMethodManager (uncomment if needed):
-    let input_method_string = env.new_string("input_method")
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create input_method string: {}", e)))?;
-    
-    let input_method_manager = env.call_method(
-        &activity,
-        "getSystemService",
-        "(Ljava/lang/String;)Ljava/lang/Object;",
-        &[JValue::Object(&input_method_string)],
-    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get InputMethodManager: {}", e)))?;
-    
-    let imm_obj = input_method_manager.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get IMM object: {}", e)))?;
-    
-    env.call_method(
-        &imm_obj,
-        "toggleSoftInput",
-        "(II)V",
-        &[JValue::Int(2), JValue::Int(0)], // SHOW_IMPLICIT, HIDE_NOT_ALWAYS
-    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to show soft input: {}", e)))?;
+    // To show soft keyboard using InputMethodManager (commented out to prevent crashes):
+    // let input_method_string = env.new_string("input_method")
+    //     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create input_method string: {}", e)))?;
+    // 
+    // let input_method_manager = env.call_method(
+    //     &activity,
+    //     "getSystemService",
+    //     "(Ljava/lang/String;)Ljava/lang/Object;",
+    //     &[JValue::Object(&input_method_string)],
+    // ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get InputMethodManager: {}", e)))?;
+    // 
+    // let imm_obj = input_method_manager.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get IMM object: {}", e)))?;
+    // 
+    // env.call_method(
+    //     &imm_obj,
+    //     "toggleSoftInput",
+    //     "(II)V",
+    //     &[JValue::Int(2), JValue::Int(0)], // SHOW_IMPLICIT, HIDE_NOT_ALWAYS
+    // ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to show soft input: {}", e)))?;
 
     Ok(true)
 }
