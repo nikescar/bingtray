@@ -492,80 +492,80 @@ fn main() -> Result<()> {
                     }
                 }
 
-                if !menu_items.is_empty() {
-                    // Check if we have a copyright link and if the first menu item was clicked
-                    if copyright_link.is_some() && event.id == menu_items[0] {
-                        // Copyright link clicked
-                        if let Some(ref link) = copyright_link {
-                            println!("Opening copyright link: {}", link);
-                            if let Err(e) = open::that(link) {
-                                eprintln!("Failed to open copyright link: {}", e);
-                            }
-                        }
-                    } else {
-                        // Adjust indices based on whether copyright link is present
-                        let offset = if copyright_link.is_some() { 1 } else { 0 };
+            //     if !menu_items.is_empty() {
+            //         // Check if we have a copyright link and if the first menu item was clicked
+            //         if copyright_link.is_some() && event.id == menu_items[0] {
+            //             // Copyright link clicked
+            //             if let Some(ref link) = copyright_link {
+            //                 println!("Opening copyright link: {}", link);
+            //                 if let Err(e) = open::that(link) {
+            //                     eprintln!("Failed to open copyright link: {}", e);
+            //                 }
+            //             }
+            //         } else {
+            //             // Adjust indices based on whether copyright link is present
+            //             let offset = if copyright_link.is_some() { 1 } else { 0 };
                         
-                        if event.id == menu_items[0 + offset] {
-                            // Cache Dir Contents
-                            println!("Executing: Cache Dir Contents");
-                            if let Err(e) = app.open_cache_directory() {
-                                eprintln!("Failed to open cache directory: {}", e);
-                            }
-                        } else if event.id == menu_items[1 + offset] {
-                            // Next market wallpaper - only execute if available
-                            if app.has_next_market_wallpaper_available() {
-                                println!("Executing: Next market wallpaper");
-                                if let Err(e) = app.set_next_market_wallpaper() {
-                                    eprintln!("Failed to set next market wallpaper: {}", e);
-                                } else if let Some(ref icon) = tray_icon {
-                                    update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
-                                }
-                            } else {
-                                println!("Next market wallpaper is not available - no images in unprocessed folder and no available market codes");
-                            }
-                        } else if event.id == menu_items[2 + offset] {
-                            // Keep current image - only execute if available
-                            if app.can_keep_current_image() {
-                                println!("Executing: Keep current image");
-                                if let Err(e) = app.keep_current_image() {
-                                    eprintln!("Failed to keep image: {}", e);
-                                } else if let Some(ref icon) = tray_icon {
-                                    update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
-                                }
-                            } else {
-                                println!("Keep current image is not available - no current image or image is already in favorites");
-                            }
-                        } else if event.id == menu_items[3 + offset] {
-                            // Blacklist current image - only execute if available
-                            if app.can_blacklist_current_image() {
-                                println!("Executing: Blacklist current image");
-                                if let Err(e) = app.blacklist_current_image() {
-                                    eprintln!("Failed to blacklist image: {}", e);
-                                } else if let Some(ref icon) = tray_icon {
-                                    update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
-                                }
-                            } else {
-                                println!("Blacklist current image is not available - no current image");
-                            }
-                        } else if event.id == menu_items[4 + offset] {
-                            // Next kept wallpaper
-                            println!("Executing: Next kept wallpaper");
-                            if let Err(e) = app.set_kept_wallpaper() {
-                                eprintln!("Failed to set kept wallpaper: {}", e);
-                            } else if let Some(ref icon) = tray_icon {
-                                update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
-                            }
-                        } else if event.id == menu_items[5 + offset] {
-                            // Exit
-                            println!("Executing: Exit");
-                            tray_icon.take();
-                            *control_flow = ControlFlow::Exit;
-                        } else {
-                            println!("Unknown menu item clicked: {:?}", event.id);
-                        }
-                    }
-                }
+            //             if event.id == menu_items[0 + offset] {
+            //                 // Cache Dir Contents
+            //                 println!("Executing: Cache Dir Contents");
+            //                 if let Err(e) = app.open_cache_directory() {
+            //                     eprintln!("Failed to open cache directory: {}", e);
+            //                 }
+            //             } else if event.id == menu_items[1 + offset] {
+            //                 // Next market wallpaper - only execute if available
+            //                 if app.has_next_market_wallpaper_available() {
+            //                     println!("Executing: Next market wallpaper");
+            //                     if let Err(e) = app.set_next_market_wallpaper() {
+            //                         eprintln!("Failed to set next market wallpaper: {}", e);
+            //                     } else if let Some(ref icon) = tray_icon {
+            //                         update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
+            //                     }
+            //                 } else {
+            //                     println!("Next market wallpaper is not available - no images in unprocessed folder and no available market codes");
+            //                 }
+            //             } else if event.id == menu_items[2 + offset] {
+            //                 // Keep current image - only execute if available
+            //                 if app.can_keep_current_image() {
+            //                     println!("Executing: Keep current image");
+            //                     if let Err(e) = app.keep_current_image() {
+            //                         eprintln!("Failed to keep image: {}", e);
+            //                     } else if let Some(ref icon) = tray_icon {
+            //                         update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
+            //                     }
+            //                 } else {
+            //                     println!("Keep current image is not available - no current image or image is already in favorites");
+            //                 }
+            //             } else if event.id == menu_items[3 + offset] {
+            //                 // Blacklist current image - only execute if available
+            //                 if app.can_blacklist_current_image() {
+            //                     println!("Executing: Blacklist current image");
+            //                     if let Err(e) = app.blacklist_current_image() {
+            //                         eprintln!("Failed to blacklist image: {}", e);
+            //                     } else if let Some(ref icon) = tray_icon {
+            //                         update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
+            //                     }
+            //                 } else {
+            //                     println!("Blacklist current image is not available - no current image");
+            //                 }
+            //             } else if event.id == menu_items[4 + offset] {
+            //                 // Next kept wallpaper
+            //                 println!("Executing: Next kept wallpaper");
+            //                 if let Err(e) = app.set_kept_wallpaper() {
+            //                     eprintln!("Failed to set kept wallpaper: {}", e);
+            //                 } else if let Some(ref icon) = tray_icon {
+            //                     update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
+            //                 }
+            //             } else if event.id == menu_items[5 + offset] {
+            //                 // Exit
+            //                 println!("Executing: Exit");
+            //                 tray_icon.take();
+            //                 *control_flow = ControlFlow::Exit;
+            //             } else {
+            //                 println!("Unknown menu item clicked: {:?}", event.id);
+            //             }
+            //         }
+            //     }
             }
 
             _ => {}
