@@ -106,5 +106,5 @@ x build --arch arm64 --platform android --release
 # adb install ../../target/x/debug/android/Bingtray_android.apk
 
 # adb logcat -c
-# adb logcat -v time -s *:V > fullcat.logs
-# adb logcat -s BingtrayApp > bingcat.logs
+# adb logcat -v time -s *:V > fullcat.log
+# adb logcat -s BingtrayApp > bingcat.log
