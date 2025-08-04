@@ -1,5 +1,5 @@
 use std::path::Path;
-use log::info;
+use log::{info,warn};
 
 #[cfg(target_os = "android")]
 use jni::objects::{JObject, JValue};
@@ -272,10 +272,6 @@ pub fn set_wallpaper_from_bytes(image_bytes: &[u8]) -> std::io::Result<bool> {
         let resource_id = get_resource_id_from_view(&mut env, &content_view_obj)?;
         info!("Current Layout Resource ID: {}", resource_id);
 
-        // Step 3: Show Toast with resource ID (equivalent to Toast.makeText)
-        // Use safe toast to avoid threading issues
-        show_toast_safe(&mut env, &activity, &format!("Current Layout Resource ID: {}", resource_id))?;
-
         // Get WallpaperManager instance with error handling
         let wallpaper_manager_class = env.find_class("android/app/WallpaperManager")
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to find WallpaperManager class: {}", e)))?;
@@ -338,40 +334,9 @@ pub fn set_wallpaper_from_bytes(image_bytes: &[u8]) -> std::io::Result<bool> {
                 Err(e) => info!("Failed to dispatch setContentView to UI thread: {}", e),
             }
         }
-
-        // Step 5: Demonstrate finding a view by ID (like findViewById(R.id.resetButton))
-        // Note: This will likely fail as NativeActivity doesn't have traditional layouts
-        let button_id = 0x7f090001i32; // Example button ID - would be R.id.resetButton
-        let button_view = env.call_method(
-            &activity,
-            "findViewById",
-            "(I)Landroid/view/View;",
-            &[JValue::Int(button_id)],
-        );
-
-        match button_view {
-            Ok(view) => {
-                let view_obj = view.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get button view object: {}", e)))?;
-                if !view_obj.is_null() {
-                    info!("Found button view with ID: {}", button_id);
-                    // Here you would normally set an OnClickListener, but this is complex in JNI
-                } else {
-                    info!("Button view with ID {} is null", button_id);
-                }
-            }
-            Err(e) => {
-                info!("Failed to find button view (expected for NativeActivity): {}", e);
-            }
-        }
-
     } else {
         info!("Content view is null - this is expected for NativeActivity");
     }   
-
-    
-    // Show success toast safely (avoid threading issues)
-    show_toast_safe(&mut env, &activity, "Wallpaper set successfully!")?;
-
     std::thread::yield_now();
 
     // set content view to the inflated layout 
@@ -385,16 +350,16 @@ pub fn set_wallpaper_from_bytes(image_bytes: &[u8]) -> std::io::Result<bool> {
 
     // Gracefully finish the Android application using ANativeActivity_finish
     // Get the ANativeActivity from the ndk context
-    // let native_activity = ctx.context() as *mut ndk_sys::ANativeActivity;
-    // if !native_activity.is_null() {
-    //     info!("Calling ANativeActivity_finish to gracefully close the application");
-    //     unsafe {
-    //         ndk_sys::ANativeActivity_finish(native_activity);
-    //     }
-    //     info!("ANativeActivity_finish has been called");
-    // } else {
-    //     warn!("Native activity pointer is null, cannot call ANativeActivity_finish");
-    // }
+    let native_activity = ctx.context() as *mut ndk_sys::ANativeActivity;
+    if !native_activity.is_null() {
+        info!("Calling ANativeActivity_finish to gracefully close the application");
+        unsafe {
+            ndk_sys::ANativeActivity_finish(native_activity);
+        }
+        info!("ANativeActivity_finish has been called");
+    } else {
+        warn!("Native activity pointer is null, cannot call ANativeActivity_finish");
+    }
 
     Ok(true)
 }
