@@ -13,4 +13,4 @@ chrono = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 scraper = { workspace = true }
-wallpaper = "3.2.0"
+wallpaper = { workspace = true }
