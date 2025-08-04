@@ -34,6 +34,13 @@ mod app {
             
             // Set initial wallpaper
             self.set_next_market_wallpaper()?;
+
+            // Set kept wallpaper when program loads
+            // if self.has_kept_wallpapers_available() {
+            //     if let Err(e) = self.set_kept_wallpaper() {
+            //         eprintln!("Failed to set kept wallpaper: {}", e);
+            //     }
+            // }
             
             Ok(())
         }
