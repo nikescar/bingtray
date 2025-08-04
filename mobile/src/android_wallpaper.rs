@@ -7,6 +7,93 @@ use jni::objects::{JObject, JValue};
 #[cfg(target_os = "android")]
 use ndk_context;
 
+
+/// Helper function to get resource ID from a view
+#[cfg(target_os = "android")]
+fn get_resource_id_from_view(env: &mut jni::JNIEnv, view: &JObject) -> std::io::Result<i32> {
+    // Method 1: Try to get the resource ID using getId()
+    let view_id = env.call_method(
+        view,
+        "getId",
+        "()I",
+        &[],
+    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get view ID: {}", e)))?;
+
+    let id = view_id.i().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to convert view ID to int: {}", e)))?;
+    
+    info!("View ID: {}", id);
+
+    // Method 2: Try to get the tag (sometimes used to store resource info)
+    let tag_result = env.call_method(
+        view,
+        "getTag",
+        "()Ljava/lang/Object;",
+        &[],
+    );
+
+    if let Ok(tag) = tag_result {
+        let tag_obj = tag.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get tag object: {}", e)))?;
+        if !tag_obj.is_null() {
+            info!("View has a tag");
+        }
+    }
+
+    // Method 3: Try to get layout parameters to understand the view better
+    let layout_params_result = env.call_method(
+        view,
+        "getLayoutParams",
+        "()Landroid/view/ViewGroup$LayoutParams;",
+        &[],
+    );
+
+    if let Ok(layout_params) = layout_params_result {
+        let layout_params_obj = layout_params.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get layout params object: {}", e)))?;
+        if !layout_params_obj.is_null() {
+            info!("View has layout parameters");
+        }
+    }
+
+    Ok(id)
+}
+
+/// Helper function to show a Toast message
+#[cfg(target_os = "android")]
+fn show_toast(env: &mut jni::JNIEnv, context: &JObject, message: &str) -> std::io::Result<()> {
+    // Create Java string for the message
+    let message_string = env.new_string(message)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create message string: {}", e)))?;
+
+    // Find Toast class
+    let toast_class = env.find_class("android/widget/Toast")
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to find Toast class: {}", e)))?;
+
+    // Call Toast.makeText(context, message, Toast.LENGTH_LONG)
+    let length_long = 1i32; // Toast.LENGTH_LONG
+    let toast = env.call_static_method(
+        &toast_class,
+        "makeText",
+        "(Landroid/content/Context;Ljava/lang/CharSequence;I)Landroid/widget/Toast;",
+        &[
+            JValue::Object(context),
+            JValue::Object(&JObject::from(message_string)),
+            JValue::Int(length_long),
+        ],
+    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create Toast: {}", e)))?;
+
+    let toast_obj = toast.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get Toast object: {}", e)))?;
+
+    // Show the toast
+    env.call_method(
+        &toast_obj,
+        "show",
+        "()V",
+        &[],
+    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to show Toast: {}", e)))?;
+
+    info!("Toast shown: {}", message);
+    Ok(())
+}
+
 /// Set wallpaper from image bytes using Android WallpaperManager and ByteArrayInputStream
 #[cfg(target_os = "android")]
 pub fn set_wallpaper_from_bytes(image_bytes: &[u8]) -> std::io::Result<bool> {
@@ -24,57 +111,139 @@ pub fn set_wallpaper_from_bytes(image_bytes: &[u8]) -> std::io::Result<bool> {
         .attach_current_thread()
         .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "Failed to attach current thread"))?;
 
-    // Get WallpaperManager instance with error handling
-    let wallpaper_manager_class = env.find_class("android/app/WallpaperManager")
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to find WallpaperManager class: {}", e)))?;
+    // Step 1: Get content view using findViewById(android.R.id.content)
+    let android_r_id_content = 0x1020002i32; // android.R.id.content
+    let content_view = env.call_method(
+        &activity,
+        "findViewById",
+        "(I)Landroid/view/View;",
+        &[JValue::Int(android_r_id_content)],
+    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to find content view: {}", e)))?;
 
-    let wallpaper_manager = env.call_static_method(
-        &wallpaper_manager_class,
-        "getInstance",
-        "(Landroid/content/Context;)Landroid/app/WallpaperManager;",
-        &[JValue::Object(&activity)],
-    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get WallpaperManager instance: {}", e)))?;
-    info!("Getting WallpaperManager instance has done.");
+    let content_view_obj = content_view.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get content view object: {}", e)))?;
 
-    // Create Java byte array from Rust bytes
-    let java_byte_array = env.byte_array_from_slice(image_bytes)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create Java byte array: {}", e)))?;
-    info!("Create Java byte array from Rust bytes.");
+    if !content_view_obj.is_null() {
+        info!("Successfully got content view");
 
-    // Create Bitmap using BitmapFactory.decodeByteArray
-    let bitmap_factory_class = env.find_class("android/graphics/BitmapFactory")
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to find BitmapFactory class: {}", e)))?;
+        // Step 2: Get resource ID from view (equivalent to getResourceIdFromView)
+        let resource_id = get_resource_id_from_view(&mut env, &content_view_obj)?;
+        info!("Current Layout Resource ID: {}", resource_id);
+
+        // Step 3: Show Toast with resource ID (equivalent to Toast.makeText)
+        show_toast(&mut env, &activity, &format!("Current Layout Resource ID: {}", resource_id))?;
+
+        // Get WallpaperManager instance with error handling
+        let wallpaper_manager_class = env.find_class("android/app/WallpaperManager")
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to find WallpaperManager class: {}", e)))?;
+
+        let wallpaper_manager = env.call_static_method(
+            &wallpaper_manager_class,
+            "getInstance",
+            "(Landroid/content/Context;)Landroid/app/WallpaperManager;",
+            &[JValue::Object(&activity)],
+        ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get WallpaperManager instance: {}", e)))?;
+        info!("Getting WallpaperManager instance has done.");
+
+        // Create Java byte array from Rust bytes
+        let java_byte_array = env.byte_array_from_slice(image_bytes)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create Java byte array: {}", e)))?;
+        info!("Create Java byte array from Rust bytes.");
+
+        // Create Bitmap using BitmapFactory.decodeByteArray
+        let bitmap_factory_class = env.find_class("android/graphics/BitmapFactory")
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to find BitmapFactory class: {}", e)))?;
+        
+        let bitmap = env.call_static_method(
+            &bitmap_factory_class,
+            "decodeByteArray",
+            "([BII)Landroid/graphics/Bitmap;",
+            &[
+                JValue::Object(&JObject::from(java_byte_array)),
+                JValue::Int(0),
+                JValue::Int(image_bytes.len() as i32),
+            ],
+        ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to decode bitmap from byte array: {}", e)))?;
+
+        // Check if bitmap creation was successful
+        let bitmap_obj = bitmap.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get bitmap object: {}", e)))?;
+        if bitmap_obj.is_null() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to create bitmap from image data"));
+        }
+
+        info!("Decoding bitmap from bytearray has done.");
+        std::thread::yield_now();
+
+        // Set wallpaper using setBitmap
+        let result = env.call_method(
+            wallpaper_manager.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get wallpaper manager object: {}", e)))?,
+            "setBitmap",
+            "(Landroid/graphics/Bitmap;)V",
+            &[JValue::Object(&bitmap_obj)],
+        ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to set wallpaper bitmap: {}", e)))?;
+        info!("Setting wallpaper from bitmap has done.");
+        
+        // Step 4: Try to set content view with resource ID (this will likely fail for NativeActivity)
+        if resource_id != 0 {
+            let set_content_result = env.call_method(
+                &activity,
+                "setContentView",
+                "(I)V",
+                &[JValue::Int(resource_id)],
+            );
+
+            match set_content_result {
+                Ok(_) => {
+                    info!("Successfully set content view with resource ID: {}", resource_id);
+                }
+                Err(e) => {
+                    info!("Failed to set content view with resource ID (expected for NativeActivity): {}", e);
+                }
+            }
+        }
+
+        // Step 5: Demonstrate finding a view by ID (like findViewById(R.id.resetButton))
+        // Note: This will likely fail as NativeActivity doesn't have traditional layouts
+        let button_id = 0x7f090001i32; // Example button ID - would be R.id.resetButton
+        let button_view = env.call_method(
+            &activity,
+            "findViewById",
+            "(I)Landroid/view/View;",
+            &[JValue::Int(button_id)],
+        );
+
+        match button_view {
+            Ok(view) => {
+                let view_obj = view.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get button view object: {}", e)))?;
+                if !view_obj.is_null() {
+                    info!("Found button view with ID: {}", button_id);
+                    // Here you would normally set an OnClickListener, but this is complex in JNI
+                } else {
+                    info!("Button view with ID {} is null", button_id);
+                }
+            }
+            Err(e) => {
+                info!("Failed to find button view (expected for NativeActivity): {}", e);
+            }
+        }
+
+    } else {
+        info!("Content view is null - this is expected for NativeActivity");
+    }   
+
     
-    let bitmap = env.call_static_method(
-        &bitmap_factory_class,
-        "decodeByteArray",
-        "([BII)Landroid/graphics/Bitmap;",
-        &[
-            JValue::Object(&JObject::from(java_byte_array)),
-            JValue::Int(0),
-            JValue::Int(image_bytes.len() as i32),
-        ],
-    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to decode bitmap from byte array: {}", e)))?;
-
-    // Check if bitmap creation was successful
-    let bitmap_obj = bitmap.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get bitmap object: {}", e)))?;
-    if bitmap_obj.is_null() {
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Failed to create bitmap from image data"));
-    }
-
-    info!("Decoding bitmap from bytearray has done.");
-    std::thread::yield_now();
-
-    // Set wallpaper using setBitmap
-    let result = env.call_method(
-        wallpaper_manager.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get wallpaper manager object: {}", e)))?,
-        "setBitmap",
-        "(Landroid/graphics/Bitmap;)V",
-        &[JValue::Object(&bitmap_obj)],
-    ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to set wallpaper bitmap: {}", e)))?;
-    info!("Setting wallpaper from bitmap has done.");
+    // Show success toast
+    show_toast(&mut env, &activity, "Wallpaper set successfully!")?;
 
     std::thread::yield_now();
+
+    // set content view to the inflated layout 
+    // let set_content_view = env.call_method(
+    //     &activity,
+    //     "setContentView",
+    //     "(Landroid/view/View;)V",
+    //     &[JValue::Object(&view.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get view object: {}", e)))?)],
+    // ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to set content view: {}", e)))?;
+    // info!("Set content view to the inflated layout."); 
 
     // Gracefully finish the Android application using ANativeActivity_finish
     // Get the ANativeActivity from the ndk context
@@ -88,26 +257,6 @@ pub fn set_wallpaper_from_bytes(image_bytes: &[u8]) -> std::io::Result<bool> {
     // } else {
     //     warn!("Native activity pointer is null, cannot call ANativeActivity_finish");
     // }
-
-    // To show soft keyboard using InputMethodManager (commented out to prevent crashes):
-    // let input_method_string = env.new_string("input_method")
-    //     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to create input_method string: {}", e)))?;
-    // 
-    // let input_method_manager = env.call_method(
-    //     &activity,
-    //     "getSystemService",
-    //     "(Ljava/lang/String;)Ljava/lang/Object;",
-    //     &[JValue::Object(&input_method_string)],
-    // ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get InputMethodManager: {}", e)))?;
-    // 
-    // let imm_obj = input_method_manager.l().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get IMM object: {}", e)))?;
-    // 
-    // env.call_method(
-    //     &imm_obj,
-    //     "toggleSoftInput",
-    //     "(II)V",
-    //     &[JValue::Int(2), JValue::Int(0)], // SHOW_IMPLICIT, HIDE_NOT_ALWAYS
-    // ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to show soft input: {}", e)))?;
 
     Ok(true)
 }
