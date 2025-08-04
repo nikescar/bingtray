@@ -78,16 +78,16 @@ pub fn set_wallpaper_from_bytes(image_bytes: &[u8]) -> std::io::Result<bool> {
 
     // Gracefully finish the Android application using ANativeActivity_finish
     // Get the ANativeActivity from the ndk context
-    let native_activity = ctx.context() as *mut ndk_sys::ANativeActivity;
-    if !native_activity.is_null() {
-        info!("Calling ANativeActivity_finish to gracefully close the application");
-        unsafe {
-            ndk_sys::ANativeActivity_finish(native_activity);
-        }
-        info!("ANativeActivity_finish has been called");
-    } else {
-        warn!("Native activity pointer is null, cannot call ANativeActivity_finish");
-    }
+    // let native_activity = ctx.context() as *mut ndk_sys::ANativeActivity;
+    // if !native_activity.is_null() {
+    //     info!("Calling ANativeActivity_finish to gracefully close the application");
+    //     unsafe {
+    //         ndk_sys::ANativeActivity_finish(native_activity);
+    //     }
+    //     info!("ANativeActivity_finish has been called");
+    // } else {
+    //     warn!("Native activity pointer is null, cannot call ANativeActivity_finish");
+    // }
 
     Ok(true)
 }

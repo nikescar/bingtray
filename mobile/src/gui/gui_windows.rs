@@ -1,12 +1,6 @@
 use std::collections::BTreeSet;
-
 use egui::{Context, Modifiers, ScrollArea, Ui};
-
-// use super::HttpApp;
-// use super::ImageViewer;
 use crate::Demo;
-
-// ----------------------------------------------------------------------------
 
 struct GuiGroup {
     demos: Vec<Box<dyn Demo>>,
@@ -48,23 +42,15 @@ fn set_open(open: &mut BTreeSet<String>, key: &'static str, is_open: bool) {
     }
 }
 
-// ----------------------------------------------------------------------------
-
 pub struct GuiGroups {
-    // http_app: HttpApp,
-    // image_viewer: ImageViewer,
     demos: GuiGroup,
 }
 
 impl Default for GuiGroups {
     fn default() -> Self {
         Self {
-            // http_app: HttpApp::default(),
-            // image_viewer: ImageViewer::default(),
             demos: GuiGroup::new(vec![
                 Box::<super::http_app::HttpApp>::default(),
-                // Box::<super::svg_test::SvgTest>::default(),
-                // Add actual demo modules here when available
             ]),
         }
     }
@@ -73,18 +59,9 @@ impl Default for GuiGroups {
 impl GuiGroups {
     pub fn checkboxes(&mut self, ui: &mut Ui, open: &mut BTreeSet<String>) {
         let Self {
-            // http_app,
-            // image_viewer,
             demos,
         } = self;
 
-        {
-            // let mut is_open = open.contains(http_app.name());
-            // ui.toggle_value(&mut is_open, http_app.name());
-            // set_open(open, http_app.name(), is_open);
-        }
-        ui.separator();
-        // image_viewer.checkboxes(ui, open);
         ui.separator();
         demos.checkboxes(ui, open);
         ui.separator();
@@ -92,21 +69,12 @@ impl GuiGroups {
 
     pub fn windows(&mut self, ctx: &Context, open: &mut BTreeSet<String>) {
         let Self {
-            // http_app,
-            // image_viewer,
             demos,
         } = self;
-        {
-            // let mut is_open = open.contains(http_app.name());
-            // http_app.show(ctx, &mut is_open);
-            // set_open(open, http_app.name(), is_open);
-        }
         //image_viewer.windows(ctx, open);
         demos.windows(ctx, open);
     }
 }
-
-// ----------------------------------------------------------------------------
 
 /// A menu bar in which you can select different demo windows to show.
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
@@ -121,9 +89,6 @@ impl Default for DemoWindows {
     fn default() -> Self {
         let open = BTreeSet::new();
 
-        // Open HTTP app by default
-        // set_open(&mut open, HttpApp::default().name(), true);
-
         Self {
             groups: Default::default(),
             open,
@@ -134,47 +99,10 @@ impl Default for DemoWindows {
 impl DemoWindows {
     /// Show the app ui (menu bar and windows).
     pub fn ui(&mut self, ctx: &Context) {
-        // if is_mobile(ctx) {
-        //     self.mobile_ui(ctx);
-        // } else {
-        //     self.desktop_ui(ctx);
-        // }
         self.mobile_ui(ctx);
     }
 
-    // fn http_app_is_open(&self) -> bool {
-    //     self.open.contains(HttpApp::default().name())
-    // }
-
     fn mobile_ui(&mut self, ctx: &Context) {
-        // if self.http_app_is_open() {
-        //     let mut close = false;
-        //     egui::CentralPanel::default().show(ctx, |ui| {
-        //         egui::ScrollArea::vertical()
-        //             .auto_shrink(false)
-        //             .show(ui, |ui| {
-        //                 #[cfg(target_os = "android")]
-        //                 ui.add_space(40.0);
-        //                 ui.vertical_centered_justified(|ui| {
-        //                     if ui
-        //                         .button(egui::RichText::new("Continue to the demo!").size(20.0))
-        //                         .clicked()
-        //                     {
-        //                         // close = true;
-        //                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-        //                     }
-        //                 });
-        //                 self.groups.http_app.ui(ui);
-                        
-        //             });
-        //     });
-        //     if close {
-        //         set_open(&mut self.open, HttpApp::default().name(), false);
-        //     }
-        // } else {
-        //     self.mobile_top_bar(ctx);
-        //     self.groups.windows(ctx, &mut self.open);
-        // }
         self.mobile_top_bar(ctx);
         self.groups.windows(ctx, &mut self.open);
     }
@@ -239,8 +167,6 @@ impl DemoWindows {
         });
     }
 }
-
-// ----------------------------------------------------------------------------
 
 fn file_menu_button(ui: &mut Ui) {
     let organize_shortcut =
