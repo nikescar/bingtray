@@ -360,7 +360,11 @@ impl crate::View for HttpApp {
         // Display main panel image (high resolution from selected carousel image)
         if let Some(main_image) = &self.main_panel_image {
             ui.separator();
-            ui.label(format!("Main Panel: {}", main_image.title));
+            ui.label(format!("Title: {}", main_image.title));
+            // show copyright if available
+            if !main_image.copyright.is_empty() {
+                ui.label(format!("Copyright: {}", main_image.copyright));
+            }
             
             // Add wallpaper button for images
             ui.horizontal(|ui| {
@@ -401,42 +405,26 @@ impl crate::View for HttpApp {
                     }
                 }
                 
-                // if ui.button("Set with Crop").clicked() {
-                //     if let Some(bytes) = &main_image.image_bytes {
-                //         if !bytes.is_empty() {
-                //             let image_data = bytes.clone();
-                //             info!("Starting wallpaper setting with crop with {} bytes", image_data.len());
-                //             // Start wallpaper setting with crop in background thread
-                //             std::thread::spawn(move || {
-                //                 log::info!("BingtrayApp: Starting wallpaper setting with crop from bytes in background thread");
-                //                 match crate::set_wallpaper_with_crop_from_bytes(&image_data) {
-                //                     Ok(true) => {
-                //                         log::info!("BingtrayApp: Wallpaper setting with crop from bytes completed successfully");
-                //                     }
-                //                     Ok(false) => {
-                //                         log::error!("BingtrayApp: Wallpaper setting with crop from bytes failed");
-                //                     }
-                //                     Err(e) => {
-                //                         log::error!("BingtrayApp: Error during wallpaper setting with crop from bytes: {}", e);
-                //                     }
-                //                 }
-                //             });
-                //             // Immediately update UI status without waiting
-                //             self.wallpaper_status = Some("✓ Wallpaper crop setting started".to_string());
-                //             self.wallpaper_start_time = Some(SystemTime::now());
-                //             ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
-                //             log::info!("BingtrayApp: Finished processing wallpaper crop setting request from bytes");
-                //         } else {
-                //             error!("No image data available");
-                //             self.wallpaper_status = Some("✗ No image data available".to_string());
-                //             self.wallpaper_start_time = Some(SystemTime::now());
-                //         }
-                //     } else {
-                //         error!("No image data available");
-                //         self.wallpaper_status = Some("✗ No image data available".to_string());
-                //         self.wallpaper_start_time = Some(SystemTime::now());
-                //     }
-                // }
+                // show copyright button and open copyrighturl on click
+                if !main_image.copyright.is_empty() {
+                    if ui.button("Open Copyright URL").clicked() {
+                        if let Some(copyrighturl) = main_image.copyrighturl.strip_prefix("http") {
+                            info!("Opening copyright URL: {}", copyrighturl);
+                            if let Err(e) = webbrowser::open(copyrighturl) {
+                                error!("Failed to open copyright URL: {}", e);
+                                self.wallpaper_status = Some(format!("✗ Failed to open copyright URL: {}", e));
+                                self.wallpaper_start_time = Some(SystemTime::now());
+                            } else {
+                                self.wallpaper_status = Some("✓ Opened copyright URL".to_string());
+                                self.wallpaper_start_time = Some(SystemTime::now());
+                            }
+                        } else {
+                            warn!("Invalid copyright URL format: {}", main_image.copyrighturl);
+                            self.wallpaper_status = Some("⚠ Invalid copyright URL format".to_string());
+                            self.wallpaper_start_time = Some(SystemTime::now());
+                        }
+                    }
+                }
             });
             
             // Display the main panel image
