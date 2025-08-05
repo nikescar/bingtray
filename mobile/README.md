@@ -1,11 +1,9 @@
 # custom xbuild
 
-if you want to use custom build, you neex to install custom version of xbuild available in [xbuild](https://github.com/nikescar/xbuild)
+current xbuild aab build is broken, need custom build.
 
 ```bash
-$ git clone https://github.com/nikescar/xbuild
-$ cd xbuild: cargo build --release
-$ cp ./target/release/x ~/.cargo/bin/x
+$ cargo install xbuild --git https://github.com/nikescar/xbuild
 ```
 
 # building
@@ -43,3 +41,18 @@ $ adb logcat -v time -s *:V > fullcat.log
 # app specific logcat
 $ adb logcat -s BingtrayApp > bingcat.log
 ```
+
+# github workflow google keystore
+
+set github secrets on Settings > Security > Secrets and Variables > Actions > Environments > New Secret
+
+export keystore to github vars.
+```bash
+$ openssl base64 < {crate_name}-release-key.keystore | tr -d '\n' | tee {crate_name}-release-key-keystore_base64_encoded.txt
+# KEYSTORE_BASE64=<ENCODED_KEY>
+# STORE_PASSWORD=Test123
+# KEY_PASSWORD=Test123
+# KEY_ALIAS={crate_name}-release-key
+```
+
+
