@@ -24,6 +24,7 @@ ehttp = "0.5"
 poll-promise = "0.3"
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
+webbrowser = "1.0"
 
 [target.'cfg(not(target_os = "android"))'.dependencies.rfd]
 version = "0.15"

@@ -38,6 +38,7 @@ struct BingImage {
 struct CarouselImage {
     title: String,
     copyright: String,
+    copyright_link: String,
     thumbnail_url: String,
     full_url: String,
     image: Option<Image<'static>>,
@@ -230,6 +231,7 @@ impl crate::View for HttpApp {
                             let carousel_image = CarouselImage {
                                 title: bing_image.title.clone(),
                                 copyright: bing_image.copyright.clone(),
+                                copyright_link: bing_image.copyright_link.clone(),
                                 thumbnail_url: thumbnail_url.clone(),
                                 full_url: full_url.clone(),
                                 image: None,
@@ -257,6 +259,7 @@ impl crate::View for HttpApp {
                                         CarouselImage {
                                             title: carousel_image.title.clone(),
                                             copyright: carousel_image.copyright.clone(),
+                                            copyright_link: carousel_image.copyright_link.clone(),
                                             thumbnail_url: carousel_image.thumbnail_url.clone(),
                                             full_url: carousel_image.full_url.clone(),
                                             image: Some(image),
@@ -266,6 +269,7 @@ impl crate::View for HttpApp {
                                         CarouselImage {
                                             title: carousel_image.title.clone(),
                                             copyright: carousel_image.copyright.clone(),
+                                            copyright_link: carousel_image.copyright_link.clone(),
                                             thumbnail_url: carousel_image.thumbnail_url.clone(),
                                             full_url: carousel_image.full_url.clone(),
                                             image: None,
@@ -405,22 +409,22 @@ impl crate::View for HttpApp {
                     }
                 }
                 
-                // show copyright button and open copyrighturl on click
-                if !main_image.copyright.is_empty() {
-                    if ui.button("Open Copyright URL").clicked() {
-                        if let Some(copyrighturl) = main_image.copyrighturl.strip_prefix("http") {
-                            info!("Opening copyright URL: {}", copyrighturl);
-                            if let Err(e) = webbrowser::open(copyrighturl) {
-                                error!("Failed to open copyright URL: {}", e);
-                                self.wallpaper_status = Some(format!("✗ Failed to open copyright URL: {}", e));
-                                self.wallpaper_start_time = Some(SystemTime::now());
-                            } else {
-                                self.wallpaper_status = Some("✓ Opened copyright URL".to_string());
-                                self.wallpaper_start_time = Some(SystemTime::now());
-                            }
+                // show copyright button and open copyright_link on click
+                if !main_image.copyright.is_empty() && !main_image.copyright_link.is_empty() {
+                    if ui.button("More Info").clicked() {
+                        let copyright_url = if main_image.copyright_link.starts_with("http") {
+                            main_image.copyright_link.clone()
                         } else {
-                            warn!("Invalid copyright URL format: {}", main_image.copyrighturl);
-                            self.wallpaper_status = Some("⚠ Invalid copyright URL format".to_string());
+                            format!("https://bing.com{}", main_image.copyright_link)
+                        };
+                        
+                        info!("Opening copyright URL: {}", copyright_url);
+                        if let Err(e) = webbrowser::open(&copyright_url) {
+                            error!("Failed to open copyright URL: {}", e);
+                            self.wallpaper_status = Some(format!("✗ Failed to open copyright URL: {}", e));
+                            self.wallpaper_start_time = Some(SystemTime::now());
+                        } else {
+                            self.wallpaper_status = Some("✓ Opened copyright URL".to_string());
                             self.wallpaper_start_time = Some(SystemTime::now());
                         }
                     }
@@ -537,6 +541,7 @@ fn ui_url(ui: &mut egui::Ui, _url: &mut String, carousel_images: &mut Vec<Carous
                                                         return CarouselImage {
                                                             title: carousel_image_clone.title.clone(),
                                                             copyright: carousel_image_clone.copyright.clone(),
+                                                            copyright_link: carousel_image_clone.copyright_link.clone(),
                                                             thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
                                                             full_url: carousel_image_clone.full_url.clone(),
                                                             image: None,
@@ -553,6 +558,7 @@ fn ui_url(ui: &mut egui::Ui, _url: &mut String, carousel_images: &mut Vec<Carous
                                                     CarouselImage {
                                                         title: carousel_image_clone.title.clone(),
                                                         copyright: carousel_image_clone.copyright.clone(),
+                                                        copyright_link: carousel_image_clone.copyright_link.clone(),
                                                         thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
                                                         full_url: carousel_image_clone.full_url.clone(),
                                                         image: Some(image),
@@ -731,8 +737,6 @@ fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_status: &mut Op
                         *wallpaper_start_time = Some(SystemTime::now());
                     }
                 }
-                
-                // No longer need to show wallpaper promise status here since we handle it in the main UI loop
             } else if let Some(colored_text) = colored_text {
                 colored_text.ui(ui);
             } else if let Some(text) = &text {
