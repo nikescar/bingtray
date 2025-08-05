@@ -1,23 +1,45 @@
-# egui Android Demo
+# custom xbuild
 
-This is my attempt at getting latest version of the
-[`egui`](https://github.com/emilk/egui) demo to work on Android.
+if you want to use custom build, you neex to install custom version of xbuild available in [xbuild](https://github.com/nikescar/xbuild)
 
-Optimized for size the resulting `egui-android-demo.aab` is 2.4M.
+```bash
+$ git clone https://github.com/nikescar/xbuild
+$ cd xbuild: cargo build --release
+$ cp ./target/release/x ~/.cargo/bin/x
+```
 
-Built using [`xbuild`](https://github.com/rust-mobile/xbuild)
+# building
 
-## Building
+```bash
+# debug/release|apk/aab|play|arm64/x64 build commands
+# debug build for x64,arm64
+$ x build --arch x64 --platform android 
+$ x build --arch arm64 --platform android
+# release build for x64,arm64
+$ x build --arch x64 --platform android --release
+$ x build --arch arm64 --platform android --release
+# release aab build for x64,arm64
+$ x build --arch x64 --platform android --release --format aab
+$ x build --arch arm64 --platform android --release --format aab
+# release for playstore for x64,arm64
+$ x build --arch x64 --platform android --release --store play
+$ x build --arch arm64 --platform android --release --store play
+```
 
-    x build --arch arm64 --platform android
+# installing
 
-## Running
+```bash
+# run build.sh
+$ ./build.sh
+```
 
-    x run --device <DEVICE>
+# logcat
 
-### Example
-
-    $ x devices
-    host                                              Linux               linux x64           Arch Linux 6.6.2-arch1-1
-    adb:d535946                                       OnePlus5T           android arm64       Android 10 (API 29)
-    $ x run --device adb:d535946 
+```bash
+# clar logcat
+$ adb logcat -c
+# full logcat
+$ adb logcat -v time -s *:V > fullcat.log
+# app specific logcat
+$ adb logcat -s BingtrayApp > bingcat.log
+```
