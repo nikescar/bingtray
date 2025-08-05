@@ -13,15 +13,9 @@ struct BingImageData {
 
 #[derive(Deserialize, Debug)]
 struct BingImage {
-    #[serde(rename = "startdate")]
-    start_date: String,
     #[serde(rename = "fullstartdate")]
     full_start_date: String,
-    #[serde(rename = "enddate")]
-    end_date: String,
     url: String,
-    #[serde(rename = "urlbase")]
-    url_base: String,
     copyright: String,
     #[serde(rename = "copyrightlink")]
     copyright_link: String,

@@ -32,9 +32,6 @@ mod app {
                 self.download_new_images(&mut market_codes)?;
             }
             
-            // Set initial wallpaper
-            self.set_next_market_wallpaper()?;
-
             // Set kept wallpaper when program loads
             // if self.has_kept_wallpapers_available() {
             //     if let Err(e) = self.set_kept_wallpaper() {
@@ -62,18 +59,62 @@ mod app {
         }
         
         pub fn set_next_market_wallpaper(&mut self) -> Result<bool> {
+            // No unprocessed images, try to download from market codes first
             let mut market_codes = load_market_codes(&self.config)?;
-            self.download_new_images(&mut market_codes)?;
-
-            if let Some(image_path) = get_next_image(&self.config)? {
-                if set_wallpaper(&image_path)? {
-                    self.current_image = Some(image_path.clone());
-                    println!("Set wallpaper: {}", image_path.display());
-                    return Ok(true);
+            let old_codes = get_old_market_codes(&market_codes);
+            
+            if !old_codes.is_empty() {
+                // Download from market codes
+                self.download_new_images(&mut market_codes)?;
+                
+                if let Some(image_path) = get_next_image(&self.config)? {
+                    if set_wallpaper(&image_path)? {
+                        self.current_image = Some(image_path.clone());
+                        println!("Set wallpaper: {}", image_path.display());
+                        return Ok(true);
+                    }
+                }
+            } else {
+                // No market codes available, try historical data
+                if let Ok(Some(historical_images)) = bingtray_core::get_next_historical_page(&self.config) {
+                    println!("Downloaded historical images");
+                    
+                    // Set the first historical image as wallpaper
+                    if let Some(first_image) = historical_images.first() {
+                        let display_name = first_image.url
+                            .split("th?id=")
+                            .nth(1)
+                            .and_then(|s| s.split('_').next())
+                            .unwrap_or(&first_image.title)
+                            .to_string();
+                        let sanitized_name = sanitize_filename(&display_name);
+                        let filepath = self.config.unprocessed_dir.join(format!("{}.jpg", sanitized_name));
+                        
+                        if filepath.exists() {
+                            if set_wallpaper(&filepath)? {
+                                self.current_image = Some(filepath.clone());
+                                println!("Set historical wallpaper: {}", filepath.display());
+                                return Ok(true);
+                            }
+                        }
+                    }
                 }
             }
 
-            Ok(true)
+            // Check if there are images in unprocessed folder first
+            if !need_more_images(&self.config).unwrap_or(true) {
+                // There are unprocessed images, use them
+                if let Some(image_path) = get_next_image(&self.config)? {
+                    if set_wallpaper(&image_path)? {
+                        self.current_image = Some(image_path.clone());
+                        println!("Set wallpaper: {}", image_path.display());
+                        return Ok(true);
+                    }
+                }
+                return Ok(false);
+            }
+
+            Ok(false)
         }
         
         pub fn get_current_image_title(&self) -> String {
@@ -104,13 +145,20 @@ mod app {
                 move_to_keepfavorite(&self.config, image_path)?;
                 println!("Moved to favorites: {}", image_path.display());
                 
-                // Check if we need more images after moving this one
-                if need_more_images(&self.config)? {
-                    let mut market_codes = load_market_codes(&self.config)?;
-                    self.download_new_images(&mut market_codes)?;
+                // Try to set next wallpaper from remaining unprocessed images
+                if !need_more_images(&self.config).unwrap_or(true) {
+                    // There are still unprocessed images, set the next one
+                    if let Some(next_image_path) = get_next_image(&self.config)? {
+                        if set_wallpaper(&next_image_path)? {
+                            self.current_image = Some(next_image_path.clone());
+                            println!("Set next wallpaper: {}", next_image_path.display());
+                        }
+                    }
+                } else {
+                    // No more unprocessed images, clear current image
+                    self.current_image = None;
+                    println!("No more unprocessed images available");
                 }
-                
-                self.set_next_market_wallpaper()?;
             }
 
             Ok(())
@@ -121,13 +169,20 @@ mod app {
                 blacklist_image(&self.config, image_path)?;
                 println!("Blacklisted: {}", image_path.display());
                 
-                // Check if we need more images after blacklisting this one
-                if need_more_images(&self.config)? {
-                    let mut market_codes = load_market_codes(&self.config)?;
-                    self.download_new_images(&mut market_codes)?;
+                // Try to set next wallpaper from remaining unprocessed images
+                if !need_more_images(&self.config).unwrap_or(true) {
+                    // There are still unprocessed images, set the next one
+                    if let Some(next_image_path) = get_next_image(&self.config)? {
+                        if set_wallpaper(&next_image_path)? {
+                            self.current_image = Some(next_image_path.clone());
+                            println!("Set next wallpaper: {}", next_image_path.display());
+                        }
+                    }
+                } else {
+                    // No more unprocessed images, clear current image
+                    self.current_image = None;
+                    println!("No more unprocessed images available");
                 }
-                
-                self.set_next_market_wallpaper()?;
             }
             
             Ok(())
@@ -189,7 +244,17 @@ mod app {
             // Check if there are available market codes to download from
             let market_codes = load_market_codes(&self.config).unwrap_or_default();
             let old_codes = get_old_market_codes(&market_codes);
-            old_codes.len() > 0
+            if old_codes.len() > 0 {
+                return true;
+            }
+            
+            // Check if historical data is available when no market codes are available
+            // if current page is equal to total page from get_historical_page_info in the case return false, rest return true
+            if let Ok((current_page, total_pages)) = bingtray_core::get_historical_page_info(&self.config) {
+                return current_page < total_pages;
+            }
+            
+            false
         }
 
         pub fn can_keep_current_image(&self) -> bool {
@@ -262,6 +327,13 @@ mod app {
             let old_codes = bingtray_core::get_old_market_codes(&market_codes);
             let available_count = old_codes.len();
             
+            // If no market codes available, show historical information
+            if available_count == 0 {
+                if let Ok((current_page, total_pages)) = get_historical_page_info(&self.config) {
+                    return (format!("Historical {}/{}", current_page, total_pages), 0);
+                }
+            }
+            
             // Find the most recently used market code (highest timestamp)
             let last_tried = market_codes
                 .iter()
@@ -292,7 +364,16 @@ mod app {
             println!("Current wallpaper: {}", title);
             println!("{}", copyright_text);
             println!("{}", copyrightlink);
-            println!("Last tried market: {} | Available markets: {}", last_tried, available_count);
+            
+            // Show market info or historical info based on availability
+            if available_count > 0 {
+                println!("Last tried market: {} | Available markets: {}", last_tried, available_count);
+            } else if let Ok((current_page, total_pages)) = get_historical_page_info(&self.config) {
+                println!("Historical mode | Current page: {} | Total pages: {}", current_page, total_pages);
+            } else {
+                println!("Last tried market: {} | Available markets: {}", last_tried, available_count);
+            }
+            
             println!();
             
             let has_next_available = self.has_next_market_wallpaper_available();

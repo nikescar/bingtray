@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{Utc, NaiveDate, Duration};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -20,6 +20,15 @@ pub struct BingResponse {
     pub images: Vec<BingImage>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HistoricalImage {
+    pub fullstartdate: String,
+    pub url: String,
+    pub copyright: String,
+    pub copyrightlink: String,
+    pub title: String,
+}
+
 #[derive(Debug)]
 pub struct Config {
     pub config_dir: PathBuf,
@@ -28,6 +37,7 @@ pub struct Config {
     pub blacklist_file: PathBuf,
     pub marketcodes_file: PathBuf,
     pub metadata_file: PathBuf,
+    pub historical_metadata_file: PathBuf,
 }
 
 
@@ -43,6 +53,7 @@ impl Config {
         let blacklist_file = config_dir.join("blacklist.conf");
         let marketcodes_file = config_dir.join("marketcodes.conf");
         let metadata_file = config_dir.join("metadata.conf");
+        let historical_metadata_file = config_dir.join("historical.metadata.conf");
 
         // Create directories if they don't exist
         fs::create_dir_all(&config_dir)?;
@@ -59,6 +70,11 @@ impl Config {
             fs::write(&metadata_file, "")?;
         }
 
+        // // Create historical.metadata.conf if it doesn't exist with first line as "0"
+        // if !historical_metadata_file.exists() {
+        //     fs::write(&historical_metadata_file, "0\n")?;
+        // }
+
         Ok(Config {
             config_dir,
             unprocessed_dir,
@@ -66,6 +82,7 @@ impl Config {
             blacklist_file,
             marketcodes_file,
             metadata_file,
+            historical_metadata_file,
         })
     }
 
@@ -578,6 +595,302 @@ pub fn get_old_market_codes(market_codes: &HashMap<String, i64>) -> Vec<String> 
         .filter(|(_, &timestamp)| timestamp < seven_days_ago)
         .map(|(code, _)| code.clone())
         .collect()
+}
+
+/// Download and parse historical data from GitHub repository
+pub fn download_historical_data(config: &Config, starting_index: usize) -> Result<Vec<HistoricalImage>> {
+    // Check if historical metadata conf exists, if so, load and return first 8 images
+    if config.historical_metadata_file.exists() {
+        let (_, images) = load_historical_metadata(config)?;
+        // Return only first 8 records of historical_images from the end (most recent)
+        return Ok(images.into_iter().rev().take(8).collect());
+    }
+
+    // parse all data when first download historical data
+    let url = "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
+    let response = attohttpc::get(url).send()?;
+    let content = response.text()?;
+    
+    let lines: Vec<&str> = content.lines().collect();
+    let mut historical_images = Vec::new();
+    
+    // Parse all historical data at once on first download
+    for line in lines.iter() {
+        if let Some(historical_image) = parse_historical_line(line)? {
+            historical_images.push(historical_image);
+        }
+    }
+
+    if historical_images.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // save all historical images to historial.metadata.conf file
+    let current_page = if starting_index == 0 { 1 } else { starting_index };
+    let mut metadata_content = format!("{}\n", current_page);
+    for image in &historical_images {
+        metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
+    }
+    fs::write(&config.historical_metadata_file, metadata_content)?;
+
+    // return only first 8 records of historical_images from last
+    let historical_images = historical_images.into_iter().rev().take(8).collect();
+
+    Ok(historical_images)
+}
+
+/// Parse a single line from the historical data markdown
+fn parse_historical_line(line: &str) -> Result<Option<HistoricalImage>> {
+    // Example line: "2025-08-04 | [Sunflowers in a field in summer (© Arsgera/Shutterstock)](https://cn.bing.com/th?id=OHR.HappySunflower_EN-US8791544241_UHD.jpg)"
+    
+    if !line.contains(" | [") || !line.contains("](") {
+        return Ok(None);
+    }
+    
+    let parts: Vec<&str> = line.split(" | ").collect();
+    if parts.len() != 2 {
+        return Ok(None);
+    }
+    
+    let date_str = parts[0].trim();
+    let bracket_content = parts[1];
+    
+    // Extract title and copyright from bracket content
+    if let Some(start) = bracket_content.find('[') {
+        if let Some(end) = bracket_content.find("](") {
+            let title_and_copyright = &bracket_content[start + 1..end];
+            if let Some(url_start) = bracket_content.find("](") {
+                if let Some(url_end) = bracket_content.rfind(')') {
+                    let full_url = &bracket_content[url_start + 2..url_end];
+                    
+                    // Extract title and copyright
+                    let (title, copyright) = if let Some(copyright_start) = title_and_copyright.rfind(" (") {
+                        let title = title_and_copyright[..copyright_start].trim();
+                        let copyright = title_and_copyright[copyright_start + 2..].trim_end_matches(')');
+                        (title, copyright)
+                    } else {
+                        (title_and_copyright, "")
+                    };
+                    
+                    // Extract display_name and imagecode from URL
+                    // URL example: https://cn.bing.com/th?id=OHR.HappySunflower_EN-US8791544241_UHD.jpg
+                    let display_name = if let Some(id_part) = full_url.split("id=").nth(1) {
+                        if let Some(name_part) = id_part.split('_').next() {
+                            name_part.to_string()
+                        } else {
+                            "OHR.Unknown".to_string()
+                        }
+                    } else {
+                        "OHR.Unknown".to_string()
+                    };
+                    
+                    let imagecode = if let Some(id_part) = full_url.split("id=").nth(1) {
+                        if let Some(code_part) = id_part.split('_').nth(1) {
+                            if let Some(code) = code_part.split('_').next() {
+                                code.to_string()
+                            } else {
+                                "EN-US0000000000".to_string()
+                            }
+                        } else {
+                            "EN-US0000000000".to_string()
+                        }
+                    } else {
+                        "EN-US0000000000".to_string()
+                    };
+                    
+                    // Parse date
+                    let date = NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+                        .context("Failed to parse date")?;
+                    
+                    let startdate = date.format("%Y%m%d").to_string();
+                    let fullstartdate = format!("{}0300", startdate);
+                    let next_date = date + Duration::days(1);
+                    let enddate = next_date.format("%Y%m%d").to_string();
+                    
+                    // Generate URLs
+                    let url = format!("/th?id={}_{}_1920x1080.jpg&pid=hp", display_name, imagecode);
+                    let urlbase = format!("/th?id={}", display_name);
+                    
+                    // Generate copyright link
+                    let title_query = title.to_lowercase().replace(' ', "+");
+                    let copyrightlink = format!(
+                        "https://www.bing.com/search?q={}&form=hpcapt&filters=HpDate%3A%22{}_0700%22",
+                        title_query, startdate
+                    );
+                    
+                    return Ok(Some(HistoricalImage {
+                        fullstartdate,
+                        url,
+                        copyright: format!("{}", copyright),
+                        copyrightlink,
+                        title: title.to_string(),
+                    }));
+                }
+            }
+        }
+    }
+    
+    Ok(None)
+}
+
+/// Load historical metadata from file
+pub fn load_historical_metadata(config: &Config) -> Result<(usize, Vec<HistoricalImage>)> {
+    let content = fs::read_to_string(&config.historical_metadata_file)?;
+    let lines: Vec<&str> = content.lines().collect();
+    
+    let current_page = if lines.is_empty() {
+        1
+    } else {
+        lines[0].parse::<usize>().unwrap_or(1)
+    };
+    
+    let mut historical_images = Vec::new();
+    for line in lines.iter().skip(1) {
+        if !line.trim().is_empty() {
+            if let Ok(image) = serde_json::from_str::<HistoricalImage>(line) {
+                historical_images.push(image);
+            }
+        }
+    }
+    
+    Ok((current_page, historical_images))
+}
+
+/// Get next historical page data
+pub fn get_next_historical_page(config: &Config) -> Result<Option<Vec<HistoricalImage>>> {
+    let (current_page, existing_images) = load_historical_metadata(config)?;
+    
+    // Calculate total pages from existing data
+    let total_pages = existing_images.len() / 8 + if existing_images.len() % 8 > 0 { 1 } else { 0 };
+    
+    // Check if we have more pages available
+    if current_page >= total_pages {
+        return Ok(None);
+    }
+    
+    // Get next page data from existing images
+    let next_page = current_page + 1;
+    let start_index = (next_page - 1) * 8;
+    let end_index = (start_index + 8).min(existing_images.len());
+    
+    if start_index >= existing_images.len() {
+        return Ok(None);
+    }
+    
+    let page_images = &existing_images[start_index..end_index];
+    let mut downloaded_images = Vec::new();
+    
+    // Download images for this page
+    for new_image in page_images {
+        let mut display_name = new_image.url
+            .split("th?id=")
+            .nth(1)
+            .and_then(|s| s.split('_').next())
+            .unwrap_or(&new_image.title)
+            .to_string();
+        display_name = sanitize_filename(&display_name);
+
+        let unprocessed_path = config.unprocessed_dir.join(format!("{}.jpg", display_name));
+        let keepfavorite_path = config.keepfavorite_dir.join(format!("{}.jpg", display_name));
+        
+        if !unprocessed_path.exists() && !keepfavorite_path.exists() && !is_blacklisted(config, &display_name)? {
+            // Convert HistoricalImage to BingImage for download
+            let bing_image = BingImage {
+                url: new_image.url.clone(),
+                title: new_image.title.clone(),
+                copyright: Some(new_image.copyright.clone()),
+                copyrightlink: Some(new_image.copyrightlink.clone()),
+            };
+            
+            match download_image(&bing_image, &config.unprocessed_dir, config) {
+                Ok(filepath) => {
+                    println!("Downloaded historical image: {}", filepath.display());
+                }
+                Err(e) => {
+                    eprintln!("Failed to download historical image {}: {}", display_name, e);
+                }
+            }
+        } else {
+            println!("Skipping already downloaded or blacklisted historical image: {}", display_name);
+        }
+        
+        downloaded_images.push(new_image.clone());
+
+        // Save metadata for this image
+        let sanitized_name = sanitize_filename(&display_name);
+        if let Err(e) = save_image_metadata(config, &sanitized_name, &new_image.copyright, &new_image.copyrightlink) {
+            eprintln!("Failed to save metadata for {}: {}", sanitized_name, e);
+        }
+    }
+
+    // Update current page to next page in the metadata file
+    let mut metadata_content = format!("{}\n", next_page);
+    for image in &existing_images {
+        metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
+    }
+    fs::write(&config.historical_metadata_file, metadata_content)?;
+
+    Ok(Some(downloaded_images))
+}
+
+/// Get historical data page count information
+pub fn get_historical_page_info(config: &Config) -> Result<(usize, usize)> {
+    // if no historical metadata file, run download_historical_image
+    if !config.historical_metadata_file.exists() {
+        download_historical_data(config, 0)?;
+    }
+
+    let (current_page, images) = load_historical_metadata(config)?;
+    
+    // Calculate total pages based on actual image count
+    let total_pages = if images.is_empty() {
+        1
+    } else {
+        (images.len() + 7) / 8 // Round up division
+    };
+    
+    Ok((current_page, total_pages))
+}
+
+/// Download and save historical image
+pub fn download_historical_image(image: &HistoricalImage, target_dir: &Path, config: &Config) -> Result<PathBuf> {
+    let url = if image.url.starts_with("http") {
+        image.url.clone()
+    } else {
+        format!("https://bing.com{}", image.url)
+    };
+
+    // get display_name from image.url
+    let display_name = image.url
+        .split("th?id=")
+        .nth(1)
+        .and_then(|s| s.split('_').next())
+        .unwrap_or(&image.title)
+        .to_string();
+
+    let filename = format!("{}.jpg", sanitize_filename(&display_name));
+    let filepath = target_dir.join(&filename);
+    
+    // Check if file exists in keepfavorite folder
+    let keepfavorite_path = target_dir.parent()
+        .map(|parent| parent.join("keepfavorite").join(&filename));
+    
+    if let Some(keepfavorite_file) = keepfavorite_path {
+        if keepfavorite_file.exists() {
+            return Ok(filepath);
+        }
+    }
+    
+    if !filepath.exists() {
+        let response = attohttpc::get(&url).send()?;
+        let bytes = response.bytes()?;
+        fs::write(&filepath, bytes)?;
+    }
+    
+    // Save metadata
+    save_image_metadata(config, &sanitize_filename(&display_name), &image.copyright, &image.copyrightlink)?;
+    
+    Ok(filepath)
 }
 
 

@@ -143,7 +143,11 @@ fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>, O
     );
     
     let status_item = MenuItem::new(
-        format!("Last: {} | Available: {}", last_tried, available_count), 
+        if available_count == 0 {
+            format!("Status: {}", last_tried)  // last_tried will contain "Historical X/Y" format
+        } else {
+            format!("Last: {} | Available: {}", last_tried, available_count)
+        }, 
         false, 
         None
     );
