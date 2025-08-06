@@ -4,6 +4,11 @@ icon: "resources/logo.png"
 android: # https://github.com/rust-mobile/xbuild/blob/5662af28119361550f212f9a8067abb1c5ee3902/apk/src/manifest.rs
   manifest:
     package: "pe.nikescar.bingtray"
+    version_code: 250806010
+    version_name: "0.0.5"
+    sdk:
+      min_sdk_version: 21
+      target_sdk_version: 35
     uses_permission: # https://developer.android.com/reference/android/Manifest.permission
       - name: "android.permission.INTERNET"
       - name: "android.permission.POST_NOTIFICATIONS"

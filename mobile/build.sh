@@ -9,7 +9,6 @@
 # tar -xvf rust-1.88.0-x86_64-unknown-linux-gnu.tar.xz
 # mv rust-1.88.0-x86_64-unknown-linux-gnu $HOME/.local/
 
-# libpath=("$HOME/.local/jdk-24.0.1/bin" "$HOME/.local/LLVM-20.1.0-Linux-X64/bin" "$HOME/.android/platform-tools" "$HOME/.local/kotlin-native-prebuilt-linux-x86_64-2.2.0/bin" "export PATH=$PATH:$HOME/.local/kotlinc/bin" "$HOME/.local/gradle-8.14.3/bin")
 if [[ ! -d "$HOME/.local/jdk-24.0.1/bin" ]]; then
     echo "Installing JDK 24..."
     durl="https://download.java.net/java/GA/jdk24.0.1/24a58e0e276943138bf3e963e6291ac2/9/GPL/openjdk-24.0.1_linux-x64_bin.tar.gz"
@@ -40,7 +39,7 @@ if [[ ! -d "$HOME/.android/platform-tools" ]]; then
     popd
 fi
 
-if [[ ! -d "$HOME/.local/kotlin-native-prebuilt-linux-x86_64-2.2.0/bin" ]]; then
+if [[ ! -d "$HOME/.local/kotlinc/bin" ]]; then
     echo "Installing android kotlin compiler..."
     durl="https://github.com/JetBrains/kotlin/releases/download/v2.2.0/kotlin-compiler-2.2.0.zip"
     pushd "$HOME/Downloads"
@@ -50,7 +49,7 @@ if [[ ! -d "$HOME/.local/kotlin-native-prebuilt-linux-x86_64-2.2.0/bin" ]]; then
     popd
 fi
 
-if [[ ! -d "$HOME/.android/platform-tools" ]]; then
+if [[ ! -d "$HOME/.local/kotlin-native-prebuilt-linux-x86_64-2.2.0/bin" ]]; then
     echo "Installing android kotlin native..."
     durl="https://github.com/JetBrains/kotlin/releases/download/v2.2.0/kotlin-native-prebuilt-linux-x86_64-2.2.0.tar.gz"
     pushd "$HOME/Downloads"
@@ -60,28 +59,44 @@ if [[ ! -d "$HOME/.android/platform-tools" ]]; then
     popd
 fi
 
-if [[ ! -d "$HOME/.android/platform-tools" ]]; then
+if [[ ! -d "$HOME/.local/gradle-9.0.0" ]]; then
     echo "Installing android gradle..."
-    durl="https://services.gradle.org/distributions/gradle-8.14.3-bin.zip"
+    durl="https://services.gradle.org/distributions/gradle-9.0.0-bin.zip"
     pushd "$HOME/Downloads"
     wget --directory-prefix="$HOME/Downloads" "${durl}" 2>&1 1>/dev/null
-    unzip gradle-8.14.3-bin.zip 2>&1 1>/dev/null
-    mv gradle-8.14.3 $HOME/.local
+    unzip gradle-9.0.0-bin.zip 2>&1 1>/dev/null
+    mv gradle-9.0.0 $HOME/.local
     popd
 fi
+
+# if [[ ! -d "$HOME/.android/ndk/android-ndk-r28c" ]]; then
+#     echo "Installing android ndk..."
+#     durl="https://dl.google.com/android/repository/android-ndk-r28c-linux.zip"
+#     pushd "$HOME/Downloads"
+#     wget --directory-prefix="$HOME/Downloads" "${durl}" 2>&1 1>/dev/null
+#     unzip android-ndk-r28c-linux.zip 2>&1 1>/dev/null
+#     mv android-ndk-r28c $HOME/.android/ndk
+#     popd
+# fi
+
+# if latest folder name in $HOME/.android/ndk is not equal to $HOME/.cache/x/Android.ndk/latest contents
+if [[ $(cat $HOME/.cache/x/Android.ndk/latest) != "android-ndk-r28c" ]]; then
+    bash android.ndk.sh
+fi
+
 : <<'END_COMMENT'
 export PATH=$PATH:$HOME/.local/jdk-24.0.1/bin
 export PATH=$PATH:$HOME/.local/LLVM-20.1.0-Linux-X64/bin
 export PATH=$PATH:$HOME/.android/platform-tools
 export PATH=$PATH:$HOME/.local/kotlin-native-prebuilt-linux-x86_64-2.2.0/bin
 export PATH=$PATH:$HOME/.local/kotlinc/bin
-export PATH=$PATH:$HOME/.local/gradle-8.14.3/bin
+export PATH=$PATH:$HOME/.local/gradle-9.0.0/bin
 
 export JAVA_HOME=$HOME/.local/jdk-24.0.1
 export ANDROID_HOME=$HOME/.android
-export ANDROID_NDK_HOME=$HOME/.android/ndk/android-ndk-r27d/
+export ANDROID_NDK_HOME=$HOME/.android/ndk/android-ndk-r28c/
 export ANDROID_NDK_ROOT=$HOME/.android/ndk
-export ANDROID_CMDLINE_TOOLS$HOME/.android/cmdline-tools/latest/bin
+export ANDROID_CMDLINE_TOOLS=$HOME/.android/cmdline-tools/latest/bin
 export ANDROID_TOOLS=$HOME/.android/tools/bin
 export ANDROID_PLATFORM_TOOLS=$HOME/.android/platform-tools
 END_COMMENT
@@ -91,7 +106,7 @@ END_COMMENT
 [[ $(grep -c "platform-tools" $HOME/.bashrc) -lt 1 ]] && echo "export PATH=\$PATH:\$HOME/.android/platform-tools" >> $HOME/.bashrc
 [[ $(grep -c "kotlin-native-prebuilt-linux-x86_64-2.2.0" $HOME/.bashrc) -lt 1 ]] && echo "export PATH=\$PATH:\$HOME/.local/kotlin-native-prebuilt-linux-x86_64-2.2.0/bin" >> $HOME/.bashrc
 [[ $(grep -c "kotlinc" $HOME/.bashrc) -lt 1 ]] && echo "export PATH=\$PATH:\$HOME/.local/kotlinc/bin" >> $HOME/.bashrc
-[[ $(grep -c "gradle-8.14.3" $HOME/.bashrc) -lt 1 ]] && echo "export PATH=\$PATH:\$HOME/.local/gradle-8.14.3/bin" >> $HOME/.bashrc
+[[ $(grep -c "gradle-9.0.0" $HOME/.bashrc) -lt 1 ]] && echo "export PATH=\$PATH:\$HOME/.local/gradle-9.0.0/bin" >> $HOME/.bashrc
 
 # https://github.com/aws/aws-lc-rs/blob/main/aws-lc-rs/README.md#Build
 # russh -> cmake  >> apt install cmake
@@ -100,7 +115,19 @@ export CC_aarch64_unknown_linux_musl=clang
 export AR_aarch64_unknown_linux_musl=llvm-ar
 export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
 
-x build --arch arm64 --platform android --release
+# update version name and code to manifest.yaml
+version=$(cargo tree|grep mobile|grep bingtray|awk '{ print $2 }'| sed 's/v//')
+timestamp=$(date +%y%m%d%H%M)
+sed -i "s/ version_code: .*/ version_code: ${timestamp:0:-1}/" manifest.yaml
+sed -i "s/version_name: .*/version_name: \"$version\"/" manifest.yaml
+
+# copy keystore to release dir
+if [[ -d "$HOME/.projects/bingtray_keys" ]]; then
+    mkdir -p ../target/x/release/android/keys
+    cp -r $HOME/.projects/bingtray_keys/* ../target/x/release/android/keys
+fi
+
+x build --arch arm64 --platform android --release --verbose
 
 # debug/release|apk/aab|play|arm64/x64 build commands
 # x build --arch x64 --platform android 

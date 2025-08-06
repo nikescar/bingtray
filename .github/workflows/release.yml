@@ -134,15 +134,6 @@ jobs:
           target: ${{ matrix.platform.target }}
           components: rustfmt, clippy
 
-      - name: Decode keystore
-        if: contains(matrix.platform.target, 'android')
-        id: android_keystore
-        uses: timheuer/base64-to-file@v1.0.3
-        with:
-          fileName: mobile-release-key.keystore
-          fileDir: './target/x/release/android/keys/'
-          encodedString: ${{ secrets.KEYSTORE_BASE64 }}
-      
       - name: Install package for Android
         if: contains(matrix.platform.target, 'android')
         run: | 
@@ -157,6 +148,8 @@ jobs:
       - name: Native mobile release apk Build ${{ matrix.platform.name }} binary # android release apk build
         if: (contains(matrix.platform.name, 'Android APK arm64'))
         run: | 
+          mkdir -p target/x/release/android/keys
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > target/x/release/android/keys/mobile-release-key.keystore.jks
           pushd mobile
           bash ./build.sh
           x build --arch arm64 --platform android --release \
