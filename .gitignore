@@ -21,6 +21,8 @@ Cargo.lock
 /mobile/Android.ndk.tar.zst
 release-key-keystore_base64_encoded.txt
 encryption_public_key.pem
+release-signing-play-generated.zip
+pepk.jar
 
 # From https://github.com/github/gitignore/blob/master/Gradle.gitignore
 .gradle
