@@ -121,7 +121,10 @@ if [[ -d "$HOME/.projects/release.keystore" ]]; then
     cp -r $HOME/.projects/release.keystore ./app/
 fi
 
+rustup target add armv7-linux-androideabi
 rustup target add aarch64-linux-android
+rustup target add i686-linux-android
+rustup target add x86_64-linux-android
 cargo install cargo-ndk
 
 timestamp=$(date +%y%m%d%H%M)
