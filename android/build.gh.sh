@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# running in github actions
+# https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md
+# ANDROID_HOME 	/usr/local/lib/android/sdk
+# ANDROID_NDK 	/usr/local/lib/android/sdk/ndk/27.3.13750724
+# ANDROID_NDK_HOME 	/usr/local/lib/android/sdk/ndk/27.3.13750724
+# ANDROID_NDK_LATEST_HOME 	/usr/local/lib/android/sdk/ndk/28.2.13676358
+# ANDROID_NDK_ROOT 	/usr/local/lib/android/sdk/ndk/27.3.13750724
+# ANDROID_SDK_ROOT 	/usr/local/lib/android/sdk
+
+export CC_aarch64_unknown_linux_musl=clang
+export AR_aarch64_unknown_linux_musl=llvm-ar
+export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
+
+# copy keystore to release dir
+if [[ -d "$HOME/.projects/release.keystore" ]]; then
+    cp -r $HOME/.projects/release.keystore ./app/
+fi
+
+rustup target add aarch64-linux-android
+cargo install cargo-ndk
+
+timestamp=$(date +%y%m%d%H%M)
+export APPLICATION_VERSION_CODE=${timestamp:0:-1}
+export APPLICATION_VERSION_NAME=$(grep -m1 "version = " ../Cargo.toml | cut -d' ' -f3 | tr -d '"')
+
+cargo ndk -t armeabi-v7a -o app/src/main/jniLibs/ build --release
+cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build --release
+cargo ndk -t x86 -o app/src/main/jniLibs/ build --release
+cargo ndk -t x86_64 -o app/src/main/jniLibs/ build --release
+gradle build

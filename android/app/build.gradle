@@ -3,17 +3,26 @@ plugins {
 }
 
 android {
-    ndkVersion "25.2.9519653"
+    ndkVersion "28.2.13676358"
     compileSdk 35
 
+    def appVersionCode = System.getenv("APPLICATION_VERSION_CODE") ?: "1"
+    def appVersionName = System.getenv("APPLICATION_VERSION_NAME") ?: "1.0.0"
     defaultConfig {
-        applicationId "co.realfit.namainloop"
+        applicationId "pe.nikescar.bingtray"
         minSdk 21
         targetSdk 35
-        versionCode 1
-        versionName "1.0"
+        versionCode appVersionCode.toInteger()
+        versionName appVersionName
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    // Load keystore properties
+    def keystorePropertiesFile = rootProject.file("keystore.properties")
+    def keystoreProperties = new Properties()
+    if (keystorePropertiesFile.exists()) {
+        keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
     }
 
     signingConfigs {
@@ -23,13 +32,38 @@ android {
             keyAlias "androiddebugkey"
             keyPassword "android"
         }
+        
+        release {
+            if (keystorePropertiesFile.exists()) {
+                // Use keystore.properties file
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+            } else {
+                // Use environment variables as fallback
+                def envStorePassword = System.getenv("KEYSTORE_PASSWORD")
+                def envKeyPassword = System.getenv("KEY_PASSWORD")
+                
+                if (envStorePassword && envKeyPassword) {
+                    storeFile file("release.keystore")
+                    storePassword envStorePassword
+                    keyAlias "release"
+                    keyPassword envKeyPassword
+                }
+                // If neither keystore.properties nor env vars exist, release will be unsigned
+            }
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug
+            if (keystorePropertiesFile.exists() || (System.getenv("KEYSTORE_PASSWORD") && System.getenv("KEY_PASSWORD"))) {
+                signingConfig signingConfigs.release
+            }
+            // If no signing config available, release will be unsigned
         }
         debug {
             minifyEnabled false
@@ -44,7 +78,12 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
-    namespace 'co.realfit.namainloop'
+    
+    buildFeatures {
+        buildConfig true
+    }
+    
+    namespace 'pe.nikescar.bingtray'
 }
 
 dependencies {
