@@ -93,30 +93,17 @@ jobs:
           #   build-args: "--profile release-with-symbols"
 
     steps:
-      - name: Install package for linux
+      - name: Linux, Build packages. set vars
         if: contains(matrix.platform.target, 'linux')
-        run: sudo apt install musl-tools libgtk-3-dev libxdo-dev libappindicator3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libwayland-dev libcairo2-dev libpixman-1-dev libpango1.0-dev libxdo-dev librust-glib-sys-dev librust-gio-sys-dev librust-gobject-sys-dev librust-gdk-sys-dev libwebkit2gtk-4.1-dev librust-gdk-pixbuf-sys-dev librust-cairo-sys-rs-dev librust-pango-sys-dev librust-atk-sys-dev libgdk-pixbuf2.0-dev libatk1.0-dev musl-dev
-
-      - name: Set PKG_CONFIG environment variables
-        if: contains(matrix.platform.target, 'linux')
-        run: |
+        run: | 
+          sudo apt install musl-tools libgtk-3-dev libxdo-dev libappindicator3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libwayland-dev libcairo2-dev libpixman-1-dev libpango1.0-dev libxdo-dev librust-glib-sys-dev librust-gio-sys-dev librust-gobject-sys-dev librust-gdk-sys-dev libwebkit2gtk-4.1-dev librust-gdk-pixbuf-sys-dev librust-cairo-sys-rs-dev librust-pango-sys-dev librust-atk-sys-dev libgdk-pixbuf2.0-dev libatk1.0-dev musl-dev
           export PKG_CONFIG_ALLOW_CROSS=1
           export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-musl/pkgconfig"
-        
-      - name: Install package for Android
+          
+      - name: Android, Build packages.
         if: contains(matrix.platform.target, 'android')
-        run: sudo apt install android-libunwind android-libunwind-dev libunwind-dev musl-tools llvm-14 clang llvm
-
-      - name: Set up JDK 17
-        if: contains(matrix.platform.target, 'android') && !contains(matrix.platform.target, 'arm64') 
-        uses: actions/setup-java@v3
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Setup Android SDK
-        if: contains(matrix.platform.target, 'android') && !contains(matrix.platform.target, 'arm64') 
-        uses: android-actions/setup-android@v3
+        run: |
+          sudo apt install android-libunwind android-libunwind-dev libunwind-dev musl-tools llvm-14 clang llvm
 
       - name: Checkout Git repo
         uses: actions/checkout@v3
@@ -138,31 +125,23 @@ jobs:
         if: contains(matrix.platform.target, 'android')
         run: | 
           cargo install cross --git https://github.com/cross-rs/cross
-          cargo install xbuild --git https://github.com/nikescar/xbuild
 
-      - name: Show command used for Cargo
-        run: |
-          echo "cargo command is: ${{ env.CARGO }}"
-          echo "target flag is: ${{ env.BUILD_ARGS }}"
-      
-      - name: Native mobile release apk Build ${{ matrix.platform.name }} binary # android release apk build
+      - name: Android, Build ${{ matrix.platform.name }} binary # android release apk build
         if: (contains(matrix.platform.name, 'Android APK arm64'))
         run: | 
-          mkdir -p target/x/release/android/keys
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > target/x/release/android/keys/mobile-release-key.keystore.jks
-          pushd mobile
-          bash ./build.sh
-          x build --arch arm64 --platform android --release \
-          --android-sign-keystore keys/mobile-release-key.keystore --android-sign-storepass ${{ secrets.STORE_PASSWORD }} \
-          --android-sign-keypass ${{ secrets.KEY_PASSWORD }} --android-sign-keyname ${{ secrets.KEY_ALIAS }}
-          x build --arch x64 --platform android --release \
-          --android-sign-keystore keys/mobile-release-key.keystore --android-sign-storepass ${{ secrets.STORE_PASSWORD }} \
-          --android-sign-keypass ${{ secrets.KEY_PASSWORD }} --android-sign-keyname ${{ secrets.KEY_ALIAS }}
-          mv target/x/debug/android/mobile-x64-signed.apk target/x/debug/android/bingtray-x64-signed.apk
-          mv target/x/debug/android/mobile-arm64-signed.apk target/x/debug/android/bingtray-arm64-signed.apk
+          echo "storePassword=${{ secrets.STORE_PASSWORD }}" > ./android/keystore.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> ./android/keystore.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> ./android/keystore.properties
+          echo "storeFile=release.keystore" >> ./android/keystore.properties
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > ./android/app/release.keystore
+          echo "${{ secrets.STORE_PASSWORD }}" | keytool -list -v -keystore $PWD/android/app/release.keystore
+
+          pushd android
+          bash ./build.gh.sh
+          mv ./app/build/outputs/apk/release/app-release.apk ./app/build/outputs/apk/release/bingtray-all-signed.apk
           popd
 
-      - name: Cross bingcli Build ${{ matrix.platform.name }} binary
+      - name: Non Android, Cross bingcli Build ${{ matrix.platform.name }} binary
         if: (!contains(matrix.platform.name, 'Android APK arm64'))
         uses: actions-rs/cargo@v1
         # We use cross-rs if not running on x86_64 architecture on Linux
@@ -172,7 +151,7 @@ jobs:
           # args: ${{ matrix.platform.build-args }} --package ${{ env.BIN_NAME }} --target ${{ matrix.platform.target }}
           args: ${{ matrix.platform.build-args }} --package bingcli --target ${{ matrix.platform.target }}
 
-      - name: Native bingtray-gui Build ${{ matrix.platform.name }} binary
+      - name: Non Android, Native bingtray-gui Build ${{ matrix.platform.name }} binary
         if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64')
         uses: actions-rs/cargo@v1
         with:
@@ -188,7 +167,7 @@ jobs:
           path: target/${{ matrix.platform.target }}/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingcli*
           retention-days: 1
 
-      - name: Store artifact Gui
+      - name: Store artifact bingtray-gui
         if: (!contains(matrix.platform.name, 'Android APK arm64'))
         uses: actions/upload-artifact@v4
         with:
@@ -201,18 +180,10 @@ jobs:
         if: (contains(matrix.platform.name, 'Android APK arm64'))
         uses: actions/upload-artifact@v4
         with:
-          name: bingtray-arm64-signed.apk
-          path: target/x/debug/android/bingtray-arm64-signed.apk
+          name: bingtray-all-signed.apk
+          path: app/build/outputs/apk/release/bingtray-all-signed.apk
           retention-days: 1
       
-      - name: Store artifact Android release x64 apk
-        if: (contains(matrix.platform.name, 'Android APK arm64'))
-        uses: actions/upload-artifact@v4
-        with:
-          name: bingtray-x64-signed.apk
-          path: target/x/release/android/bingtray-x64-signed.apk
-          retention-days: 1
-
   release:
     name: Release
     needs: [ build ]
@@ -239,8 +210,7 @@ jobs:
           do
               if [ -d "$i" ]
               then
-                  [[ "$i" == *"bingtray-arm64-signed.apk"* ]] && cp artifacts/bingtray-arm64-signed.apk/bingtray-arm64-signed.apk distbin/bingtray-arm64-signed.apk && continue
-                  [[ "$i" == *"bingtray-x64-signed.apk"* ]] && cp artifacts/bingtray-x64-signed.apk/bingtray-x64-signed.apk distbin/bingtray-x64-signed.apk && continue
+                  [[ "$i" == *"bingtray-all-signed.apk"* ]] && cp artifacts/bingtray-all-signed.apk/bingtray-all-signed.apk distbin/bingtray-all-signed.apk && continue
                   cp LICENSE* "$i"
                   cp README.md "$i"
                   rm "$i/bingcli.d" 1>/dev/null 2>&1 || true

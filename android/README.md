@@ -1,32 +1,57 @@
-This is a minimal test application based on `NativeActivity` that just
-runs a mainloop based on android_activity::poll_events() and traces
-the events received without doing any rendering. It also saves and
-restores some minimal application state.
+# android reports
 
-Since this test doesn't require a custom `Activity` subclass it's
-optionally possible to build this example with `cargo apk`.
+https://www.shenmeapp.com/appinfo/oqx0Ww7WIt4Tskyf
 
-# Gradle Build
-```
+# building
+```bash
 export ANDROID_NDK_HOME="path/to/ndk"
 export ANDROID_HOME="path/to/sdk"
 
 rustup target add aarch64-linux-android
 cargo install cargo-ndk
 
-cargo ndk -t arm64-v8a -o app/src/main/jniLibs/  build
-./gradlew build
-./gradlew installDebug
+cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build --release
+gradle build
+gradle installDebug
 ```
 
-# Cargo APK Build
-```
-export ANDROID_NDK_HOME="path/to/ndk"
-export ANDROID_SDK_HOME="path/to/sdk"
+# logcat
 
-rustup target add aarch64-linux-android
-cargo install cargo-apk
-
-cargo apk build
-cargo apk run
+```bash
+# clar logcat
+$ adb logcat -c
+# full logcat
+$ adb logcat -v time -s *:V > fullcat.log
+# app specific logcat
+$ adb logcat -s BingtrayApp > bingcat.log
 ```
+
+# github workflow google keystore
+
+set github secrets on Settings > Security > Secrets and Variables > Actions > Environments > New Secret
+
+export keystore to github vars.
+```bash
+$ base64 release.keystore > release-key-keystore_base64_encoded.txt
+# KEYSTORE_BASE64=<ENCODED_KEY>
+# STORE_PASSWORD=Test123
+# KEY_PASSWORD=Test123
+# KEY_ALIAS={crate_name}-release-key
+```
+
+# google play
+
+upload java singing keystore.
+
+## download upload encryption key from store
+
+App Integrity > Change Signing key > Export and upload a key(not using Java Keystore) > Download encryption public key
+move it to ```target/x/release/android/keys```.
+
+```bash
+$ cd android/app
+$ wget https://www.gstatic.com/play-apps-publisher-rapid/signing-tool/prod/pepk.jar
+$ java -jar pepk.jar --keystore=release.keystore --alias=release --output=release-signing-play-generated.zip --include-cert --rsa-aes-encryption --encryption-key-path=encryption_public_key.pem
+```
+upload created ```release-signing-play-generated.zip``` file.
+

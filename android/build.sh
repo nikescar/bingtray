@@ -69,15 +69,15 @@ if [[ ! -d "$HOME/.local/gradle-9.0.0" ]]; then
     popd
 fi
 
-# if [[ ! -d "$HOME/.android/ndk/android-ndk-r28c" ]]; then
-#     echo "Installing android ndk..."
-#     durl="https://dl.google.com/android/repository/android-ndk-r28c-linux.zip"
-#     pushd "$HOME/Downloads"
-#     wget --directory-prefix="$HOME/Downloads" "${durl}" 2>&1 1>/dev/null
-#     unzip android-ndk-r28c-linux.zip 2>&1 1>/dev/null
-#     mv android-ndk-r28c $HOME/.android/ndk
-#     popd
-# fi
+if [[ ! -d "$HOME/.android/ndk/android-ndk-r28c" ]]; then
+    echo "Installing android ndk..."
+    durl="https://dl.google.com/android/repository/android-ndk-r28c-linux.zip"
+    pushd "$HOME/Downloads"
+    wget --directory-prefix="$HOME/Downloads" "${durl}" 2>&1 1>/dev/null
+    unzip android-ndk-r28c-linux.zip 2>&1 1>/dev/null
+    mv android-ndk-r28c $HOME/.android/ndk
+    popd
+fi
 
 # if latest folder name in $HOME/.android/ndk is not equal to $HOME/.cache/x/Android.ndk/latest contents
 if [[ $(cat $HOME/.cache/x/Android.ndk/latest) != "android-ndk-r28c" ]]; then
@@ -116,30 +116,32 @@ export CC_aarch64_unknown_linux_musl=clang
 export AR_aarch64_unknown_linux_musl=llvm-ar
 export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
 
-# update version name and code to manifest.yaml
-version=$(cargo tree|grep mobile|grep bingtray|awk '{ print $2 }'| sed 's/v//')
-timestamp=$(date +%y%m%d%H%M)
-sed -i "s/ version_code: .*/ version_code: ${timestamp:0:-1}/" manifest.yaml
-sed -i "s/version_name: .*/version_name: \"$version\"/" manifest.yaml
-
 # copy keystore to release dir
-if [[ -d "$HOME/.projects/bingtray_keys" ]]; then
-    mkdir -p ../target/x/release/android/keys
-    cp -r $HOME/.projects/bingtray_keys/* ../target/x/release/android/keys
+if [[ -d "$HOME/.projects/release.keystore" ]]; then
+    cp -r $HOME/.projects/release.keystore ./app/
 fi
 
-x build --arch arm64 --platform android --release --verbose
+rustup target add armv7-linux-androideabi
+rustup target add aarch64-linux-android
+rustup target add i686-linux-android
+rustup target add x86_64-linux-android
+cargo install cargo-ndk
 
-# debug/release|apk/aab|play|arm64/x64 build commands
-# x build --arch x64 --platform android 
-# x build --arch arm64 --platform android
-# --format aab
-# --release
-# --store play
+timestamp=$(date +%y%m%d%H%M)
+export APPLICATION_VERSION_CODE=${timestamp:0:-1}
+export APPLICATION_VERSION_NAME=$(grep -m1 "^version = " ../Cargo.toml | cut -d' ' -f3 | tr -d '"')
+
+cargo ndk -t armeabi-v7a -o app/src/main/jniLibs/ build --release
+cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build --release
+cargo ndk -t x86 -o app/src/main/jniLibs/ build --release
+cargo ndk -t x86_64 -o app/src/main/jniLibs/ build --release
+gradle build
 
 # adb commands
 # adb devices
-# adb install ../../target/x/debug/android/Bingtray_android.apk
+# adb install app/bulid/outputs/apk/release/app-release.apk
+# adb uninstall pe.nikescar.bingtray
+# adb shell am start -n pe.nikescar.bingtray/.MainActivity
 
 # logcat commands
 # adb logcat -c

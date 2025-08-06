@@ -18,3 +18,8 @@ local.properties
 # Added by cargo
 
 /target
+
+# Keystore files - DO NOT COMMIT
+*.keystore
+keystore.properties
+release.keystore
