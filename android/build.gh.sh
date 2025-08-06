@@ -8,6 +8,9 @@
 # ANDROID_NDK_ROOT 	/usr/local/lib/android/sdk/ndk/27.3.13750724
 # ANDROID_SDK_ROOT 	/usr/local/lib/android/sdk
 
+# Your current JDK is located in /usr/lib/jvm/temurin-11-jdk-amd64
+export JAVA_HOME=$JAVA_HOME_17_X64
+
 export CC_aarch64_unknown_linux_musl=clang
 export AR_aarch64_unknown_linux_musl=llvm-ar
 export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
