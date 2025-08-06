@@ -138,7 +138,8 @@ jobs:
 
           pushd android
           bash ./build.gh.sh
-          mv ./app/build/outputs/apk/release/app-release.apk ./app/build/outputs/apk/release/bingtray-all-signed.apk
+          cp ./app/build/outputs/apk/release/app-release.apk ./app/build/outputs/apk/release/bingtray-all-signed.apk
+          ls -al ./app/build/outputs/apk/release
           popd
 
       - name: Non Android, Cross bingcli Build ${{ matrix.platform.name }} binary
@@ -181,7 +182,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bingtray-all-signed.apk
-          path: app/build/outputs/apk/release/bingtray-all-signed.apk
+          path: ./android/app/build/outputs/apk/release/bingtray-all-signed.apk
           retention-days: 1
       
   release:

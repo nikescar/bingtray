@@ -26,7 +26,7 @@ $ adb logcat -v time -s *:V > fullcat.log
 $ adb logcat -s BingtrayApp > bingcat.log
 ```
 
-# github workflow google keystore
+# android keystore for github workflow 
 
 set github secrets on Settings > Security > Secrets and Variables > Actions > Environments > New Secret
 
@@ -39,14 +39,14 @@ $ base64 release.keystore > release-key-keystore_base64_encoded.txt
 # KEY_ALIAS={crate_name}-release-key
 ```
 
-# google play
+# upload signing key on google play
 
 upload java singing keystore.
 
-## download upload encryption key from store
+## download upload-encryption key from store
 
 App Integrity > Change Signing key > Export and upload a key(not using Java Keystore) > Download encryption public key
-move it to ```target/x/release/android/keys```.
+move it to ```./android/app/```.
 
 ```bash
 $ cd android/app
