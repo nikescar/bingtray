@@ -1,0 +1,30 @@
+BingTray is a cross-platform wallpaper manager that automatically downloads and manages Bing's beautiful daily wallpapers from around the world.
+
+<b>Features:</b>
+• Automatic download of Bing's weekly wallpapers from 43 global markets
+• Interactive management through tray icon menu
+• Keep favorite wallpapers in a dedicated folder
+• Blacklist unwanted images
+• Historical wallpaper archive access
+• Support for multiple desktop environments on Linux
+• Clean, minimalist interface
+
+<b>How it works:</b>
+The app visits random Bing markets and downloads new wallpapers if they haven't been downloaded before. When you've exhausted all available market images, you'll need to wait for a week to get new content as Bing updates their wallpapers weekly.
+
+<b>Menu Options:</b>
+• <b>Cache Dir Contents:</b> Opens the folder where images and configs are saved
+• <b>Next Market Wallpaper:</b> Sets the next available wallpaper from downloaded images
+• <b>Keep Wallpaper:</b> Moves current wallpaper to favorites and sets the next one
+• <b>Blacklist Wallpaper:</b> Removes current wallpaper and adds it to blacklist
+• <b>Next Kept Wallpaper:</b> Cycles through your favorite wallpapers
+
+<b>Supported Platforms:</b>
+• Android (5.0 Lollipop - 16 Baklava)
+• Windows (via WinAPI)
+• macOS (via AppleScript)
+• Linux desktop environments: GNOME, Unity, Cinnamon, MATE, XFCE4, LXDE, Fluxbox, JWM, Openbox, AfterStep, IceWM, Blackbox
+
+The application creates configuration files in your system's standard config directory and organizes wallpapers into folders for easy management.
+
+<b>Privacy:</b> BingTray only downloads publicly available Bing wallpapers. No personal data is collected or transmitted.

@@ -1,0 +1,6 @@
+Initial release of BingTray for Android
+• Download and manage Bing's daily wallpapers
+• Interactive wallpaper browser with thumbnail preview
+• Set wallpapers directly from the app
+• Support for Android 5.0+ devices
+• Clean, modern user interface

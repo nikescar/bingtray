@@ -2,6 +2,28 @@
 
 https://www.shenmeapp.com/appinfo/oqx0Ww7WIt4Tskyf
 
+# F-Droid Metadata
+
+This project includes fastlane metadata for F-Droid submission located in `/fastlane/metadata/android/en-US/`:
+
+- `title.txt` - App name
+- `short_description.txt` - Brief description (max 80 chars)
+- `full_description.txt` - Detailed app description (max 4000 chars, HTML allowed)
+- `images/icon.png` - App icon (recommended: 512x512px)
+- `images/phoneScreenshots/` - Phone screenshots
+- `changelogs/` - Version-specific changelogs (named by versionCode)
+
+To update for new releases:
+1. Add changelog file named with the versionCode (e.g., `changelogs/2.txt`)
+2. Update screenshots if UI has changed
+3. Ensure metadata is committed before creating release tags
+
+For F-Droid compliance, the project:
+- ✅ Uses FLOSS licenses (MIT/Apache-2.0)
+- ✅ No Google Play Services dependencies
+- ✅ No proprietary analytics/tracking
+- ✅ Clean build process with standard tools
+
 # requirements
 
 * rust 1.81

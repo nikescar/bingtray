@@ -1,0 +1,1 @@
+Cross-platform wallpaper manager downloading Bing's daily wallpapers
