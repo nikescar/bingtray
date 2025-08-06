@@ -2,6 +2,11 @@
 
 https://www.shenmeapp.com/appinfo/oqx0Ww7WIt4Tskyf
 
+# requirements
+
+* rust 1.81
+* android ndk, sdk, java, llvm, kotlin, and gradle will install with build.sh
+
 # building
 ```bash
 export ANDROID_NDK_HOME="path/to/ndk"
