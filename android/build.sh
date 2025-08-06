@@ -135,7 +135,7 @@ cargo ndk -t armeabi-v7a -o app/src/main/jniLibs/ build --release
 cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build --release
 cargo ndk -t x86 -o app/src/main/jniLibs/ build --release
 cargo ndk -t x86_64 -o app/src/main/jniLibs/ build --release
-gradle build
+ANDROID_SPLIT_BUILD=1 gradle build
 
 # adb commands
 # adb devices
