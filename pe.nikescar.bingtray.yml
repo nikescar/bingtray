@@ -1,0 +1,45 @@
+AntiFeatures:
+  NonFreeAssets:
+    en-US: Depends on Bing Images.
+  NonFreeNet:
+    en-US: Depends on Bing Images.
+Categories:
+  - Multimedia
+  - Theming
+  - Wallpaper
+License: MIT
+SourceCode: https://github.com/nikescar/bingtray
+IssueTracker: https://github.com/nikescar/bingtray/issues
+
+AutoName: Bingtray
+Description: |-
+  Select Wallpaper from Bing Images of the Day.
+  You can find Original Windows app on follwing link:
+  https://www.microsoft.com/en-us/bing/features/bing-wallpaper/
+
+RepoType: git
+Repo: https://github.com/nikescar/bingtray.git
+
+Builds:
+  - versionName: 0.0.5
+    versionCode: 5
+    commit: v0.0.5
+    init: echo 'started init.'
+    output: android/app/build/outputs/apk/release/app-release.apk
+    prebuild: echo 'started prebuild'
+    scanignore:
+      - android/Cargo.lock
+      - bingcli/Cargo.lock
+      - bingtray-core/Cargo.lock
+      - bingtray-gui/Cargo.lock
+    build: echo 'started build' && cd android && ./build.fd.sh
+    postbuild: echo 'postbuild.'
+    antifeatures:
+      - NonFreeAssets
+      - NonFreeNet
+
+AutoUpdateMode: None
+UpdateCheckMode: HTTP
+UpdateCheckData: https://api.github.com/repos/nikescar/bingtray/releases/latest|"id":\s*(\d+)|.|"tag_name":\s*"([^"]+)"
+CurrentVersion: v0.0.5
+CurrentVersionCode: 237875251
