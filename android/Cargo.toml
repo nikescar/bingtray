@@ -1,6 +1,3 @@
-[workspace]
-# This prevents this package from being included in the parent workspace
-
 [package]
 name = "bingtray-android"
 version.workspace = true
