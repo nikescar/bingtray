@@ -26,13 +26,26 @@ Builds:
     commit: v0.0.5
     init: echo 'started init.'
     output: android/app/build/outputs/apk/release/app-release.apk
-    prebuild: echo 'started prebuild'
+    prebuild: |
+      echo 'started prebuild'
+      rustup target add armv7-linux-androideabi aarch64-linux-android i686-linux-android x86_64-linux-android
+      cargo install cargo-ndk
     scanignore:
-      - android/Cargo.lock
-      - bingcli/Cargo.lock
-      - bingtray-core/Cargo.lock
-      - bingtray-gui/Cargo.lock
-    build: echo 'started build' && cd android && ./build.fd.sh
+      - android/Cargo.toml
+      - bingcli/Cargo.toml
+      - bingtray-core/Cargo.toml
+      - bingtray-gui/Cargo.toml
+      - Cargo.toml
+    build: |
+      echo 'started build'
+      cd android
+      export APPLICATION_VERSION_NAME=$(grep -m1 "^version = " ../Cargo.toml | cut -d' ' -f3 | tr -d '"')
+      export APPLICATION_VERSION_CODE=5
+      cargo ndk -t armeabi-v7a -o app/src/main/jniLibs/ build --release
+      cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build --release
+      cargo ndk -t x86 -o app/src/main/jniLibs/ build --release
+      cargo ndk -t x86_64 -o app/src/main/jniLibs/ build --release
+      ./gradlew assembleRelease
     postbuild: echo 'postbuild.'
     antifeatures:
       - NonFreeAssets
@@ -43,3 +56,4 @@ UpdateCheckMode: HTTP
 UpdateCheckData: https://api.github.com/repos/nikescar/bingtray/releases/latest|"id":\s*(\d+)|.|"tag_name":\s*"([^"]+)"
 CurrentVersion: v0.0.5
 CurrentVersionCode: 237875251
+
