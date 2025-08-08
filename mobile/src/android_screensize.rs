@@ -1,5 +1,5 @@
 #[cfg(target_os = "android")]
-use jni::objects::{JObject, JValue};
+use jni::objects::JValue;
 
 #[cfg(target_os = "android")]
 use ndk_context;

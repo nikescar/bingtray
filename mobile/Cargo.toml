@@ -20,7 +20,7 @@ path = "src/main.rs"
 required-features = ["desktop"]
 
 [dependencies]
-log = { version = "0.4", default-features = false }
+log = { workspace = true }
 bingtray-core = { path = "../bingtray-core", default-features = false }
 chrono = { workspace = true }
 egui = { version = "0.31.1", features = ["default_fonts"] }
@@ -35,7 +35,7 @@ serde_json = { version = "1.0", default-features = false, optional = true }
 egui_extras = { version = "0.31.1", default-features = false, features = ["image", "svg"] }
 # egui-winit = { version = "0.31.1", default-features = false }
 egui-winit = { version = "0.31.1" }
-webbrowser = { version = "1.0", default-features = false }
+webbrowser = { version = "1.0.5", default-features = false }
 env_logger = { version = "0.11", default-features = false }
 screen_size = "0.1.0"
 
@@ -48,6 +48,7 @@ features = ["wgpu", "default_fonts", "glow"] # , "persistence"
 [target.'cfg(target_os = "android")'.dependencies]
 eframe = { version = "0.31.1", default-features = false, features = ["glow", "wgpu", "android-native-activity", "default_fonts"] }
 egui_extras = { version = "0.31.1", default-features = false, features = ["image", "svg"] }
+webbrowser = { version = "1.0.5", default-features = false }
 ndk-context = { version = "0.1", default-features = false }
 jni = { version = "0.21", default-features = false }
 android_logger = { version = "0.15", default-features = false }

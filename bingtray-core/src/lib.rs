@@ -4,12 +4,42 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use log::info;
 
 #[cfg(not(target_os = "android"))]
 use directories::ProjectDirs;
 
 #[cfg(not(target_os = "android"))]
 use std::process::Command;
+
+// Helper function to run async code in sync context
+fn run_async<F, T>(future: F) -> T
+where
+    F: std::future::Future<Output = T> + Send + 'static,
+    T: Send + 'static,
+{
+    use std::sync::OnceLock;
+    use std::sync::mpsc;
+    
+    static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    
+    let rt = RUNTIME.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .expect("Failed to create Tokio runtime")
+    });
+    
+    // Use the runtime to spawn the task and wait for completion
+    let (tx, rx) = mpsc::channel();
+    rt.spawn(async move {
+        let result = future.await;
+        let _ = tx.send(result);
+    });
+    
+    rx.recv().expect("Failed to receive result from async task")
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BingImage {
@@ -54,6 +84,8 @@ impl Config {
             let config_dir = PathBuf::from("/data/data/pe.nikescar.bingtray/files");
             let cache_dir = PathBuf::from("/data/data/pe.nikescar.bingtray/cache");
             
+            log::info!("Android config paths - config_dir: {:?}, cache_dir: {:?}", config_dir, cache_dir);
+            
             let unprocessed_dir = cache_dir.join("unprocessed");
             let keepfavorite_dir = cache_dir.join("keepfavorite");
             let blacklist_file = config_dir.join("blacklist.conf");
@@ -62,18 +94,110 @@ impl Config {
             let historical_metadata_file = config_dir.join("historical.metadata.conf");
             
             // Create directories if they don't exist
-            fs::create_dir_all(&config_dir)?;
-            fs::create_dir_all(&cache_dir)?;
-            fs::create_dir_all(&unprocessed_dir)?;
-            fs::create_dir_all(&keepfavorite_dir)?;
+            match fs::create_dir_all(&config_dir) {
+                Ok(()) => log::info!("Successfully created config_dir: {:?}", config_dir),
+                Err(e) => log::error!("Failed to create config_dir: {:?} - Error: {}", config_dir, e),
+            }
+            match fs::create_dir_all(&cache_dir) {
+                Ok(()) => log::info!("Successfully created cache_dir: {:?}", cache_dir),
+                Err(e) => log::error!("Failed to create cache_dir: {:?} - Error: {}", cache_dir, e),
+            }
+            match fs::create_dir_all(&unprocessed_dir) {
+                Ok(()) => log::info!("Successfully created unprocessed_dir: {:?}", unprocessed_dir),
+                Err(e) => log::error!("Failed to create unprocessed_dir: {:?} - Error: {}", unprocessed_dir, e),
+            }
+            match fs::create_dir_all(&keepfavorite_dir) {
+                Ok(()) => log::info!("Successfully created keepfavorite_dir: {:?}", keepfavorite_dir),
+                Err(e) => log::error!("Failed to create keepfavorite_dir: {:?} - Error: {}", keepfavorite_dir, e),
+            }
             
             // Create config files if they don't exist
             if !blacklist_file.exists() {
-                fs::write(&blacklist_file, "")?;
+                match fs::write(&blacklist_file, "") {
+                    Ok(()) => log::info!("Successfully created blacklist.conf: {:?}", blacklist_file),
+                    Err(e) => log::error!("Failed to create blacklist.conf: {:?} - Error: {}", blacklist_file, e),
+                }
+            } else {
+                log::info!("blacklist.conf already exists: {:?}", blacklist_file);
             }
             if !metadata_file.exists() {
-                fs::write(&metadata_file, "")?;
+                match fs::write(&metadata_file, "") {
+                    Ok(()) => log::info!("Successfully created metadata.conf: {:?}", metadata_file),
+                    Err(e) => log::error!("Failed to create metadata.conf: {:?} - Error: {}", metadata_file, e),
+                }
+            } else {
+                log::info!("metadata.conf already exists: {:?}", metadata_file);
             }
+            
+            // Automatically generate market codes on Android initialization (like desktop version)
+            let should_generate_codes = if !marketcodes_file.exists() {
+                log::info!("Marketcodes file doesn't exist, will generate market codes for Android");
+                true
+            } else {
+                // Check if file is empty
+                let file_size = fs::metadata(&marketcodes_file).map(|m| m.len()).unwrap_or(0);
+                if file_size == 0 {
+                    log::info!("Marketcodes file exists but is empty ({}bytes), will generate market codes for Android", file_size);
+                    true
+                } else {
+                    log::info!("Marketcodes file already exists with {} bytes", file_size);
+                    false
+                }
+            };
+            
+            if should_generate_codes {
+                log::info!("Automatically generating market codes for Android...");
+                match get_market_codes() {
+                    Ok(codes) => {
+                        log::info!("Successfully fetched {} market codes from web", codes.len());
+                        let mut market_map = std::collections::HashMap::new();
+                        for code in codes {
+                            market_map.insert(code, 0);
+                        }
+                        match save_market_codes(&Config {
+                            config_dir: config_dir.clone(),
+                            unprocessed_dir: unprocessed_dir.clone(),
+                            keepfavorite_dir: keepfavorite_dir.clone(),
+                            blacklist_file: blacklist_file.clone(),
+                            marketcodes_file: marketcodes_file.clone(),
+                            metadata_file: metadata_file.clone(),
+                            historical_metadata_file: historical_metadata_file.clone(),
+                        }, &market_map) {
+                            Ok(()) => log::info!("Successfully saved {} market codes to Android config", market_map.len()),
+                            Err(e) => log::error!("Failed to save market codes to Android config: {}", e),
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to fetch market codes from web for Android: {}, creating fallback codes", e);
+                        let mut market_map = std::collections::HashMap::new();
+                        let fallback_codes = vec![
+                            "en-US".to_string(),
+                            "en-GB".to_string(),
+                            "de-DE".to_string(),
+                            "fr-FR".to_string(),
+                            "ja-JP".to_string(),
+                            "zh-CN".to_string(),
+                        ];
+                        for code in fallback_codes {
+                            market_map.insert(code, 0);
+                        }
+                        match save_market_codes(&Config {
+                            config_dir: config_dir.clone(),
+                            unprocessed_dir: unprocessed_dir.clone(),
+                            keepfavorite_dir: keepfavorite_dir.clone(),
+                            blacklist_file: blacklist_file.clone(),
+                            marketcodes_file: marketcodes_file.clone(),
+                            metadata_file: metadata_file.clone(),
+                            historical_metadata_file: historical_metadata_file.clone(),
+                        }, &market_map) {
+                            Ok(()) => log::info!("Successfully saved fallback market codes to Android config"),
+                            Err(e) => log::error!("Failed to save fallback market codes to Android config: {}", e),
+                        }
+                    }
+                }
+            }
+            
+            log::info!("Config created with marketcodes_file: {:?}", marketcodes_file);
             
             Ok(Config {
                 config_dir,
@@ -135,9 +259,42 @@ impl Config {
 }
 
 pub fn get_market_codes() -> Result<Vec<String>> {
+    log::info!("get_market_codes: Fetching market codes from Microsoft docs");
     let url = "https://learn.microsoft.com/en-us/bing/search-apis/bing-web-search/reference/market-codes";
-    let response = attohttpc::get(url).send()?;
-    let html = response.text()?;
+    
+    let response = run_async(async move {
+        reqwest::Client::new()
+            .get(url)
+            .timeout(std::time::Duration::from_secs(30))
+            .header("User-Agent", "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/111.0 Firefox/117.0")
+            .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8")
+            .header("Accept-Language", "en-US,en;q=0.9")
+            .send()
+            .await
+    });
+    
+    let response = match response {
+        Ok(resp) => {
+            log::info!("get_market_codes: HTTP request successful, status: {}", resp.status());
+            resp
+        },
+        Err(e) => {
+            log::error!("get_market_codes: HTTP request failed: {}", e);
+            return Err(e.into());
+        }
+    };
+    
+    let html = run_async(async { response.text().await });
+    let html = match html {
+        Ok(text) => {
+            log::info!("get_market_codes: Received {} bytes of HTML", text.len());
+            text
+        }
+        Err(e) => {
+            log::error!("get_market_codes: Failed to read response text: {}", e);
+            return Err(e.into());
+        }
+    };
     
     let document = scraper::Html::parse_document(&html);
     let table_selector = scraper::Selector::parse("table").unwrap();
@@ -160,21 +317,44 @@ pub fn get_market_codes() -> Result<Vec<String>> {
         }
     }
     
+    log::info!("get_market_codes: Parsed {} market codes from HTML", market_codes.len());
+    if market_codes.is_empty() {
+        log::warn!("get_market_codes: No market codes found, using fallback");
+        // Fallback market codes if scraping fails
+        market_codes = vec![
+            "en-US".to_string(),
+            "en-GB".to_string(),
+            "de-DE".to_string(),
+            "fr-FR".to_string(),
+            "ja-JP".to_string(),
+            "zh-CN".to_string(),
+        ];
+    }
+    
     Ok(market_codes)
 }
 
 pub fn load_market_codes(config: &Config) -> Result<HashMap<String, i64>> {
+    log::info!("load_market_codes: Checking if marketcodes file exists: {:?}", config.marketcodes_file);
     if !config.marketcodes_file.exists() {
+        log::info!("load_market_codes: marketcodes.conf doesn't exist, fetching from web");
         let codes = get_market_codes()?;
+        log::info!("load_market_codes: Got {} market codes from web", codes.len());
         let mut market_map = HashMap::new();
         for code in codes {
             market_map.insert(code, 0);
         }
-        save_market_codes(config, &market_map)?;
+        log::info!("load_market_codes: Saving {} market codes to file", market_map.len());
+        match save_market_codes(config, &market_map) {
+            Ok(()) => log::info!("load_market_codes: Successfully saved market codes"),
+            Err(e) => log::error!("load_market_codes: Failed to save market codes: {}", e),
+        }
         return Ok(market_map);
     }
     
+    log::info!("load_market_codes: marketcodes.conf exists, reading content");
     let content = fs::read_to_string(&config.marketcodes_file)?;
+    log::info!("load_market_codes: Read {} bytes from marketcodes.conf", content.len());
     let mut market_map = HashMap::new();
     
     for line in content.lines() {
@@ -185,24 +365,311 @@ pub fn load_market_codes(config: &Config) -> Result<HashMap<String, i64>> {
         }
     }
     
+    log::info!("load_market_codes: Loaded {} market codes from file", market_map.len());
     Ok(market_map)
 }
 
 pub fn save_market_codes(config: &Config, market_codes: &HashMap<String, i64>) -> Result<()> {
+    log::info!("save_market_codes: Saving {} market codes to {:?}", market_codes.len(), config.marketcodes_file);
     let mut content = String::new();
     for (code, timestamp) in market_codes {
         content.push_str(&format!("{}|{}\n", code, timestamp));
     }
-    fs::write(&config.marketcodes_file, content)?;
-    Ok(())
+    match fs::write(&config.marketcodes_file, &content) {
+        Ok(()) => {
+            log::info!("save_market_codes: Successfully wrote {} bytes to marketcodes.conf", content.len());
+            Ok(())
+        },
+        Err(e) => {
+            log::error!("save_market_codes: Failed to write to marketcodes.conf: {}", e);
+            Err(e.into())
+        }
+    }
 }
 
 pub fn get_bing_images(market_code: &str) -> Result<Vec<BingImage>> {
-    let url = format!("https://bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt={}", market_code);
-    let response = attohttpc::get(&url).send()?;
-    let text = response.text()?;
-    let bing_response: BingResponse = serde_json::from_str(&text)?;
-    Ok(bing_response.images)
+    // Try multiple URL configurations to find one that works
+    let urls = vec![
+        format!("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=7&mkt={}", market_code),
+        format!("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt={}", market_code),
+        format!("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1"),  // No market code
+        "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US".to_string(), // Hardcoded
+    ];
+    
+    for (url_idx, url) in urls.iter().enumerate() {
+        log::info!("=== TRYING URL VARIANT {} ===", url_idx + 1);
+        log::info!("URL: {}", url);
+        
+        if let Ok(result) = try_bing_api_url(url, market_code, url_idx + 1) {
+            log::info!("SUCCESS: URL variant {} worked!", url_idx + 1);
+            return Ok(result);
+        }
+        log::error!("FAILED: URL variant {} failed, trying next", url_idx + 1);
+    }
+    
+    Err(anyhow::anyhow!("All URL variants failed"))
+}
+
+fn try_bing_api_url(url: &str, market_code: &str, _attempt_num: usize) -> Result<Vec<BingImage>> {
+    
+    // Add comprehensive network diagnostics for Android debugging
+    log::info!("=== NETWORK DIAGNOSTICS START ===");
+    log::info!("Target URL: {}", url);
+    log::info!("Market Code: {}", market_code);
+    
+    #[cfg(target_os = "android")]
+    {
+        log::info!("Platform: Android");
+        log::info!("Checking network connectivity...");
+        // Add basic connectivity check
+        match std::net::TcpStream::connect_timeout(&"8.8.8.8:53".parse().unwrap(), std::time::Duration::from_secs(5)) {
+            Ok(_) => log::info!("Basic internet connectivity: OK"),
+            Err(e) => log::error!("Basic internet connectivity: FAILED - {}", e),
+        }
+        
+        // Test DNS resolution
+        match std::net::ToSocketAddrs::to_socket_addrs(&"bing.com:443") {
+            Ok(addrs) => {
+                let addrs: Vec<_> = addrs.collect();
+                log::info!("DNS resolution for bing.com: OK - {} addresses resolved", addrs.len());
+                for addr in addrs.iter().take(3) {
+                    log::info!("  Resolved address: {}", addr);
+                }
+            }
+            Err(e) => log::error!("DNS resolution for bing.com: FAILED - {}", e),
+        }
+    }
+    
+    log::info!("=== NETWORK DIAGNOSTICS END ===");
+    
+    // Add timeout and retry logic to handle "unexpected end of file" errors
+    let max_retries = 3;
+    let mut last_error = None;
+    
+    for attempt in 1..=max_retries {
+        log::info!("Attempting to fetch Bing images (attempt {}/{}) for market: {}", attempt, max_retries, market_code);
+        
+        let url_owned = url.to_string(); // Convert &str to owned String
+        let result = run_async(async move {
+            reqwest::Client::new()
+                .get(&url_owned)
+                .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
+                .header("User-Agent", "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/111.0 Firefox/117.0")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Cache-Control", "no-cache")
+                .header("Referer", "https://www.bing.com/")
+                .send()
+                .await
+        });
+        
+        match result
+        {
+            Ok(response) => {
+                log::info!("HTTP response received, status: {}, content-length: {:?}", 
+                          response.status(), response.headers().get("content-length"));
+                
+                let status = response.status();
+                let text_result = run_async(async { response.text().await });
+                match text_result {
+                    Ok(text) => {
+                        log::info!("Response text received, length: {} bytes", text.len());
+                        if text.trim().is_empty() {
+                            log::warn!("Empty response received, retrying...");
+                            last_error = Some(anyhow::anyhow!("Empty response from server"));
+                            continue;
+                        }
+                        
+                        match serde_json::from_str::<BingResponse>(&text) {
+                            Ok(bing_response) => {
+                                log::info!("Successfully parsed {} images from response", bing_response.images.len());
+                                return Ok(bing_response.images);
+                            }
+                            Err(e) => {
+                                log::error!("JSON parsing failed: {}", e);
+                                log::error!("Full response content: {}", &text);
+                                log::error!("Response status was: {}", status);
+                                last_error = Some(e.into());
+                                continue;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to read response text: {}", e);
+                        last_error = Some(e.into());
+                        
+                        // Wait before retry
+                        if attempt < max_retries {
+                            std::thread::sleep(std::time::Duration::from_millis(1000 * attempt as u64));
+                        }
+                        continue;
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("HTTP request failed (attempt {}): {}", attempt, e);
+                log::error!("Error details: {:?}", e);
+                
+                // Android-specific error analysis
+                #[cfg(target_os = "android")]
+                {
+                    let error_msg = format!("{}", e);
+                    if error_msg.contains("unexpected end of file") {
+                        log::error!("ANDROID ISSUE: Connection terminated prematurely - likely network security policy or DNS issue");
+                    } else if error_msg.contains("connection refused") {
+                        log::error!("ANDROID ISSUE: Connection refused - check firewall or network restrictions");
+                    } else if error_msg.contains("timeout") {
+                        log::error!("ANDROID ISSUE: Connection timeout - check network connectivity");
+                    } else if error_msg.contains("certificate") || error_msg.contains("ssl") || error_msg.contains("tls") {
+                        log::error!("ANDROID ISSUE: SSL/TLS certificate issue - check network security config");
+                    } else {
+                        log::error!("ANDROID ISSUE: Unknown network error - {}", error_msg);
+                    }
+                }
+                
+                last_error = Some(e.into());
+                
+                // Wait before retry
+                if attempt < max_retries {
+                    std::thread::sleep(std::time::Duration::from_millis(1000 * attempt as u64));
+                }
+                continue;
+            }
+        }
+    }
+    
+    // All retries failed - try one final diagnostic test
+    #[cfg(target_os = "android")]
+    {
+        log::error!("=== FINAL DIAGNOSTIC TEST ===");
+        log::info!("Testing simple HTTP connection to google.com...");
+        let google_http_result = run_async(async {
+            reqwest::Client::new()
+                .get("http://google.com")
+                .timeout(std::time::Duration::from_secs(10))
+                .send()
+                .await
+        });
+        match google_http_result
+        {
+            Ok(response) => {
+                log::info!("Google HTTP test: SUCCESS - Status: {}", response.status());
+                log::error!("CONCLUSION: Basic HTTP works, issue is specific to Bing HTTPS endpoint");
+            }
+            Err(e) => {
+                log::error!("Google HTTP test: FAILED - {}", e);
+                log::error!("CONCLUSION: General network connectivity issue on Android");
+            }
+        }
+        
+        log::info!("Testing HTTPS connection to google.com...");
+        let google_https_result = run_async(async {
+            reqwest::Client::new()
+                .get("https://google.com")
+                .timeout(std::time::Duration::from_secs(10))
+                .send()
+                .await
+        });
+        match google_https_result
+        {
+            Ok(response) => {
+                log::info!("Google HTTPS test: SUCCESS - Status: {}", response.status());
+                log::error!("CONCLUSION: HTTPS works, issue is specific to Bing endpoint or headers");
+            }
+            Err(e) => {
+                log::error!("Google HTTPS test: FAILED - {}", e);
+                log::error!("CONCLUSION: HTTPS/TLS issue on Android");
+            }
+        }
+        
+        log::info!("Testing Bing endpoint with proper headers...");
+        let bing_base_result = run_async(async {
+            reqwest::Client::new()
+                .get("https://www.bing.com/")
+                .timeout(std::time::Duration::from_secs(10))
+                .header("User-Agent", "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/111.0 Firefox/117.0")
+                .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                .send()
+                .await
+        });
+        match bing_base_result
+        {
+            Ok(response) => {
+                log::info!("Bing base URL test: SUCCESS - Status: {}", response.status());
+                log::info!("CONCLUSION: Bing accepts requests with proper headers");
+            }
+            Err(e) => {
+                log::error!("Bing base URL test: FAILED - {}", e);
+                log::error!("CONCLUSION: Bing endpoint completely blocked");
+            }
+        }
+        
+        log::info!("Testing Bing API endpoint directly (HTTPS)...");
+        let test_api_url = format!("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt={}", "en-US");
+        let bing_api_https_result = run_async(async move {
+            reqwest::Client::new()
+                .get(&test_api_url)
+                .timeout(std::time::Duration::from_secs(10))
+                .header("User-Agent", "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/111.0 Firefox/117.0")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Cache-Control", "no-cache")
+                .header("Referer", "https://www.bing.com/")
+                .send()
+                .await
+        });
+        match bing_api_https_result
+        {
+            Ok(response) => {
+                log::info!("Bing API HTTPS test: SUCCESS - Status: {}", response.status());
+                if response.status().is_success() {
+                    log::info!("CONCLUSION: Bing API endpoint is working correctly!");
+                } else {
+                    log::error!("CONCLUSION: Bing API endpoint returned error status: {}", response.status());
+                    match run_async(async { response.text().await }) {
+                        Ok(body) => log::error!("Response body: {}", body),
+                        Err(_) => log::error!("Could not read response body"),
+                    }
+                }
+            }
+            Err(e) => {
+                log::error!("Bing API HTTPS test: FAILED - {}", e);
+                log::error!("CONCLUSION: Bing API endpoint has HTTPS connection issues");
+            }
+        }
+        
+        log::info!("Testing Bing API endpoint directly (HTTP fallback)...");
+        let test_api_url_http = format!("http://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt={}", "en-US");
+        match run_async(async move {
+            reqwest::Client::new()
+                .get(&test_api_url_http)
+                .timeout(std::time::Duration::from_secs(10))
+                .header("User-Agent", "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/111.0 Firefox/117.0")
+                .header("Accept", "application/json, text/plain, */*")
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .send()
+                .await
+        })
+        {
+            Ok(response) => {
+                log::info!("Bing API HTTP test: SUCCESS - Status: {}", response.status());
+                if response.status().is_success() {
+                    log::info!("CONCLUSION: Bing API works with HTTP! HTTPS is the problem.");
+                } else {
+                    log::info!("Bing API HTTP returned status: {}", response.status());
+                }
+            }
+            Err(e) => {
+                log::error!("Bing API HTTP test: FAILED - {}", e);
+                log::error!("Both HTTP and HTTPS failed for Bing API");
+            }
+        }
+        
+        log::error!("=== END DIAGNOSTIC TEST ===");
+    }
+    
+    // All retries failed, return the last error
+    Err(last_error.unwrap_or_else(|| anyhow::anyhow!("All {} attempts failed", max_retries)))
 }
 
 pub fn download_image(image: &BingImage, target_dir: &Path, config: &Config) -> Result<PathBuf> {
@@ -235,8 +702,17 @@ pub fn download_image(image: &BingImage, target_dir: &Path, config: &Config) -> 
     }
     
     if !filepath.exists() {
-        let response = attohttpc::get(&url).send()?;
-        let bytes = response.bytes()?;
+        let response = run_async(async move {
+            reqwest::Client::new()
+                .get(&url)
+                .timeout(std::time::Duration::from_secs(30))
+                .header("User-Agent", "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/111.0 Firefox/117.0")
+                .header("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
+                .header("Referer", "https://www.bing.com/")
+                .send()
+                .await
+        })?;
+        let bytes = run_async(async { response.bytes().await })?;
         fs::write(&filepath, bytes)?;
     }
     
@@ -376,7 +852,7 @@ pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
     {
         // Read the image file and use set_wallpaper_from_bytes
         match std::fs::read(file_path) {
-            Ok(image_bytes) => {
+            Ok(_image_bytes) => {
                 // This function should be provided by the mobile crate
                 // For now, we'll return false as it requires mobile integration
                 eprintln!("Android wallpaper setting requires mobile crate integration");
@@ -575,6 +1051,7 @@ pub fn save_image_metadata(config: &Config, filename: &str, copyright: &str, cop
 }
 
 pub fn get_image_metadata(config: &Config, filename: &str) -> Option<(String, String)> {
+    // First try regular metadata.conf
     let metadata = fs::read_to_string(&config.metadata_file).unwrap_or_default();
     for line in metadata.lines() {
         let parts: Vec<&str> = line.split('|').collect();
@@ -582,6 +1059,18 @@ pub fn get_image_metadata(config: &Config, filename: &str) -> Option<(String, St
             return Some((parts[1].to_string(), parts[2].to_string()));
         }
     }
+    
+    // If not found, try historical.metadata.conf
+    let historical_metadata_file = config.config_dir.join("historical.metadata.conf");
+    if let Ok(historical_metadata) = fs::read_to_string(&historical_metadata_file) {
+        for line in historical_metadata.lines() {
+            let parts: Vec<&str> = line.split('|').collect();
+            if parts.len() >= 3 && parts[0] == filename {
+                return Some((parts[1].to_string(), parts[2].to_string()));
+            }
+        }
+    }
+    
     None
 }
 
@@ -663,8 +1152,15 @@ pub fn download_historical_data(config: &Config, starting_index: usize) -> Resul
 
     // parse all data when first download historical data
     let url = "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
-    let response = attohttpc::get(url).send()?;
-    let content = response.text()?;
+    let response = run_async(async move {
+        reqwest::Client::new()
+            .get(url)
+            .timeout(std::time::Duration::from_secs(30))
+            .header("User-Agent", "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/111.0 Firefox/117.0")
+            .send()
+            .await
+    })?;
+    let content = run_async(async { response.text().await })?;
     
     let lines: Vec<&str> = content.lines().collect();
     let mut historical_images = Vec::new();
@@ -888,93 +1384,93 @@ pub fn get_next_historical_page(config: &Config) -> Result<Option<Vec<Historical
     Ok(Some(downloaded_images))
 }
 
+/// Download more historical data when current data is exhausted
+pub fn download_more_historical_data(config: &Config) -> Result<Vec<HistoricalImage>> {
+    // Load current metadata to check existing images count
+    let (current_page, existing_images) = load_historical_metadata(config)?;
+    let total_existing = existing_images.len();
+    
+    // If we already have a lot of images but they're exhausted, try to fetch newer data
+    if total_existing > 0 {
+        info!("Attempting to fetch additional historical data beyond {} existing images", total_existing);
+        
+        // Try to fetch from the GitHub repository again to get any new data
+        let url = "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
+        let response = run_async(async move {
+            reqwest::Client::new()
+                .get(url)
+                .timeout(std::time::Duration::from_secs(30))
+                .header("User-Agent", "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/111.0 Firefox/117.0")
+                .send()
+                .await
+        })?;
+        let content = run_async(async { response.text().await })?;
+        
+        let lines: Vec<&str> = content.lines().collect();
+        let mut new_historical_images = Vec::new();
+        
+        // Parse all historical data
+        for line in lines.iter() {
+            if let Some(historical_image) = parse_historical_line(line)? {
+                new_historical_images.push(historical_image);
+            }
+        }
+        
+        // Filter out images we already have
+        let existing_urls: std::collections::HashSet<String> = existing_images.iter().map(|img| img.url.clone()).collect();
+        let truly_new_images: Vec<HistoricalImage> = new_historical_images.into_iter()
+            .filter(|img| !existing_urls.contains(&img.url))
+            .collect();
+        
+        if !truly_new_images.is_empty() {
+            // Add new images to the existing set
+            let mut all_images = existing_images;
+            all_images.extend(truly_new_images.clone());
+            
+            // Update metadata file with all images
+            let mut metadata_content = format!("{}\n", current_page);
+            for image in &all_images {
+                metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
+            }
+            fs::write(&config.historical_metadata_file, metadata_content)?;
+            
+            info!("Added {} new historical images", truly_new_images.len());
+            return Ok(truly_new_images.into_iter().rev().take(8).collect());
+        } else {
+            // Try to return older images if no new ones are available
+            if total_existing > current_page * 8 {
+                let start_index = current_page * 8;
+                let end_index = (start_index + 8).min(total_existing);
+                let older_images = existing_images[start_index..end_index].to_vec();
+                
+                // Update page counter
+                let new_page = current_page + 1;
+                let mut metadata_content = format!("{}\n", new_page);
+                for image in &existing_images {
+                    metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
+                }
+                fs::write(&config.historical_metadata_file, metadata_content)?;
+                
+                info!("Serving {} older historical images from local cache", older_images.len());
+                return Ok(older_images);
+            }
+        }
+    }
+    
+    Err(std::io::Error::new(std::io::ErrorKind::NotFound, "No more historical data available").into())
+}
+
 /// Get historical data page count information
 pub fn get_historical_page_info(config: &Config) -> Result<(usize, usize)> {
     // if no historical metadata file, run download_historical_image
     if !config.historical_metadata_file.exists() {
-        download_historical_data(config, 0)?;
+        return Ok((0, 0));
     }
-
-    let (current_page, images) = load_historical_metadata(config)?;
     
-    // Calculate total pages based on actual image count
-    let total_pages = if images.is_empty() {
-        1
-    } else {
-        (images.len() + 7) / 8 // Round up division
-    };
+    let (current_page, existing_images) = load_historical_metadata(config)?;
+    let total_pages = existing_images.len() / 8 + if existing_images.len() % 8 > 0 { 1 } else { 0 };
     
     Ok((current_page, total_pages))
-}
-
-/// Download and save historical image
-pub fn download_historical_image(image: &HistoricalImage, target_dir: &Path, config: &Config) -> Result<PathBuf> {
-    let url = if image.url.starts_with("http") {
-        image.url.clone()
-    } else {
-        format!("https://bing.com{}", image.url)
-    };
-
-    // get display_name from image.url
-    let display_name = image.url
-        .split("th?id=")
-        .nth(1)
-        .and_then(|s| s.split('_').next())
-        .unwrap_or(&image.title)
-        .to_string();
-
-    let filename = format!("{}.jpg", sanitize_filename(&display_name));
-    let filepath = target_dir.join(&filename);
-    
-    // Check if file exists in keepfavorite folder
-    let keepfavorite_path = target_dir.parent()
-        .map(|parent| parent.join("keepfavorite").join(&filename));
-    
-    if let Some(keepfavorite_file) = keepfavorite_path {
-        if keepfavorite_file.exists() {
-            return Ok(filepath);
-        }
-    }
-    
-    if !filepath.exists() {
-        let response = attohttpc::get(&url).send()?;
-        let bytes = response.bytes()?;
-        fs::write(&filepath, bytes)?;
-    }
-    
-    // Save metadata
-    save_image_metadata(config, &sanitize_filename(&display_name), &image.copyright, &image.copyrightlink)?;
-    
-    Ok(filepath)
-}
-
-/// Set wallpaper from image bytes - to be used with Android wallpaper manager
-pub fn set_wallpaper_from_bytes(image_bytes: &[u8]) -> Result<bool> {
-    #[cfg(target_os = "android")]
-    {
-        // On Android, this function should be overridden by calling the mobile implementation
-        // For now, return false since this requires runtime integration with the mobile crate
-        eprintln!("Android wallpaper setting should be handled by mobile crate's set_wallpaper_from_bytes");
-        Ok(false)
-    }
-    
-    #[cfg(not(target_os = "android"))]
-    {
-        // For non-Android platforms, save to temp file and use regular wallpaper setting
-        use std::io::Write;
-        let temp_path = std::env::temp_dir().join("bingtray_temp_wallpaper.jpg");
-        let mut file = std::fs::File::create(&temp_path)?;
-        file.write_all(image_bytes)?;
-        file.flush()?;
-        drop(file);
-        
-        let result = set_wallpaper(&temp_path);
-        
-        // Clean up temp file
-        let _ = std::fs::remove_file(&temp_path);
-        
-        result
-    }
 }
 
 

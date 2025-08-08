@@ -274,18 +274,9 @@ fn main() -> Result<()> {
                         // Copyright link clicked - open URL
                         if let Some(ref link) = copyright_link {
                             println!("Opening copyright link: {}", link);
-                            // Try to open the URL
-                            #[cfg(target_os = "linux")]
-                            {
-                                let _ = std::process::Command::new("xdg-open").arg(link).spawn();
-                            }
-                            #[cfg(target_os = "windows")]
-                            {
-                                let _ = std::process::Command::new("cmd").args(&["/C", "start", link]).spawn();
-                            }
-                            #[cfg(target_os = "macos")]
-                            {
-                                let _ = std::process::Command::new("open").arg(link).spawn();
+                            // Use webbrowser crate for cross-platform URL opening
+                            if let Err(e) = webbrowser::open(link) {
+                                eprintln!("Failed to open copyright link: {}", e);
                             }
                         }
                         return ; // Return early 

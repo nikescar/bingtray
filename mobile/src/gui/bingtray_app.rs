@@ -6,8 +6,7 @@ use log::{trace, warn, info, error};
 use std::time::SystemTime;
 use std::collections::HashMap;
 use serde::Deserialize;
-use bingtray_core::{Config, BingImage, get_bing_images, get_next_historical_page, load_market_codes, get_old_market_codes};
-use chrono::Utc;
+use bingtray_core::{Config, BingImage, get_bing_images, load_market_codes, get_old_market_codes};
 
 #[cfg(target_os = "android")]
 use crate::android_screensize::get_screen_size;
@@ -96,7 +95,7 @@ impl Resource {
 
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(default))]
-pub struct HttpApp {
+pub struct BingtrayApp {
     title: String,
     title_bar: bool,
     collapsible: bool,
@@ -156,9 +155,13 @@ pub struct HttpApp {
     reset_rectangle_for_new_image: bool,
     #[cfg_attr(feature = "serde", serde(skip))]
     current_main_image_url: Option<String>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    cached_screen_size: Option<(f32, f32)>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    screen_size_failed: bool,
 }
 
-impl Default for HttpApp {
+impl Default for BingtrayApp {
     fn default() -> Self {
         let config = Config::new().ok();
         info!("Config creation result: {:?}", config.is_some());
@@ -168,31 +171,41 @@ impl Default for HttpApp {
             match load_market_codes(config) {
                 Ok(codes) => {
                     info!("Successfully loaded {} market codes", codes.len());
-                    let old_codes = get_old_market_codes(&codes);
-                    info!("Filtered to {} old market codes: {:?}", old_codes.len(), old_codes);
-                    
-                    // If no old codes available, use some recent ones or fallback
-                    if old_codes.is_empty() {
-                        warn!("No old market codes available, using first few available codes");
-                        codes.keys().take(5).cloned().collect::<Vec<_>>()
+                    if codes.is_empty() {
+                        warn!("No market codes loaded from config, using default fallback");
+                        vec!["en-US".to_string(), "en-GB".to_string(), "ja-JP".to_string(), "de-DE".to_string(), "fr-FR".to_string()]
                     } else {
-                        old_codes
+                        let old_codes = get_old_market_codes(&codes);
+                        info!("Filtered to {} old market codes: {:?}", old_codes.len(), old_codes);
+                        
+                        // If no old codes available, use some recent ones or fallback
+                        if old_codes.is_empty() {
+                            warn!("No old market codes available, using first few available codes");
+                            let available_codes: Vec<String> = codes.keys().take(5).cloned().collect();
+                            if available_codes.is_empty() {
+                                vec!["en-US".to_string(), "en-GB".to_string(), "ja-JP".to_string()]
+                            } else {
+                                available_codes
+                            }
+                        } else {
+                            old_codes
+                        }
                     }
                 }
                 Err(e) => {
                     warn!("Failed to load market codes: {}, using fallback", e);
-                    vec!["en-US".to_string()]
+                    vec!["en-US".to_string(), "en-GB".to_string(), "ja-JP".to_string()]
                 }
             }
         } else {
             warn!("No config available, using fallback market codes");
-            vec!["en-US".to_string()]
+            vec!["en-US".to_string(), "en-GB".to_string(), "ja-JP".to_string()]
         };
         
         info!("Final market codes: {:?}", current_market_codes);
         
         // Get actual screen size for rectangle calculation
-        let (screen_width, screen_height) = Self::get_actual_screen_size();
+        let (screen_width, screen_height) = Self::get_initial_screen_size();
         let screen_ratio = screen_width / screen_height;
         
         info!("Detected screen size: {}x{}, ratio: {:.2}", screen_width, screen_height, screen_ratio);
@@ -215,7 +228,7 @@ impl Default for HttpApp {
         ];
         
         Self {
-            title: "🗖 Window Options".to_owned(),
+            title: "BingtrayApp Window".to_owned(),
             title_bar: false,
             collapsible: false,
             resizable: false,
@@ -248,13 +261,15 @@ impl Default for HttpApp {
             screen_ratio,
             reset_rectangle_for_new_image: false,
             current_main_image_url: None,
+            cached_screen_size: None,
+            screen_size_failed: false,
         }
     }
 }
 
-impl crate::Demo for HttpApp {
+impl crate::Demo for BingtrayApp {
     fn name(&self) -> &'static str {
-        "🌐 HTTP"
+        "BingtrayApp"
     }
 
     fn show(&mut self, ctx: &egui::Context, _open: &mut bool) {
@@ -284,7 +299,7 @@ impl crate::Demo for HttpApp {
 }
 
 
-impl crate::View for HttpApp {
+impl crate::View for BingtrayApp {
     fn ui(&mut self, ui: &mut egui::Ui) {
         let prev_url = self.url.clone();
         let trigger_fetch = ui_url(ui, &mut self.url, &mut self.carousel_images, &mut self.carousel_promises, &mut self.selected_carousel_image, &mut self.main_panel_image, &mut self.main_panel_promise, &mut self.image_cache, &mut self.bing_api_promise, &mut self.config, &mut self.market_code_index, &mut self.current_market_codes, &mut self.scroll_position, &mut self.loading_more, &mut self.reset_rectangle_for_new_image, &mut self.current_main_image_url);
@@ -328,19 +343,33 @@ impl crate::View for HttpApp {
         }
 
         // Handle Bing API promise completion
-        if let Some(bing_promise) = &self.bing_api_promise {
+        let bing_api_result = if let Some(bing_promise) = &self.bing_api_promise {
             trace!("Checking Bing API promise...");
-            if let Some(result) = bing_promise.ready() {
-                info!("=== Bing API promise completed ===");
-                match result {
-                    Ok(bing_images) => {
-                        info!("Bing API data received with {} images", bing_images.len());
-                        for (i, img) in bing_images.iter().enumerate() {
-                            info!("Image {}: title='{}', url='{}'", i, img.title, img.url);
-                        }
-                        
-                        // Process each image from the Bing API response
-                        for bing_image in bing_images {
+            bing_promise.ready().cloned()
+        } else {
+            None
+        };
+        
+        if let Some(result) = bing_api_result {
+            info!("=== Bing API promise completed ===");
+            match result {
+                Ok(bing_images) => {
+                    info!("Bing API data received with {} images", bing_images.len());
+                    for (i, img) in bing_images.iter().enumerate() {
+                        info!("Image {}: title='{}', url='{}'", i, img.title, img.url);
+                    }
+                    
+                    // Clear the Bing API promise immediately to re-enable the button
+                    self.bing_api_promise = None;
+                    
+                    // Reset loading_more to allow more infinite scroll
+                    self.loading_more = false;
+                    
+                    // Force immediate screen update
+                    ui.ctx().request_repaint();
+                    
+                    // Process each image from the Bing API response
+                    for bing_image in bing_images {
                             // Construct the full URLs - use the URL as-is from Bing API
                             let base_url = if bing_image.url.starts_with("http") {
                                 bing_image.url.clone()
@@ -427,13 +456,15 @@ impl crate::View for HttpApp {
                             self.carousel_promises.push(promise);
                         }
                         
-                        // Clear the Bing API promise as it's completed
-                        self.bing_api_promise = None;
-                    }
-                    Err(e) => {
-                        error!("Failed to fetch Bing API data: {}", e);
-                        self.bing_api_promise = None;
-                    }
+                        // Force another repaint after adding all promises
+                        ui.ctx().request_repaint();
+                }
+                Err(e) => {
+                    error!("Failed to fetch Bing API data: {}", e);
+                    self.bing_api_promise = None;
+                    self.loading_more = false; // Reset loading state on error
+                    // Force repaint to update UI on error
+                    ui.ctx().request_repaint();
                 }
             }
         }
@@ -472,7 +503,7 @@ impl crate::View for HttpApp {
                                 }
                             }
                         }
-                        // Force a repaint when image is updated
+                        // Force immediate repaint when each image is updated
                         ui.ctx().request_repaint();
                     }
                     Err(e) => {
@@ -484,6 +515,11 @@ impl crate::View for HttpApp {
         // Remove completed promises in reverse order to maintain indices
         for &i in completed_indices.iter().rev() {
             let _ = self.carousel_promises.remove(i);
+        }
+        
+        // Force regular repaints while promises are active to ensure timely UI updates
+        if !self.carousel_promises.is_empty() || self.bing_api_promise.is_some() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
         }
 
         ui.separator();
@@ -560,6 +596,168 @@ impl crate::View for HttpApp {
                     }
                 }
                 
+                // Add cropped wallpaper button
+                if ui.button("Set Cropped Wallpaper").clicked() {
+                    if let Some(bytes) = &main_image.image_bytes {
+                        if !bytes.is_empty() {
+                            let image_data = bytes.clone();
+                            
+                            // Calculate crop rectangle using screen aspect ratio approach (like the Kotlin example)
+                            info!("Square corners: {:?}", self.square_corners);
+                            info!("Square center: {:?}, size factor: {}, screen ratio: {}", self.square_center, self.square_size_factor, self.screen_ratio);
+                            
+                            let crop_rect = if self.screen_ratio > 0.0 {
+                                // Try to get actual image dimensions from the image bytes
+                                let (bitmap_width, bitmap_height) = if let Some(bytes) = &main_image.image_bytes {
+                                    // Decode image to get actual dimensions using the correct API
+                                    match image::ImageReader::new(std::io::Cursor::new(bytes))
+                                        .with_guessed_format()
+                                    {
+                                        Ok(reader) => {
+                                            match reader.decode() {
+                                                Ok(img) => {
+                                                    let (w, h) = (img.width() as i32, img.height() as i32);
+                                                    info!("Decoded actual image dimensions: {}x{}", w, h);
+                                                    (w, h)
+                                                }
+                                                Err(e) => {
+                                                    warn!("Failed to decode image for dimensions: {}, using fallback", e);
+                                                    (1920, 1080)
+                                                }
+                                            }
+                                        }
+                                        Err(e) => {
+                                            warn!("Failed to create image reader for dimensions: {}, using fallback", e);
+                                            (1920, 1080)
+                                        }
+                                    }
+                                } else {
+                                    // Fallback to typical Bing wallpaper dimensions
+                                    (1920, 1080)
+                                };
+                                
+                                let bitmap_ratio = bitmap_height as f32 / bitmap_width as f32;
+                                
+                                info!("Using bitmap {}x{}, ratio: {:.3}, screen ratio: {:.3}", 
+                                      bitmap_width, bitmap_height, bitmap_ratio, self.screen_ratio);
+                                info!("Crop decision: bitmap_ratio ({:.3}) > screen_ratio ({:.3}) = {}", 
+                                      bitmap_ratio, self.screen_ratio, bitmap_ratio > self.screen_ratio);
+                                
+                                if bitmap_ratio > self.screen_ratio {
+                                    // Image is taller than screen, crop top and bottom
+                                    let crop_height = (bitmap_width as f32 * self.screen_ratio) as i32;
+                                    let y = (bitmap_height - crop_height) / 2;
+                                    let crop = (0, y, bitmap_width, y + crop_height);
+                                    info!("Cropping top/bottom: {:?}", crop);
+                                    Some(crop)
+                                } else {
+                                    // Image is wider than screen, crop sides  
+                                    let crop_width = (bitmap_height as f32 / self.screen_ratio) as i32;
+                                    let x = (bitmap_width - crop_width) / 2;
+                                    let crop = (x, 0, x + crop_width, bitmap_height);
+                                    info!("Cropping left/right: {:?}", crop);
+                                    Some(crop)
+                                }
+                            } else {
+                                info!("Invalid screen ratio: {}, skipping crop", self.screen_ratio);
+                                None
+                            };
+                            
+                            info!("Starting cropped wallpaper setting with {} bytes, crop: {:?}", image_data.len(), crop_rect);
+                            
+                            // Crop the image in Rust instead of relying on Android's crop hint
+                            let final_image_data = if let Some((left, top, right, bottom)) = crop_rect {
+                                info!("Attempting to crop image in Rust before sending to Android");
+                                match image::ImageReader::new(std::io::Cursor::new(&image_data))
+                                    .with_guessed_format()
+                                {
+                                    Ok(reader) => {
+                                        match reader.decode() {
+                                            Ok(mut img) => {
+                                                info!("Successfully decoded image for cropping: {}x{}", img.width(), img.height());
+                                                // Ensure crop coordinates are within image bounds
+                                                let img_width = img.width() as i32;
+                                                let img_height = img.height() as i32;
+                                                let crop_left = left.max(0).min(img_width);
+                                                let crop_top = top.max(0).min(img_height);
+                                                let crop_right = right.max(crop_left).min(img_width);
+                                                let crop_bottom = bottom.max(crop_top).min(img_height);
+                                                
+                                                info!("Cropping image from {}x{} with rect ({}, {}, {}, {})", 
+                                                      img_width, img_height, crop_left, crop_top, crop_right, crop_bottom);
+                                                
+                                                // Crop the image
+                                                let cropped_img = img.crop(
+                                                    crop_left as u32, 
+                                                    crop_top as u32, 
+                                                    (crop_right - crop_left) as u32, 
+                                                    (crop_bottom - crop_top) as u32
+                                                );
+                                                
+                                                info!("Cropped image to {}x{}", cropped_img.width(), cropped_img.height());
+                                                
+                                                // Encode back to JPEG
+                                                let mut output = Vec::new();
+                                                match cropped_img.write_to(&mut std::io::Cursor::new(&mut output), image::ImageFormat::Jpeg) {
+                                                    Ok(_) => {
+                                                        info!("Successfully re-encoded cropped image: {} bytes", output.len());
+                                                        output
+                                                    }
+                                                    Err(e) => {
+                                                        warn!("Failed to re-encode cropped image: {}, using original", e);
+                                                        image_data
+                                                    }
+                                                }
+                                            }
+                                            Err(e) => {
+                                                warn!("Failed to decode image for cropping: {}, using original", e);
+                                                image_data
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        warn!("Failed to create reader for cropping: {}, using original", e);
+                                        image_data
+                                    }
+                                }
+                            } else {
+                                info!("No crop rectangle provided, using original image");
+                                image_data
+                            };
+                            
+                            // Start wallpaper setting in background thread using pre-cropped bytes
+                            std::thread::spawn(move || {
+                                log::info!("BingtrayApp: Starting wallpaper setting from pre-cropped bytes in background thread");
+                                match crate::set_wallpaper_from_bytes(&final_image_data) {
+                                    Ok(true) => {
+                                        log::info!("BingtrayApp: Cropped wallpaper setting from bytes completed successfully");
+                                    }
+                                    Ok(false) => {
+                                        log::error!("BingtrayApp: Cropped wallpaper setting from bytes failed");
+                                    }
+                                    Err(e) => {
+                                        log::error!("BingtrayApp: Error during cropped wallpaper setting from bytes: {}", e);
+                                    }
+                                }
+                            });
+                            
+                            // Immediately update UI status without waiting
+                            self.wallpaper_status = Some("✓ Cropped wallpaper setting started".to_string());
+                            self.wallpaper_start_time = Some(SystemTime::now());
+                            ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
+                            log::info!("BingtrayApp: Finished processing cropped wallpaper setting request from bytes");
+                        } else {
+                            error!("No image data available for cropped wallpaper");
+                            self.wallpaper_status = Some("✗ No image data available for cropped wallpaper".to_string());
+                            self.wallpaper_start_time = Some(SystemTime::now());
+                        }
+                    } else {
+                        error!("No image data available for cropped wallpaper");
+                        self.wallpaper_status = Some("✗ No image data available for cropped wallpaper".to_string());
+                        self.wallpaper_start_time = Some(SystemTime::now());
+                    }
+                }
+                
                 // show copyright button and open copyright_link on click
                 if !main_image.copyright.is_empty() && !main_image.copyright_link.is_empty() {
                     if ui.button("More Info").clicked() {
@@ -570,20 +768,12 @@ impl crate::View for HttpApp {
                         };
                         
                         info!("Opening copyright URL: {}", copyright_url);
-                        #[cfg(not(target_os = "android"))]
-                        {
-                            if let Err(e) = webbrowser::open(&copyright_url) {
-                                error!("Failed to open copyright URL: {}", e);
-                                self.wallpaper_status = Some(format!("✗ Failed to open copyright URL: {}", e));
-                                self.wallpaper_start_time = Some(SystemTime::now());
-                            } else {
-                                self.wallpaper_status = Some("✓ Opened copyright URL".to_string());
-                                self.wallpaper_start_time = Some(SystemTime::now());
-                            }
-                        }
-                        #[cfg(target_os = "android")]
-                        {
-                            self.wallpaper_status = Some("✓ Copyright URL (webbrowser not available on Android)".to_string());
+                        if let Err(e) = webbrowser::open(&copyright_url) {
+                            error!("Failed to open copyright URL: {}", e);
+                            self.wallpaper_status = Some(format!("✗ Failed to open copyright URL: {}", e));
+                            self.wallpaper_start_time = Some(SystemTime::now());
+                        } else {
+                            self.wallpaper_status = Some("✓ Opened copyright URL".to_string());
                             self.wallpaper_start_time = Some(SystemTime::now());
                         }
                     }
@@ -591,26 +781,26 @@ impl crate::View for HttpApp {
                 
                 
                 // Square shape controls
-                let reset_clicked = ui.button("Reset Size").clicked();
+                // let reset_clicked = ui.button("Reset Size").clicked();
                 
-                if reset_clicked {
-                    // Reset to match screen size
-                    let screen_rect = ui.ctx().screen_rect();
-                    let screen_width = screen_rect.width();
-                    let screen_height = screen_rect.height();
-                    self.screen_ratio = screen_width / screen_height;
+                // if reset_clicked {
+                //     // Reset to match screen size
+                //     let screen_rect = ui.ctx().screen_rect();
+                //     let screen_width = screen_rect.width();
+                //     let screen_height = screen_rect.height();
+                //     self.screen_ratio = screen_width / screen_height;
                     
-                    // Set square size to match actual screen dimensions
-                    self.square_size_factor = 1.0;
-                    let _square_width = screen_width * 0.3; // 30% of screen width
+                //     // Set square size to match actual screen dimensions
+                //     self.square_size_factor = 1.0;
+                //     let _square_width = screen_width * 0.3; // 30% of screen width
                     
-                    // Center the square
-                    let center_x = screen_width / 2.0;
-                    let center_y = screen_height / 2.0;
-                    self.square_center = pos2(center_x, center_y);
+                //     // Center the square
+                //     let center_x = screen_width / 2.0;
+                //     let center_y = screen_height / 2.0;
+                //     self.square_center = pos2(center_x, center_y);
                     
-                    self.update_square_corners();
-                }
+                //     self.update_square_corners();
+                // }
 
             });
             
@@ -635,7 +825,7 @@ impl crate::View for HttpApp {
                 
                 // Reset rectangle size for new image if needed
                 if self.reset_rectangle_for_new_image {
-                    let (actual_screen_width, actual_screen_height) = Self::get_actual_screen_size();
+                    let (actual_screen_width, actual_screen_height) = self.get_actual_screen_size();
                     let actual_screen_size = Vec2::new(actual_screen_width, actual_screen_height);
                     self.initialize_rectangle_for_image(overlay_rect, actual_screen_size);
                     self.reset_rectangle_for_new_image = false;
@@ -675,7 +865,7 @@ impl crate::View for HttpApp {
                         }
                     });
                     // Keep requesting repaints to update the spinner and check elapsed time
-                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
+                    ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
                 } else {
                     // Clear status after 10 seconds
                     self.wallpaper_status = None;
@@ -718,114 +908,17 @@ fn ui_url(
         
         if !carousel_images.is_empty() {
             ui.label(format!("Loaded {} images", carousel_images.len()));
-            // Create scroll area with proper scroll detection for infinite loading
-            let scroll_area = egui::ScrollArea::horizontal()
+            // Simple horizontal scroll area
+            let scroll_response = egui::ScrollArea::horizontal()
                 .auto_shrink(false)
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        // Get actual scroll position from the UI
-                        let available_width = ui.available_width();
-                        let total_content_width = carousel_images.len() as f32 * 130.0; // 120px image + 10px spacing
-                        let scroll_rect = ui.clip_rect();
-                        let content_rect = ui.max_rect();
-                        
-                        // Calculate how much we've scrolled from the left
-                        let scroll_offset = (content_rect.min.x - scroll_rect.min.x).max(0.0);
-                        let max_scroll = (total_content_width - available_width).max(0.0);
-                        let scroll_percentage = if max_scroll > 0.0 { scroll_offset / max_scroll } else { 0.0 };
-                        
-                        // Load more when scrolling reaches 80% from left side
-                        if scroll_percentage > 0.8 && !*loading_more && carousel_images.len() > 0 {
-                            info!("Scroll threshold reached: {:.1}% - Loading more images", scroll_percentage * 100.0);
-                            *loading_more = true;
-                            
-                            // Check if more images are available using bingtray_core functions
-                            let has_more = if let Some(config) = config {
-                                // Check if there are available market codes to download from
-                                let market_codes = load_market_codes(config).unwrap_or_default();
-                                let old_codes = get_old_market_codes(&market_codes);
-                                if !old_codes.is_empty() && *market_code_index < current_market_codes.len() {
-                                    true
-                                } else {
-                                    // Check if historical data is available
-                                    if let Ok((current_page, total_pages)) = bingtray_core::get_historical_page_info(config) {
-                                        current_page < total_pages
-                                    } else {
-                                        false
-                                    }
-                                }
-                            } else {
-                                false
-                            };
-                            
-                            if has_more {
-                                // Load more images using proper bingtray-core logic
-                                if let Some(config) = config {
-                                    let mut market_codes = load_market_codes(config).unwrap_or_default();
-                                    let old_codes = get_old_market_codes(&market_codes);
-                                    
-                                    if !old_codes.is_empty() && *market_code_index < current_market_codes.len() {
-                                        // Load from market codes
-                                        let market_code = &current_market_codes[*market_code_index];
-                                        info!("Loading more images for market code: {}", market_code);
-                                        
-                                        let ctx = ui.ctx().clone();
-                                        let (sender, promise) = Promise::new();
-                                        let market_code_for_thread = market_code.clone();
-                                        let market_code_for_update = market_code.clone();
-                                        
-                                        std::thread::spawn(move || {
-                                            let result = get_bing_images(&market_code_for_thread)
-                                                .map_err(|e| format!("Error fetching Bing images: {}", e));
-                                            sender.send(result);
-                                        });
-                                        
-                                        *bing_api_promise = Some(promise);
-                                        *market_code_index += 1;
-                                        
-                                        // Update timestamp for this market code
-                                        market_codes.insert(market_code_for_update, Utc::now().timestamp());
-                                        let _ = bingtray_core::save_market_codes(config, &market_codes);
-                                    } else {
-                                        // Load historical data
-                                        info!("No more market codes available, loading historical data");
-                                        let ctx = ui.ctx().clone();
-                                        let config_clone = config.clone();
-                                        let (sender, promise) = Promise::new();
-                                        
-                                        std::thread::spawn(move || {
-                                            let result = get_next_historical_page(&config_clone)
-                                                .map_err(|e| format!("Error fetching historical data: {}", e))
-                                                .and_then(|opt_images| {
-                                                    opt_images.map(|historical_images| {
-                                                    // Convert HistoricalImage to BingImage
-                                                    historical_images.into_iter().map(|hist| BingImage {
-                                                        url: hist.url,
-                                                        title: hist.title,
-                                                        copyright: Some(hist.copyright),
-                                                        copyrightlink: Some(hist.copyrightlink),
-                                                    }).collect()
-                                                }).ok_or_else(|| "No more historical data available".to_string())
-                                            });
-                                            sender.send(result);
-                                        });
-                                        
-                                        *bing_api_promise = Some(promise);
-                                    }
-                                }
-                            } else {
-                                info!("No more images available for infinite scroll");
-                                *loading_more = false;
-                            }
-                        }
-                        
+                        // Display all carousel images
                         for (i, carousel_image) in carousel_images.iter().enumerate() {
                             ui.vertical(|ui| {
-                                trace!("Checking image {} - has image: {}", i, carousel_image.image.is_some());
                                 if let Some(image) = &carousel_image.image {
-                                    // Only log when image first becomes available, not on every frame
-                                    // Try to display the image with explicit sizing
+                                    // Display the image
                                     let mut sized_image = image.clone();
                                     sized_image = sized_image.fit_to_exact_size(egui::Vec2::new(120.0, 80.0));
                                     let image_button = egui::ImageButton::new(sized_image);
@@ -833,20 +926,16 @@ fn ui_url(
                                     
                                     if response.clicked() {
                                         info!("Clicked on image {}: {}", i, carousel_image.title);
-                                        // Set this as the selected carousel image (for reference)
                                         *selected_carousel_image = Some(carousel_image.clone());
                                         
                                         // Check if we already have this high-res image cached
                                         if let Some(cached_image) = image_cache.get(&carousel_image.full_url) {
                                             info!("Using cached high-res image for: {}", carousel_image.title);
                                             *main_panel_image = Some(cached_image.clone());
-                                            // Reset rectangle size for new image
                                             *reset_rectangle_for_new_image = true;
                                         } else {
-                                            // Clear any existing main panel promise
-                                            *main_panel_promise = None;
-                                            
                                             // Fetch full resolution image for main panel
+                                            *main_panel_promise = None;
                                             let ctx = ui.ctx().clone();
                                             let full_url = carousel_image.full_url.clone();
                                             let carousel_image_clone = carousel_image.clone();
@@ -874,7 +963,6 @@ fn ui_url(
                                                         };
                                                     }
                                                     
-                                                    // Include the bytes in the context with original URL
                                                     let image_bytes = response.bytes.to_vec();
                                                     ctx.include_bytes(response.url.clone(), response.bytes.clone());
                                                     ctx.request_repaint();
@@ -897,13 +985,12 @@ fn ui_url(
                                         }
                                     }
                                 } else {
-                                    // Show placeholder while loading or if image failed to load
+                                    // Show placeholder while loading
                                     let placeholder = ui.add_sized([120.0, 80.0], egui::Button::new("📷 Loading..."));
                                     if placeholder.clicked() {
                                         info!("Clicked on placeholder for image {}: {}", i, carousel_image.title);
                                         *selected_carousel_image = Some(carousel_image.clone());
                                     }
-                                    trace!("Image {} still loading or failed to load", i);
                                 }
                                 
                                 // Show truncated title
@@ -916,12 +1003,96 @@ fn ui_url(
                             });
                             ui.add_space(5.0);
                         }
-                        
-                        // Reset loading_more flag after images are processed
-                        *loading_more = false;
                     });
-                    ui.add_space(20.0);
                 });
+            
+            // Check scroll position and trigger infinite scroll at 80%
+            let scroll_pos = scroll_response.state.offset;
+            if scroll_pos.x > 0.0 {
+                let available_width = ui.available_width();
+                let content_width = carousel_images.len() as f32 * 125.0; // 120px + 5px spacing
+                let max_scroll = (content_width - available_width).max(0.0);
+                
+                if max_scroll > 0.0 {
+                    let scroll_percentage = scroll_pos.x / max_scroll;
+                    
+                    // Trigger load more when scrolled 80% to the right and not already loading
+                    if scroll_percentage > 0.8 && !*loading_more && carousel_images.len() > 0 {
+                        info!("Scroll threshold reached: {:.1}% - Loading more images", scroll_percentage * 100.0);
+                        *loading_more = true;
+                        
+                        // Load more images like desktop version does (market codes + historical fallback)
+                        if let Some(config) = config {
+                            let market_codes = load_market_codes(config).unwrap_or_default();
+                            let old_codes = get_old_market_codes(&market_codes);
+                            
+                            if !old_codes.is_empty() {
+                                // Try next available market code (cycle through all available codes)
+                                let market_code = &old_codes[*market_code_index % old_codes.len()];
+                                info!("Loading more images for market code: {} (index {})", market_code, *market_code_index);
+                                *market_code_index += 1;
+                                
+                                let _ctx = ui.ctx().clone();
+                                let (sender, promise) = Promise::new();
+                                let market_code_for_thread = market_code.clone();
+                                
+                                std::thread::spawn(move || {
+                                    let result = get_bing_images(&market_code_for_thread)
+                                        .map_err(|e| format!("Error fetching Bing images: {}", e));
+                                    sender.send(result);
+                                });
+                                
+                                *bing_api_promise = Some(promise);
+                                *market_code_index += 1;
+                            } else {
+                                // Try historical data when market codes are exhausted
+                                info!("No more market codes available, trying historical data for infinite scroll");
+                                
+                                let config_clone = config.clone();
+                                let _ctx = ui.ctx().clone();
+                                let (sender, promise) = Promise::new();
+                                
+                                std::thread::spawn(move || {
+                                    let result = bingtray_core::get_next_historical_page(&config_clone)
+                                        .map_err(|e| format!("Error fetching historical images: {}", e))
+                                        .and_then(|opt| match opt {
+                                            Some(historical_images) => {
+                                                // Convert HistoricalImage to BingImage
+                                                let bing_images: Vec<BingImage> = historical_images.iter().map(|h| BingImage {
+                                                    url: h.url.clone(),
+                                                    title: h.title.clone(),
+                                                    copyright: Some(h.copyright.clone()),
+                                                    copyrightlink: Some(h.copyrightlink.clone()),
+                                                }).collect();
+                                                Ok(bing_images)
+                                            }
+                                            None => {
+                                                // If no more historical pages, try to download more historical data
+                                                match bingtray_core::download_more_historical_data(&config_clone) {
+                                                    Ok(historical_images) => {
+                                                        let bing_images: Vec<BingImage> = historical_images.iter().map(|h| BingImage {
+                                                            url: h.url.clone(),
+                                                            title: h.title.clone(),
+                                                            copyright: Some(h.copyright.clone()),
+                                                            copyrightlink: Some(h.copyrightlink.clone()),
+                                                        }).collect();
+                                                        Ok(bing_images)
+                                                    }
+                                                    Err(e) => Err(format!("No more historical data available: {}", e))
+                                                }
+                                            }
+                                        });
+                                    sender.send(result);
+                                });
+                                
+                                *bing_api_promise = Some(promise);
+                            }
+                        } else {
+                            *loading_more = false;
+                        }
+                    }
+                }
+            }
         } else {
             ui.label("Click 'Fetch Bing Daily Image' to load images");
         }
@@ -932,7 +1103,19 @@ fn ui_url(
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
         }
         
-        if ui.button("Fetch Bing Daily Image").clicked() {
+        // Check if there's an active API request
+        let is_fetching = bing_api_promise.is_some();
+        
+        // Create button with appropriate text and state
+        let fetch_button = if is_fetching {
+            egui::Button::new("⏳ Fetching...").fill(egui::Color32::from_gray(128))
+        } else {
+            egui::Button::new("Fetch Bing Daily Image")
+        };
+        
+        let fetch_response = ui.add_enabled(!is_fetching, fetch_button);
+        
+        if fetch_response.clicked() {
             info!("=== Fetch Bing Daily Image button clicked ===");
             // Clear existing images and promises
             carousel_images.clear();
@@ -947,33 +1130,79 @@ fn ui_url(
             *current_main_image_url = None;
 
             // Use bingtray-core to fetch images
-            if let Some(config) = config {
+            if let Some(_config) = config {
                 info!("Config is available");
-                if !current_market_codes.is_empty() {
-                    let market_code = &current_market_codes[0];
-                    info!("Fetching Bing images using bingtray-core for market: {}", market_code);
-                    info!("Available market codes: {:?}", current_market_codes);
-                    
-                    let ctx = ui.ctx().clone();
-                    let (sender, promise) = Promise::new();
-                    let market_code = market_code.clone();
-                    
-                    std::thread::spawn(move || {
-                        info!("Starting API call in background thread for market: {}", market_code);
-                        let result = get_bing_images(&market_code)
-                            .map_err(|e| format!("Error fetching Bing images: {}", e));
-                        info!("API call completed with result: {:?}", result.as_ref().map(|imgs| imgs.len()));
-                        sender.send(result);
-                    });
-                    
-                    *bing_api_promise = Some(promise);
-                    *market_code_index = 1; // Next market code for infinite scroll
-                    info!("Bing API promise created and stored");
-                } else {
-                    warn!("No market codes available!");
+                
+                // Ensure we have at least one market code to work with
+                if current_market_codes.is_empty() {
+                    current_market_codes.push("en-US".to_string());
+                    warn!("No market codes available, added en-US as fallback");
                 }
+                
+                let market_code = &current_market_codes[0];
+                info!("Fetching Bing images using bingtray-core for market: {}", market_code);
+                info!("Available market codes: {:?}", current_market_codes);
+                
+                let _ctx = ui.ctx().clone();
+                let (sender, promise) = Promise::new();
+                let market_code = market_code.clone();
+                
+                std::thread::spawn(move || {
+                    info!("Starting API call in background thread for market: {}", market_code);
+                    let result = match get_bing_images(&market_code) {
+                        Ok(images) => {
+                            info!("API call successful: {} images received", images.len());
+                            for (i, img) in images.iter().enumerate() {
+                                info!("Image {}: title='{}', url='{}'", i, img.title, img.url);
+                            }
+                            Ok(images)
+                        }
+                        Err(e) => {
+                            error!("API call failed: {}", e);
+                            Err(format!("Error fetching Bing images: {}", e))
+                        }
+                    };
+                    sender.send(result);
+                });
+                
+                *bing_api_promise = Some(promise);
+                *market_code_index = 1; // Next market code for infinite scroll
+                info!("Bing API promise created and stored");
+                
+                // Force immediate UI update to show button state change
+                ui.ctx().request_repaint();
+                // Also request frequent updates while loading
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
             } else {
-                warn!("No config available!");
+                warn!("No config available, creating fallback API call");
+                // Even without config, try to fetch images with a default market code
+                let _ctx = ui.ctx().clone();
+                let (sender, promise) = Promise::new();
+                
+                std::thread::spawn(move || {
+                    info!("Starting fallback API call for en-US");
+                    let result = match get_bing_images("en-US") {
+                        Ok(images) => {
+                            info!("Fallback API call successful: {} images received", images.len());
+                            Ok(images)
+                        }
+                        Err(e) => {
+                            error!("Fallback API call failed: {}", e);
+                            Err(format!("Error fetching Bing images: {}", e))
+                        }
+                    };
+                    sender.send(result);
+                });
+                
+                *bing_api_promise = Some(promise);
+                current_market_codes.push("en-US".to_string());
+                *market_code_index = 1;
+                info!("Fallback Bing API promise created and stored");
+                
+                // Force immediate UI update to show button state change
+                ui.ctx().request_repaint();
+                // Also request frequent updates while loading
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
             }
         } 
         
@@ -1078,21 +1307,21 @@ fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_status: &mut Op
 
 
     fn syntax_highlighting(
-    ctx: &egui::Context,
+    _ctx: &egui::Context,
     response: &ehttp::Response,
-    text: &str,
+    _text: &str,
 ) -> Option<ColoredText> {
     let extension_and_rest: Vec<&str> = response.url.rsplitn(2, '.').collect();
-    let extension = extension_and_rest.first()?;
+    let _extension = extension_and_rest.first()?;
     #[cfg(not(target_os = "android"))]
     {
-        let theme = egui_extras::syntax_highlighting::CodeTheme::from_style(&ctx.style());
+        let theme = egui_extras::syntax_highlighting::CodeTheme::from_style(&_ctx.style());
         Some(ColoredText(egui_extras::syntax_highlighting::highlight(
-            ctx,
-            &ctx.style(),
+            _ctx,
+            &_ctx.style(),
             &theme,
-            text,
-            extension,
+            _text,
+            _extension,
         )))
     }
     #[cfg(target_os = "android")]
@@ -1113,10 +1342,12 @@ impl ColoredText {
     }
 }
 
-impl HttpApp {
+impl BingtrayApp {
     fn update_square_corners(&mut self) {
         // Get actual screen dimensions for rectangle calculation
-        let (screen_width, screen_height) = Self::get_actual_screen_size();
+        let (screen_width, screen_height) = self.get_actual_screen_size();
+        info!("Updating square corners with screen: {}x{}, center: {:?}, factor: {}", 
+              screen_width, screen_height, self.square_center, self.square_size_factor);
         
         // Ensure screen ratio is valid
         if self.screen_ratio <= 0.0 {
@@ -1147,11 +1378,12 @@ impl HttpApp {
             pos2(self.square_center.x + half_width, self.square_center.y + half_height), // Bottom-right
             pos2(self.square_center.x - half_width, self.square_center.y + half_height), // Bottom-left
         ];
+        info!("Updated square corners: {:?}", self.square_corners);
     }
     
     fn update_screen_ratio(&mut self, _ui: &egui::Ui) {
         // Get actual screen ratio from device screen dimensions
-        let (screen_width, screen_height) = Self::get_actual_screen_size();
+        let (screen_width, screen_height) = self.get_actual_screen_size();
         let new_screen_ratio = if screen_height > 0.0 {
             (screen_width / screen_height).max(0.1) // Ensure minimum ratio
         } else {
@@ -1185,7 +1417,7 @@ impl HttpApp {
                         
                         // Constrain size to keep rectangle within image bounds
                         // Use actual screen dimensions for rectangle calculation
-                        let (screen_width, screen_height) = Self::get_actual_screen_size();
+                        let (screen_width, screen_height) = self.get_actual_screen_size();
                         let proposed_width = screen_width * proposed_size_factor;
                         let proposed_height = proposed_width / self.screen_ratio;
                         
@@ -1227,7 +1459,7 @@ impl HttpApp {
             let new_center = to_screen.inverse().transform_pos(new_center_screen);
             
             // Constrain center to keep rectangle within image bounds
-            let (screen_width, _screen_height) = Self::get_actual_screen_size();
+            let (screen_width, _screen_height) = self.get_actual_screen_size();
             let rect_width = screen_width * self.square_size_factor;
             let rect_height = rect_width / self.screen_ratio;
             let half_width = rect_width / 2.0;
@@ -1254,6 +1486,9 @@ impl HttpApp {
         let mut needs_update = false;
         let mut new_size_factor = self.square_size_factor;
         
+        // Get screen size once before the loop to avoid borrowing conflicts
+        let (screen_width, screen_height) = self.get_actual_screen_size();
+        
         // Handle corner dragging - similar to paint_bezier.rs
         for (i, corner) in self.square_corners.iter_mut().enumerate() {
             let corner_in_screen = to_screen.transform_pos(*corner);
@@ -1274,7 +1509,6 @@ impl HttpApp {
                 let current_distance = (drag_pos - center_in_screen).length();
                 
                 // Calculate base distance from current rectangle size to maintain proportional scaling
-                let (screen_width, screen_height) = Self::get_actual_screen_size();
                 let current_width = screen_width * self.square_size_factor;
                 let current_height = current_width / self.screen_ratio;
                 let current_base_distance = (current_width * current_width + current_height * current_height).sqrt() / 2.0;
@@ -1331,7 +1565,7 @@ impl HttpApp {
             self.square_size_factor = new_size_factor;
             
             // After resizing, ensure center is still within bounds
-            let (screen_width, _screen_height) = Self::get_actual_screen_size();
+            let (screen_width, _screen_height) = self.get_actual_screen_size();
             let rect_width = screen_width * self.square_size_factor;
             let rect_height = rect_width / self.screen_ratio;
             let half_width = rect_width / 2.0;
@@ -1431,7 +1665,7 @@ impl HttpApp {
         self.square_center = pos2(center_x - image_rect.left(), center_y - image_rect.top());
         
         // Update size factor based on new dimensions (relative to actual screen width)
-        let (screen_width, _screen_height) = Self::get_actual_screen_size();
+        let (screen_width, _screen_height) = self.get_actual_screen_size();
         self.square_size_factor = rect_width / screen_width;
         
         info!("Initialized rectangle: center=({:.1},{:.1}), size=({:.1}x{:.1}), factor={:.2}",
@@ -1440,17 +1674,49 @@ impl HttpApp {
         self.update_square_corners();
     }
 
-    fn get_actual_screen_size() -> (f32, f32) {
+    fn get_initial_screen_size() -> (f32, f32) {
+        #[cfg(target_os = "android")]
+        {
+            match get_screen_size() {
+                Ok((width, height)) => (width as f32, height as f32),
+                Err(_) => (1080.0, 1920.0), // Default mobile resolution
+            }
+        }
+        
+        #[cfg(not(target_os = "android"))]
+        {
+            match screen_size::get_primary_screen_size() {
+                Ok((width, height)) => (width as f32, height as f32),
+                Err(_) => (1920.0, 1080.0), // Default desktop resolution
+            }
+        }
+    }
+
+    fn get_actual_screen_size(&mut self) -> (f32, f32) {
+        // Return cached value if available
+        if let Some(cached) = self.cached_screen_size {
+            return cached;
+        }
+        
+        // If screen size detection previously failed, don't retry
+        if self.screen_size_failed {
+            return (1080.0, 1920.0); // Default mobile resolution
+        }
+        
         #[cfg(target_os = "android")]
         {
             match get_screen_size() {
                 Ok((width, height)) => {
-                    info!("Android screen size: {}x{}", width, height);
-                    (width as f32, height as f32)
+                    let result = (width as f32, height as f32);
+                    self.cached_screen_size = Some(result);
+                    result
                 }
-                Err(e) => {
-                    warn!("Failed to get Android screen size: {}, using default", e);
-                    (1080.0, 1920.0) // Default mobile resolution
+                Err(_e) => {
+                    // Mark as failed and use default without logging repeatedly
+                    self.screen_size_failed = true;
+                    let result = (1080.0, 1920.0); // Default mobile resolution
+                    self.cached_screen_size = Some(result);
+                    result
                 }
             }
         }
@@ -1459,12 +1725,16 @@ impl HttpApp {
         {
             match screen_size::get_primary_screen_size() {
                 Ok((width, height)) => {
-                    info!("Desktop screen size: {}x{}", width, height);
-                    (width as f32, height as f32)
+                    let result = (width as f32, height as f32);
+                    self.cached_screen_size = Some(result);
+                    result
                 }
-                Err(e) => {
-                    warn!("Failed to get desktop screen size: {}, using default", e);
-                    (1920.0, 1080.0) // Default desktop resolution
+                Err(_e) => {
+                    // Mark as failed and use default without logging repeatedly
+                    self.screen_size_failed = true;
+                    let result = (1920.0, 1080.0); // Default desktop resolution
+                    self.cached_screen_size = Some(result);
+                    result
                 }
             }
         }
@@ -1501,23 +1771,88 @@ impl HttpApp {
                     info!("Loading images for market code: {}", market_code);
                     
                     if let Ok(images) = get_bing_images(market_code) {
+                        // Process and add images to carousel
+                        for bing_image in images {
+                            let thumbnail_url = format!("https://bing.com{}", bing_image.url);
+                            let full_url = format!("https://bing.com{}", bing_image.url.replace("_480x270", "_UHD"));
+                            
+                            let carousel_image = CarouselImage {
+                                title: bing_image.title.clone(),
+                                copyright: bing_image.copyright.clone().unwrap_or_default(),
+                                copyright_link: bing_image.copyrightlink.clone().unwrap_or_default(),
+                                thumbnail_url: thumbnail_url.clone(),
+                                full_url: full_url.clone(),
+                                image: None,
+                                image_bytes: None,
+                            };
+                            
+                            self.carousel_images.push(carousel_image);
+                        }
+                        
                         // Increment market index for next time
                         self.market_code_index += 1;
                         
                         // Update timestamp for this market code
-                        market_codes.insert(market_code.clone(), Utc::now().timestamp());
+                        market_codes.insert(market_code.clone(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64);
                         let _ = bingtray_core::save_market_codes(config, &market_codes);
                         
-                        info!("Successfully loaded {} images from market code {}", images.len(), market_code);
+                        info!("Successfully loaded {} images from market code {}", self.carousel_images.len(), market_code);
                         return true;
                     }
                 }
-            } else {
-                // Try historical data
-                info!("No market codes available, trying historical data");
-                if let Ok(Some(_historical_images)) = bingtray_core::get_next_historical_page(config) {
-                    info!("Successfully loaded historical images");
+            }
+            
+            // Try historical data when market codes are exhausted or unavailable
+            info!("No market codes available, trying historical data");
+            match bingtray_core::get_next_historical_page(config) {
+                Ok(Some(historical_images)) => {
+                    // Convert and add historical images to carousel
+                    for historical_image in historical_images {
+                        let carousel_image = CarouselImage {
+                            title: historical_image.title.clone(),
+                            copyright: historical_image.copyright.clone(),
+                            copyright_link: historical_image.copyrightlink.clone(),
+                            thumbnail_url: historical_image.url.clone(),
+                            full_url: historical_image.url.clone(),
+                            image: None,
+                            image_bytes: None,
+                        };
+                        
+                        self.carousel_images.push(carousel_image);
+                    }
+                    
+                    info!("Successfully loaded {} historical images", self.carousel_images.len());
                     return true;
+                }
+                Ok(None) => {
+                    // Try to download more historical data
+                    match bingtray_core::download_more_historical_data(config) {
+                        Ok(historical_images) => {
+                            // Convert and add new historical images to carousel
+                            for historical_image in historical_images {
+                                let carousel_image = CarouselImage {
+                                    title: historical_image.title.clone(),
+                                    copyright: historical_image.copyright.clone(),
+                                    copyright_link: historical_image.copyrightlink.clone(),
+                                    thumbnail_url: historical_image.url.clone(),
+                                    full_url: historical_image.url.clone(),
+                                    image: None,
+                                    image_bytes: None,
+                                };
+                                
+                                self.carousel_images.push(carousel_image);
+                            }
+                            
+                            info!("Successfully loaded {} additional historical images", self.carousel_images.len());
+                            return true;
+                        }
+                        Err(e) => {
+                            info!("No more historical data available: {}", e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to load historical data: {}", e);
                 }
             }
         }

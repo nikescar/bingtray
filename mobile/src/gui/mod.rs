@@ -1,4 +1,4 @@
-mod http_app;
+mod bingtray_app;
 pub mod gui_windows;
 
 pub use {

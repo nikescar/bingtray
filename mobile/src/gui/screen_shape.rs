@@ -29,9 +29,9 @@ impl Default for ScreenShapeWidget {
         let screen_ratio = 16.0 / 9.0; // Common widescreen ratio
         let initial_size = 200.0;
         
-        // Calculate square dimensions based on screen ratio
-        let square_width = 1920.0;
-        let square_height = 1080.0;
+        // Calculate square dimensions based on initial size (will be updated to actual screen size when UI is available)
+        let square_width = initial_size;
+        let square_height = initial_size / screen_ratio;
 
         let center = pos2(300.0, 200.0);
         let half_width = square_width / 2.0;
@@ -78,7 +78,19 @@ impl ScreenShapeWidget {
             ui.color_edit_button_srgba(&mut self.fill);
             
             if ui.button("Reset Size").clicked() {
+                // Reset to actual screen size instead of hardcoded 1920x1080
+                let screen_rect = ui.ctx().screen_rect();
+                self.screen_ratio = screen_rect.width() / screen_rect.height();
                 self.size_factor = 1.0;
+                
+                // Update the rectangle to match screen dimensions
+                let square_width = screen_rect.width() * 0.3; // 30% of screen width as a reasonable initial size
+                let square_height = square_width / self.screen_ratio;
+                
+                let center_x = screen_rect.width() / 2.0;
+                let center_y = screen_rect.height() / 2.0;
+                self.center = pos2(center_x, center_y);
+                
                 self.update_corners();
             }
             

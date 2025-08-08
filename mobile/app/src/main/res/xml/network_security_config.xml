@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="true">bing.com</domain>
+        <domain includeSubdomains="true">microsoft.com</domain>
+        <domain includeSubdomains="true">learn.microsoft.com</domain>
+    </domain-config>
+    
+    <!-- Allow cleartext traffic for debugging -->
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <!-- Trust preinstalled CAs -->
+            <certificates src="system"/>
+            <!-- Additionally trust user added CAs -->
+            <certificates src="user"/>
+        </trust-anchors>
+    </base-config>
+    
+    <!-- Debug overrides for development -->
+    <debug-overrides>
+        <trust-anchors>
+            <!-- Trust preinstalled CAs -->
+            <certificates src="system"/>
+            <!-- Additionally trust user added CAs -->
+            <certificates src="user"/>
+        </trust-anchors>
+    </debug-overrides>
+</network-security-config>

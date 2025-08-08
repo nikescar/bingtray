@@ -47,7 +47,7 @@ fn android_main(app: AndroidApp) {
 
     match BingtrayApp::run(options) {
         Ok(_) => {
-            info!("BingtrayApp exited successfully");
+            log::info!("BingtrayApp exited successfully");
         }
         Err(e) => {
             log::error!("BingtrayApp failed: {}", e);
@@ -82,7 +82,7 @@ impl eframe::App for BingtrayApp {
 
 // Export modules for external use
 pub use gui::{Demo, DemoWindows, View};
-pub use android_wallpaper::set_wallpaper_from_bytes;
+pub use android_wallpaper::{set_wallpaper_from_bytes, set_wallpaper_from_bytes_with_crop};
 pub use android_screensize::get_screen_size;
 
 /// Detect narrow screens. This is used to show a simpler UI on mobile devices,

@@ -8,12 +8,14 @@ rust-version.workspace = true
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-attohttpc = { workspace = true }
+reqwest = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 scraper = { workspace = true }
+log = { workspace = true }
+tokio = { workspace = true }
 
 # Conditional dependencies for non-Android platforms
 [target.'cfg(not(target_os = "android"))'.dependencies]

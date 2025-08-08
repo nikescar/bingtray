@@ -50,7 +50,7 @@ impl Default for GuiGroups {
     fn default() -> Self {
         Self {
             demos: GuiGroup::new(vec![
-                Box::<super::http_app::HttpApp>::default(),
+                Box::<super::bingtray_app::BingtrayApp>::default(),
             ]),
         }
     }

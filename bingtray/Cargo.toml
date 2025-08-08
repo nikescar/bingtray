@@ -15,8 +15,9 @@ bingtray-core = { path = "../bingtray-core" }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 rand = { workspace = true }
+log = { workspace = true }
 tray-icon = "0.18"
-open = "5.0"
+webbrowser = "1.0.5"
 tao = "0.33"
 image = "0.25"
 
