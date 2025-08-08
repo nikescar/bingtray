@@ -1,6 +1,7 @@
 #![allow(clippy::float_cmp)]
 #![allow(clippy::manual_range_contains)]
 
+#[cfg(target_os = "android")]
 use android_activity::AndroidApp;
 use eframe::{egui, NativeOptions};
 use log::info;
@@ -8,6 +9,7 @@ use log::info;
 mod gui;
 mod android_wallpaper;
 
+#[cfg(target_os = "android")]
 #[no_mangle]
 fn android_main(app: AndroidApp) {
     // Initialize Android logger
@@ -62,7 +64,7 @@ pub struct BingtrayApp {
 impl BingtrayApp {
     pub fn run(options: NativeOptions) -> Result<(), eframe::Error> {
         eframe::run_native(
-            "bingtray-mobile",
+            "bingtray-android",
             options,
             Box::new(|cc| {
                 egui_extras::install_image_loaders(&cc.egui_ctx);
@@ -81,13 +83,6 @@ impl eframe::App for BingtrayApp {
 // Export modules for external use
 pub use gui::{Demo, DemoWindows, View};
 pub use android_wallpaper::set_wallpaper_from_bytes;
-
-/// View some Rust code with syntax highlighting and selection.
-pub(crate) fn rust_view_ui(ui: &mut egui::Ui, code: &str) {
-    let language = "rs";
-    let theme = egui_extras::syntax_highlighting::CodeTheme::from_memory(ui.ctx(), ui.style());
-    egui_extras::syntax_highlighting::code_view_ui(ui, &theme, code, language);
-}
 
 /// Detect narrow screens. This is used to show a simpler UI on mobile devices,
 /// especially for the web demo at <https://egui.rs>.

@@ -2,9 +2,11 @@
 resolver = "2"  
 members = [
     "bingtray-core",
-    "bingcli", 
-    "bingtray-gui",
-    "android",
+    "bingtray",
+    "mobile",
+]
+exclude = [
+    "mobile",
 ]
 
 [workspace.package]

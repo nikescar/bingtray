@@ -1,8 +1,10 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod app;
+
 use anyhow::Result;
-use bingcli::BingCliApp;
-use clap::Parser;
+use app::BingTrayApp;
+use std::io::IsTerminal;
 use tao::{
     event::Event,
     event_loop::{ControlFlow, EventLoopBuilder},
@@ -14,113 +16,19 @@ use tray_icon::{
 
 #[cfg(target_os = "windows")]
 use windows_sys::Win32::{
-    System::Console::{AllocConsole, GetConsoleWindow},
-    UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, SW_SHOW},
+    UI::WindowsAndMessaging::{ShowWindow, SW_HIDE},
+    System::Console::GetConsoleWindow,
 };
-
-#[derive(Parser)]
-#[command(name = "bingtray-gui")]
-#[command(about = "BingTray - Bing Wallpaper Manager with GUI")]
-#[command(version)]
-struct Cli {
-    /// Run in CLI mode (text-based interface)
-    #[arg(long)]
-    cli: bool,
-    
-    /// Show debug console (Windows only)
-    #[arg(long)]
-    debug: bool,
-}
 
 enum UserEvent {
     TrayIconEvent(tray_icon::TrayIconEvent),
     MenuEvent(tray_icon::menu::MenuEvent),
 }
 
-struct BingTrayApp {
-    cli_app: BingCliApp,
-}
-
-impl BingTrayApp {
-    fn new() -> Result<Self> {
-        let cli_app = BingCliApp::new()?;
-        Ok(Self { cli_app })
-    }
-    
-    fn initialize(&mut self) -> Result<()> {
-        self.cli_app.initialize()
-    }
-    
-    fn set_next_market_wallpaper(&mut self) -> Result<bool> {
-        self.cli_app.set_next_market_wallpaper()
-    }
-    
-    fn get_current_image_title(&self) -> String {
-        self.cli_app.get_current_image_title()
-    }
-    
-    fn keep_current_image(&mut self) -> Result<()> {
-        self.cli_app.keep_current_image()
-    }
-    
-    fn blacklist_current_image(&mut self) -> Result<()> {
-        self.cli_app.blacklist_current_image()
-    }
-    
-    fn set_kept_wallpaper(&mut self) -> Result<bool> {
-        self.cli_app.set_kept_wallpaper()
-    }
-
-    fn has_next_market_wallpaper_available(&self) -> bool {
-        self.cli_app.has_next_market_wallpaper_available()
-    }
-
-    fn can_keep_current_image(&self) -> bool {
-        self.cli_app.can_keep_current_image()
-    }
-
-    fn can_blacklist_current_image(&self) -> bool {
-        self.cli_app.can_blacklist_current_image()
-    }
-
-    fn has_kept_wallpapers_available(&self) -> bool {
-        self.cli_app.has_kept_wallpapers_available()
-    }
-
-    fn has_unprocessed_files(&self) -> bool {
-        self.cli_app.has_unprocessed_files()
-    }
-
-    fn is_current_image_in_favorites(&self) -> bool {
-        self.cli_app.is_current_image_in_favorites()
-    }
-
-    fn get_status_info(&self) -> (String, String, usize) {
-        let title = self.get_current_image_title();
-        let (last_tried, available_count) = self.cli_app.get_market_status();
-        (title, last_tried, available_count)
-    }
-    
-    fn show_menu(&self) {
-        self.cli_app.show_menu()
-    }
-    
-    fn run_cli_mode(&mut self) -> Result<()> {
-        self.cli_app.run()
-    }
-    
-    fn get_current_image_copyright(&self) -> (String, String) {
-        self.cli_app.get_current_image_copyright()
-    }
-    
-    fn open_cache_directory(&self) -> Result<()> {
-        self.cli_app.open_cache_directory()
-    }
-}
-
 fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>, Option<String>) {
     let tray_menu = Menu::new();
-    let (title, last_tried, available_count) = app.get_status_info();
+    let title = app.get_current_image_title();
+    let (last_tried, available_count) = app.get_market_status();
     let (copyright_text, copyrightlink) = app.get_current_image_copyright();
     
     // Create info items (non-clickable)
@@ -152,7 +60,7 @@ fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>, O
         None
     );
     
-    // Create action menu items (clickable) - matching bingcli menu structure
+    // Create action menu items (clickable) - matching cli menu structure
     let has_next_available = app.has_next_market_wallpaper_available();
     let can_keep = app.can_keep_current_image();
     let can_blacklist = app.can_blacklist_current_image();
@@ -197,7 +105,7 @@ fn create_tray_menu(app: &BingTrayApp) -> (Menu, Vec<tray_icon::menu::MenuId>, O
     );
     let quit_item = MenuItem::new("5. Exit", true, None);
 
-    // Store the menu item IDs in consistent order matching bingcli (0-5)
+    // Store the menu item IDs in consistent order matching cli (0-5)
     let menu_item_ids = if has_copyright_link {
         vec![
             copyright_item.id().clone(),  // Special case: copyright link (not in CLI)
@@ -269,53 +177,23 @@ fn hide_console() {
     }
 }
 
-#[cfg(target_os = "windows")]
-fn show_console() {
-    unsafe {
-        let console_window = GetConsoleWindow();
-        if console_window != std::ptr::null_mut() {
-            ShowWindow(console_window, SW_SHOW);
-        } else {
-            // If no console exists, allocate one
-            AllocConsole();
-        }
-    }
-}
-
 #[cfg(not(target_os = "windows"))]
 fn hide_console() {
     // No-op on non-Windows platforms
 }
 
-#[cfg(not(target_os = "windows"))]
-fn show_console() {
-    // No-op on non-Windows platforms
-}
-
 fn main() -> Result<()> {
-    let cli = Cli::parse();
-    
-    // Handle console visibility on Windows
-    #[cfg(target_os = "windows")]
-    {
-        if cli.debug || cli.cli {
-            show_console();
-        } else {
-            hide_console();
-        }
-    }
-    
-    // Initialize app but don't run initialize() yet - we'll do that after tray icon is created
-    let mut app = BingTrayApp::new()?;
-    // app.initialize()?;
-    
-    // Check if CLI mode is requested
-    if cli.cli {
+    // Check if we're running in terminal mode
+    if IsTerminal::is_terminal(&std::io::stdout()) {
+        // Terminal mode - run CLI interface
         println!("BingTray CLI mode started successfully!");
+        let mut app = BingTrayApp::new()?;
+        app.initialize()?;
         return app.run_cli_mode();
     }
     
     // Otherwise run GUI mode
+    let mut app = BingTrayApp::new()?;
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
     // Set up event handlers
@@ -329,9 +207,9 @@ fn main() -> Result<()> {
         let _ = proxy.send_event(UserEvent::MenuEvent(event));
     }));
     
-    if cli.debug {
-        println!("BingTray GUI started successfully!");
-    }
+    // Hide console on Windows for GUI mode
+    #[cfg(target_os = "windows")]
+    hide_console();
     
     let mut tray_icon = None;
     let mut menu_items = Vec::new();
@@ -487,7 +365,6 @@ fn main() -> Result<()> {
                         tray_icon.take();
                         *control_flow = ControlFlow::Exit;
                     } else {
-                        let lazy_init_done = true;
                         if let Some(ref icon) = tray_icon {
                             update_tray_menu(icon, &app, &mut menu_items, &mut copyright_link);
                         }

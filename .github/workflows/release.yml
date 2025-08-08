@@ -6,7 +6,7 @@ on:
 
 env:
   RUST_VERSION: 1.86.0
-  BIN_NAME: "bingtray-gui"
+  BIN_NAME: "bingtray"
 
 jobs:
   build:
@@ -142,38 +142,19 @@ jobs:
           ls -al ./app/build/outputs/apk/release
           popd
 
-      - name: Non Android, Cross bingcli Build ${{ matrix.platform.name }} binary
-        if: (!contains(matrix.platform.name, 'Android APK arm64'))
-        uses: actions-rs/cargo@v1
-        # We use cross-rs if not running on x86_64 architecture on Linux
-        with:
-          command: build
-          use-cross: ${{ !contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'freebsd') }}
-          # args: ${{ matrix.platform.build-args }} --package ${{ env.BIN_NAME }} --target ${{ matrix.platform.target }}
-          args: ${{ matrix.platform.build-args }} --package bingcli --target ${{ matrix.platform.target }}
-
-      - name: Non Android, Native bingtray-gui Build ${{ matrix.platform.name }} binary
+      - name: Non Android, Native bingtray Build ${{ matrix.platform.name }} binary
         if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64')
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: ${{ matrix.platform.build-args }} --package bingtray-gui
+          args: ${{ matrix.platform.build-args }} --package bingtray
 
-      - name: Store artifact bingcli
+      - name: Store artifact bingtray
         if: (!contains(matrix.platform.name, 'Android APK arm64'))
         uses: actions/upload-artifact@v4
         with:
           # Finally, we store the binary as GitHub artifact for later usage
-          name: bingcli-${{ matrix.platform.target }}
-          path: target/${{ matrix.platform.target }}/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingcli*
-          retention-days: 1
-
-      - name: Store artifact bingtray-gui
-        if: (!contains(matrix.platform.name, 'Android APK arm64'))
-        uses: actions/upload-artifact@v4
-        with:
-          # Finally, we store the binary as GitHub artifact for later usage
-          name: bingtray-gui-${{ matrix.platform.target }}
+          name: bingtray-${{ matrix.platform.target }}
           path: target/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingtray-*
           retention-days: 1
       
@@ -214,12 +195,9 @@ jobs:
                   [[ "$i" == *"bingtray-all-signed.apk"* ]] && cp artifacts/bingtray-all-signed.apk/bingtray-all-signed.apk distbin/bingtray-all-signed.apk && continue
                   cp LICENSE* "$i"
                   cp README.md "$i"
-                  rm "$i/bingcli.d" 1>/dev/null 2>&1 || true
-                  rm "$i/bingtray-gui.d" 1>/dev/null 2>&1 || true
-                  chmod +x "$i/bingcli" 1>/dev/null 2>&1 || true
-                  chmod +x "$i/bingtray-gui" 1>/dev/null 2>&1 || true
-                  chmod +x "$i/bingtray-gui.exe" 1>/dev/null 2>&1 || true
-                  chmod +x "$i/bingcli.exe" 1>/dev/null 2>&1 || true
+                  rm "$i/bingtray.d" 1>/dev/null 2>&1 || true
+                  chmod +x "$i/bingtray" 1>/dev/null 2>&1 || true
+                  chmod +x "$i/bingtray.exe" 1>/dev/null 2>&1 || true
                   tar -cvpzf "${i}.tar.gz" --directory=${i} .
               fi
           done

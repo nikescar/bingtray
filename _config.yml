@@ -29,4 +29,4 @@ prev_next_buttons_location: both
 google_analytics_anonymize_ip: true
 # The highlight.js library provides 79 different colours for their syntax highlighting. The default is github-gist.
 hljs_style: github-gist
-exclude: ['src/*','bingcli/*','mobile/*','bingtray-core/*','bingtray-gui/*']
+exclude: ['src/*','mobile/*','bingtray-core/*','bingtray/*']

@@ -1,5 +1,5 @@
 [package]
-name = "bingtray-gui"
+name = "bingtray"
 build = "build.rs"
 version.workspace = true
 license.workspace = true
@@ -7,16 +7,14 @@ edition.workspace = true
 rust-version.workspace = true
 
 [[bin]]
-name = "bingtray-gui"
+name = "bingtray"
 path = "src/main.rs"
 
 [dependencies]
 bingtray-core = { path = "../bingtray-core" }
-bingcli = { path = "../bingcli" }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 rand = { workspace = true }
-clap = { workspace = true }
 tray-icon = "0.18"
 open = "5.0"
 tao = "0.33"

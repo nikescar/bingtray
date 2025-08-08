@@ -29,7 +29,7 @@ fastlane/
 - **full_description.txt**: Comprehensive app description with features and supported platforms
 
 ### Recommended Files ✅
-- **images/icon.png**: 512x512px app icon copied from bingtray-gui/resources/logo.png
+- **images/icon.png**: 512x512px app icon copied from bingtray/resources/logo.png
 - **images/phoneScreenshots/1.png**: Mobile screenshot from imgs/mobilescreen.png
 
 ### Optional Files ✅

@@ -1,4 +1,4 @@
-use egui::Image;
+use egui::{Image, ColorImage};
 use poll_promise::Promise;
 use egui::Vec2b;
 use log::{trace, warn, info, error};
@@ -50,9 +50,12 @@ impl Resource {
     fn from_response(ctx: &egui::Context, response: ehttp::Response) -> Self {
         let content_type = response.content_type().unwrap_or_default();
         if content_type.starts_with("image/") {
+            // Use include_bytes method and ensure proper image loading
             ctx.include_bytes(response.url.clone(), response.bytes.clone());
+            // Force a repaint to ensure the image is loaded
+            ctx.request_repaint();
             let image = Image::from_uri(response.url.clone());
-            trace!("Image URL: {}", response.url);
+            trace!("Image URL: {} (size: {} bytes)", response.url, response.bytes.len());
 
             Self {
                 response,
@@ -246,9 +249,11 @@ impl crate::View for HttpApp {
                                     
                                     if response.status == 200 && !response.bytes.is_empty() {
                                         let image_bytes = response.bytes.to_vec();
+                                        info!("Loading carousel image: {} bytes from {}", image_bytes.len(), response.url);
                                         ctx.include_bytes(response.url.clone(), response.bytes.clone());
                                         ctx.request_repaint();
                                         let image = Image::from_uri(response.url.clone());
+                                        info!("Created carousel image widget for: {}", response.url);
                                         
                                         CarouselImage {
                                             title: carousel_image.title.clone(),
@@ -413,12 +418,20 @@ impl crate::View for HttpApp {
                         };
                         
                         info!("Opening copyright URL: {}", copyright_url);
-                        if let Err(e) = webbrowser::open(&copyright_url) {
-                            error!("Failed to open copyright URL: {}", e);
-                            self.wallpaper_status = Some(format!("✗ Failed to open copyright URL: {}", e));
-                            self.wallpaper_start_time = Some(SystemTime::now());
-                        } else {
-                            self.wallpaper_status = Some("✓ Opened copyright URL".to_string());
+                        #[cfg(not(target_os = "android"))]
+                        {
+                            if let Err(e) = webbrowser::open(&copyright_url) {
+                                error!("Failed to open copyright URL: {}", e);
+                                self.wallpaper_status = Some(format!("✗ Failed to open copyright URL: {}", e));
+                                self.wallpaper_start_time = Some(SystemTime::now());
+                            } else {
+                                self.wallpaper_status = Some("✓ Opened copyright URL".to_string());
+                                self.wallpaper_start_time = Some(SystemTime::now());
+                            }
+                        }
+                        #[cfg(target_os = "android")]
+                        {
+                            self.wallpaper_status = Some("✓ Copyright URL (webbrowser not available on Android)".to_string());
                             self.wallpaper_start_time = Some(SystemTime::now());
                         }
                     }
@@ -427,7 +440,10 @@ impl crate::View for HttpApp {
             
             // Display the main panel image
             if let Some(image) = &main_image.image {
+                info!("Displaying main panel image");
                 ui.add(image.clone().max_width(ui.available_width()));
+            } else {
+                info!("Main panel image is None");
             }
         } else if let Some(_selected_image) = &self.selected_carousel_image {
             ui.separator();
@@ -497,9 +513,12 @@ fn ui_url(ui: &mut egui::Ui, _url: &mut String, carousel_images: &mut Vec<Carous
                             ui.vertical(|ui| {
                                 trace!("Checking image {} - has image: {}", i, carousel_image.image.is_some());
                                 if let Some(image) = &carousel_image.image {
-                                    info!("Attempting to display image {} in carousel", i);
-                                    // Try to display the image
-                                    let image_button = egui::ImageButton::new(image.clone().fit_to_exact_size(egui::Vec2::new(120.0, 80.0)));
+                                    info!("Attempting to display image {} in carousel (title: {})", i, carousel_image.title);
+                                    // Try to display the image with explicit sizing and debugging
+                                    let mut sized_image = image.clone();
+                                    sized_image = sized_image.fit_to_exact_size(egui::Vec2::new(120.0, 80.0));
+                                    let image_button = egui::ImageButton::new(sized_image);
+                                    info!("Created image button for image {}", i);
                                     let response = ui.add(image_button);
                                     
                                     if response.clicked() {
@@ -566,10 +585,13 @@ fn ui_url(ui: &mut egui::Ui, _url: &mut String, carousel_images: &mut Vec<Carous
                                         }
                                     }
                                 } else {
-                                    // Show placeholder while loading
-                                    ui.add_sized([120.0, 80.0], egui::Spinner::new());
-                                    ui.label(format!("Loading {}", i));
-                                    trace!("Image {} still loading", i);
+                                    // Show placeholder while loading or if image failed to load
+                                    let placeholder = ui.add_sized([120.0, 80.0], egui::Button::new("📷 Loading..."));
+                                    if placeholder.clicked() {
+                                        info!("Clicked on placeholder for image {}: {}", i, carousel_image.title);
+                                        *selected_carousel_image = Some(carousel_image.clone());
+                                    }
+                                    trace!("Image {} still loading or failed to load", i);
                                 }
                                 
                                 // Show truncated title
@@ -749,14 +771,22 @@ fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_status: &mut Op
 ) -> Option<ColoredText> {
     let extension_and_rest: Vec<&str> = response.url.rsplitn(2, '.').collect();
     let extension = extension_and_rest.first()?;
-    let theme = egui_extras::syntax_highlighting::CodeTheme::from_style(&ctx.style());
-    Some(ColoredText(egui_extras::syntax_highlighting::highlight(
-        ctx,
-        &ctx.style(),
-        &theme,
-        text,
-        extension,
-    )))
+    #[cfg(not(target_os = "android"))]
+    {
+        let theme = egui_extras::syntax_highlighting::CodeTheme::from_style(&ctx.style());
+        Some(ColoredText(egui_extras::syntax_highlighting::highlight(
+            ctx,
+            &ctx.style(),
+            &theme,
+            text,
+            extension,
+        )))
+    }
+    #[cfg(target_os = "android")]
+    {
+        // For Android, just return plain text without syntax highlighting
+        None
+    }
 }
 
 struct ColoredText(egui::text::LayoutJob);

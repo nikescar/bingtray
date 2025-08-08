@@ -2,7 +2,7 @@
 
 Similar App : [Bigwallpaper Desktop](https://bingwallpaper.microsoft.com/Windows/bing/bing-wallpaper/)
 
-<img src="./bingtray-gui/resources/logo.png" alt="drawing" width="120"/>
+<img src="./bingtray/resources/logo.png" alt="drawing" width="120"/>
 
 A cross-platform wallpaper manager that downloads and manages Bing's weekly wallpapers. bing wallpapers are updated weekly in 43 global stores. each store has different sets of 8 images many of them are shared beween markets. We are visiting random market wallpaper list and download new images if we dont have them. If you exhausted all market images, you have wait for a week to get new images. 
 
@@ -12,25 +12,21 @@ A cross-platform wallpaper manager that downloads and manages Bing's weekly wall
 
 | Arch          | Windows        | MacOS         | Linux        | Android        | IOS         |
 |:--------------|:--------------:|:-------------:|:------------:|:--------------:|--------------:|
-| X86_64(AMD64) | [CLI](https://github.com/nikescar/bingtray/releases/latest/download/bingcli-x86_64-pc-windows-msvc.tar.gz) \| [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-gui-x86_64-pc-windows-msvc.tar.gz) | [CLI](https://github.com/nikescar/bingtray/releases/latest/download/bingcli-x86_64-apple-darwin.tar.gz) \| [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-gui-x86_64-apple-darwin.tar.gz) | [CLI](https://github.com/nikescar/bingtray/releases/latest/download/bingcli-x86_64-unknown-linux-musl.tar.gz) \| [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-gui-x86_64-unknown-linux-musl.tar.gz) | [APK](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk ) | - |
-| AARCH64(ARM64)| - | [CLI](https://github.com/nikescar/bingtray/releases/latest/download/bingcli-aarch64-apple-darwin.tar.gz) \| [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-gui-aarch64-apple-darwin.tar.gz) | [CLI](https://github.com/nikescar/bingtray/releases/latest/download/bingcli-aarch64-unknown-linux-musl.tar.gz) \| [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-gui-aarch64-linux-android.tar.gz) | [CLI](https://github.com/nikescar/bingtray/releases/latest/download/bingcli-aarch64-linux-android.tar.gz) \| [APK](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk ) | - |
+| X86_64(AMD64) | [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-pc-windows-msvc.tar.gz) | [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-apple-darwin.tar.gz) | [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-unknown-linux-musl.tar.gz) | [APK](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk ) | - |
+| AARCH64(ARM64)| - | [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-apple-darwin.tar.gz) | [GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-linux-android.tar.gz) | [APK](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk ) | - |
 
 [Latest Release](https://github.com/nikescar/bingtray/releases)<br/>
 <br/>
 <br/>
 
 
-![bingtray-gui](./imgs/bingtray-gui.gif "Bingtray-gui")
+![bingtray](./imgs/bingtray.gif "bingtray")
 
 ## Usage
 
 ```bash
-# Run the interactive CLI menu:
-$ bingcli
-# Run the GUI (currently falls back to CLI mode):
-$ bingtray-gui
-# Run cli application from gui binary
-$ bingtray-gui --cli
+# Run in terminal cli mode will open, if you run in gui tray app will open.
+$ bingtray
 ```
 
 ## Configuration
@@ -76,6 +72,14 @@ After starting the application, you'll see a tray icon with the following option
 * add version to app and check update
 * download progress on gui
 * remove windws i686 build due to virustotal detected - https://www.virustotal.com/gui/file-analysis/MTVlM2Q3MzFmMzNlMWM4MGVjNmNhNTNmM2Q3MjZjMzE6MTc1MzI1NzA0OA==
-* initial bingtray-gui, on long running workflow, tray menu is not well initialized. put menu into different thread.
+* initial bingtray, on long running workflow, tray menu is not well initialized. put menu into different thread.
+* windows exe signing 
+```
+'$SignTool = Get-ChildItem -Path "C:\\Program Files*\\Windows Kits\\*\\bin\\*\\x64\\signtool.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1',
+"$SignToolPath = $SignTool.FullName",
+"& $SignToolPath verify /pa /v target\\release\\test.exe",
+```
+* adroid widgets.
+* ios widgets.
 
 </details>
