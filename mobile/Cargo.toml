@@ -22,6 +22,7 @@ required-features = ["desktop"]
 [dependencies]
 log = { version = "0.4", default-features = false }
 bingtray-core = { path = "../bingtray-core", default-features = false }
+chrono = { workspace = true }
 egui = { version = "0.31.1", features = ["default_fonts"] }
 image = { version = "0.25.5", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 ehttp = { version = "0.5", default-features = false }
@@ -36,12 +37,13 @@ egui_extras = { version = "0.31.1", default-features = false, features = ["image
 egui-winit = { version = "0.31.1" }
 webbrowser = { version = "1.0", default-features = false }
 env_logger = { version = "0.11", default-features = false }
+screen_size = "0.1.0"
 
 # Add wgpu feature for desktop eframe
 [target.'cfg(not(target_os = "android"))'.dependencies.eframe]
 version = "0.31.1"
 default-features = false
-features = ["wgpu", "default_fonts", "glow", "persistence"]
+features = ["wgpu", "default_fonts", "glow"] # , "persistence"
 
 [target.'cfg(target_os = "android")'.dependencies]
 eframe = { version = "0.31.1", default-features = false, features = ["glow", "wgpu", "android-native-activity", "default_fonts"] }
@@ -58,10 +60,3 @@ ndk = { version = "0.9.0", default-features = false }
 bevy = { version = "0.16.0", default-features = false, features = ["bevy_render", "bevy_core_pipeline", "bevy_sprite", "bevy_text", "bevy_ui", "bevy_winit"], optional = true }
 bevy_egui = { version = "0.35.1", default-features = false, optional = true }
 objc2-avf-audio = { version = "0.3.0", features = ["AVAudioSession", "AVAudioSessionTypes"] }
-
-[profile.release]
-lto = true
-codegen-units = 1
-opt-level = 3
-debug = 0
-strip = "symbols"

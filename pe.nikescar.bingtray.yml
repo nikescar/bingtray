@@ -25,27 +25,22 @@ Builds:
     versionCode: 5
     commit: v0.0.5
     init: echo 'started init.'
-    output: android/app/build/outputs/apk/release/app-release.apk
-    prebuild: |
-      echo 'started prebuild'
-      rustup target add armv7-linux-androideabi aarch64-linux-android i686-linux-android x86_64-linux-android
-      cargo install cargo-ndk
+    output: mobile/app/build/outputs/apk/release/app-release.apk
+    prebuild: echo 'started prebuild'
     scanignore:
       - mobile/Cargo.toml
+      - bingcli/Cargo.toml
       - bingtray-core/Cargo.toml
-      - bingtray/Cargo.toml
+      - bingtray-gui/Cargo.toml
       - Cargo.toml
-    build: |
-      echo 'started build'
-      cd mobile && ./build.fd.sh
+    build: echo 'started build' && cd mobile && ./build.fd.sh
     postbuild: echo 'postbuild.'
     antifeatures:
       - NonFreeAssets
       - NonFreeNet
 
-AutoUpdateMode: None
+AutoUpdateMode: Version v%v
 UpdateCheckMode: HTTP
-UpdateCheckData: https://api.github.com/repos/nikescar/bingtray/releases/latest|"id":\s*(\d+)|.|"tag_name":\s*"([^"]+)"
-CurrentVersion: v0.0.5
+UpdateCheckData: https://api.github.com/repos/nikescar/bingtray/releases/latest|"id":\s*(\d+)|.|"tag_name":\s*"v([^"]+)"
+CurrentVersion: 0.0.5
 CurrentVersionCode: 237875251
-

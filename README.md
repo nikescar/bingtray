@@ -79,7 +79,7 @@ After starting the application, you'll see a tray icon with the following option
 "$SignToolPath = $SignTool.FullName",
 "& $SignToolPath verify /pa /v target\\release\\test.exe",
 ```
-* adroid widgets.
+* android widgets.
 * ios widgets.
 
 </details>

@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use egui::{Context, Modifiers, ScrollArea, Ui};
+use egui::{Context, ScrollArea, Ui};
 use crate::gui::Demo;
 
 struct GuiGroup {

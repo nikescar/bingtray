@@ -4,10 +4,10 @@
 #[cfg(target_os = "android")]
 use android_activity::AndroidApp;
 use eframe::{egui, NativeOptions};
-use log::info;
 
 mod gui;
 mod android_wallpaper;
+mod android_screensize;
 
 #[cfg(target_os = "android")]
 #[no_mangle]
@@ -83,10 +83,11 @@ impl eframe::App for BingtrayApp {
 // Export modules for external use
 pub use gui::{Demo, DemoWindows, View};
 pub use android_wallpaper::set_wallpaper_from_bytes;
+pub use android_screensize::get_screen_size;
 
 /// Detect narrow screens. This is used to show a simpler UI on mobile devices,
 /// especially for the web demo at <https://egui.rs>.
 pub fn is_mobile(ctx: &egui::Context) -> bool {
     let screen_size = ctx.screen_rect().size();
-    screen_size.x < 550.0
+    screen_size.x < 1081.0
 }

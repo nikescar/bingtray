@@ -1,5 +1,3 @@
-use std::path::Path;
-use log::{info, warn};
 
 #[cfg(target_os = "android")]
 use jni::objects::{JObject, JValue};

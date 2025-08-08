@@ -1,10 +1,14 @@
 use anyhow::{Context, Result};
 use chrono::{Utc, NaiveDate, Duration};
-use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+#[cfg(not(target_os = "android"))]
+use directories::ProjectDirs;
+
+#[cfg(not(target_os = "android"))]
 use std::process::Command;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,7 +33,7 @@ pub struct HistoricalImage {
     pub title: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub config_dir: PathBuf,
     pub unprocessed_dir: PathBuf,
@@ -44,10 +48,50 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Result<Self> {
-        let proj_dirs = ProjectDirs::from("com", "bingtray", "bingtray")
-            .context("Failed to get project directories")?;
+        #[cfg(target_os = "android")]
+        {
+            // Android-specific paths
+            let config_dir = PathBuf::from("/data/data/pe.nikescar.bingtray/files");
+            let cache_dir = PathBuf::from("/data/data/pe.nikescar.bingtray/cache");
+            
+            let unprocessed_dir = cache_dir.join("unprocessed");
+            let keepfavorite_dir = cache_dir.join("keepfavorite");
+            let blacklist_file = config_dir.join("blacklist.conf");
+            let marketcodes_file = config_dir.join("marketcodes.conf");
+            let metadata_file = config_dir.join("metadata.conf");
+            let historical_metadata_file = config_dir.join("historical.metadata.conf");
+            
+            // Create directories if they don't exist
+            fs::create_dir_all(&config_dir)?;
+            fs::create_dir_all(&cache_dir)?;
+            fs::create_dir_all(&unprocessed_dir)?;
+            fs::create_dir_all(&keepfavorite_dir)?;
+            
+            // Create config files if they don't exist
+            if !blacklist_file.exists() {
+                fs::write(&blacklist_file, "")?;
+            }
+            if !metadata_file.exists() {
+                fs::write(&metadata_file, "")?;
+            }
+            
+            Ok(Config {
+                config_dir,
+                unprocessed_dir,
+                keepfavorite_dir,
+                blacklist_file,
+                marketcodes_file,
+                metadata_file,
+                historical_metadata_file,
+            })
+        }
         
-        let config_dir = proj_dirs.config_dir().to_path_buf();
+        #[cfg(not(target_os = "android"))]
+        {
+            let proj_dirs = ProjectDirs::from("com", "bingtray", "bingtray")
+                .context("Failed to get project directories")?;
+            
+            let config_dir = proj_dirs.config_dir().to_path_buf();
         let unprocessed_dir = config_dir.join("unprocessed");
         let keepfavorite_dir = config_dir.join("keepfavorite");
         let blacklist_file = config_dir.join("blacklist.conf");
@@ -84,6 +128,7 @@ impl Config {
             metadata_file,
             historical_metadata_file,
         })
+        }
     }
 
 
@@ -290,6 +335,7 @@ pub fn is_blacklisted(config: &Config, filename: &str) -> Result<bool> {
     Ok(blacklist.lines().any(|line| line.trim() == filename))
 }
 
+#[cfg(not(target_os = "android"))]
 pub fn get_desktop_environment() -> String {
     if let Ok(desktop_session) = std::env::var("DESKTOP_SESSION") {
         let session = desktop_session.to_lowercase();
@@ -328,32 +374,40 @@ pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
     // Android-specific wallpaper setting
     #[cfg(target_os = "android")]
     {
-        // Try Android-specific wallpaper setting first
-        // This would require the mobile crate to be available
-        // For now, we'll use a simple approach
-        eprintln!("Android wallpaper setting should be handled by mobile crate");
-        return Ok(false);
+        // Read the image file and use set_wallpaper_from_bytes
+        match std::fs::read(file_path) {
+            Ok(image_bytes) => {
+                // This function should be provided by the mobile crate
+                // For now, we'll return false as it requires mobile integration
+                eprintln!("Android wallpaper setting requires mobile crate integration");
+                return Ok(false);
+            }
+            Err(e) => {
+                eprintln!("Failed to read image file for Android wallpaper: {}", e);
+                return Ok(false);
+            }
+        }
     }
     
-    // Use wallpaper crate for cross-platform wallpaper setting
-    match wallpaper::set_from_path(&file_loc) {
-        Ok(_) => {
-            println!("Wallpaper set successfully to: {}", file_loc);
-            Ok(true)
-        }
-        Err(e) => {
-            eprintln!("Failed to set wallpaper: {}", e);
-            
-            // Fallback to platform-specific methods for Linux if wallpaper crate fails
-            if cfg!(target_os = "linux") {
+    // Use wallpaper crate for cross-platform wallpaper setting (non-Android)
+    #[cfg(not(target_os = "android"))]
+    {
+        match wallpaper::set_from_path(&file_loc) {
+            Ok(_) => {
+                println!("Wallpaper set successfully to: {}", file_loc);
+                Ok(true)
+            }
+            Err(e) => {
+                eprintln!("Failed to set wallpaper: {}", e);
+                
+                // Fallback to platform-specific methods for Linux if wallpaper crate fails
                 return set_wallpaper_linux_fallback(file_path);
             }
-            
-            Ok(false)
         }
     }
 }
 
+#[cfg(not(target_os = "android"))]
 fn set_wallpaper_linux_fallback(file_path: &Path) -> Result<bool> {
     let file_loc = file_path.to_string_lossy();
     let desktop_env = get_desktop_environment();
@@ -531,6 +585,7 @@ pub fn get_image_metadata(config: &Config, filename: &str) -> Option<(String, St
     None
 }
 
+#[cfg(not(target_os = "android"))]
 pub fn open_config_directory(config: &Config) -> Result<()> {
     let config_path = &config.config_dir;
     
@@ -705,11 +760,11 @@ fn parse_historical_line(line: &str) -> Result<Option<HistoricalImage>> {
                     let startdate = date.format("%Y%m%d").to_string();
                     let fullstartdate = format!("{}0300", startdate);
                     let next_date = date + Duration::days(1);
-                    let enddate = next_date.format("%Y%m%d").to_string();
+                    let _enddate = next_date.format("%Y%m%d").to_string();
                     
                     // Generate URLs
                     let url = format!("/th?id={}_{}_1920x1080.jpg&pid=hp", display_name, imagecode);
-                    let urlbase = format!("/th?id={}", display_name);
+                    let _urlbase = format!("/th?id={}", display_name);
                     
                     // Generate copyright link
                     let title_query = title.to_lowercase().replace(' ', "+");
@@ -891,6 +946,35 @@ pub fn download_historical_image(image: &HistoricalImage, target_dir: &Path, con
     save_image_metadata(config, &sanitize_filename(&display_name), &image.copyright, &image.copyrightlink)?;
     
     Ok(filepath)
+}
+
+/// Set wallpaper from image bytes - to be used with Android wallpaper manager
+pub fn set_wallpaper_from_bytes(image_bytes: &[u8]) -> Result<bool> {
+    #[cfg(target_os = "android")]
+    {
+        // On Android, this function should be overridden by calling the mobile implementation
+        // For now, return false since this requires runtime integration with the mobile crate
+        eprintln!("Android wallpaper setting should be handled by mobile crate's set_wallpaper_from_bytes");
+        Ok(false)
+    }
+    
+    #[cfg(not(target_os = "android"))]
+    {
+        // For non-Android platforms, save to temp file and use regular wallpaper setting
+        use std::io::Write;
+        let temp_path = std::env::temp_dir().join("bingtray_temp_wallpaper.jpg");
+        let mut file = std::fs::File::create(&temp_path)?;
+        file.write_all(image_bytes)?;
+        file.flush()?;
+        drop(file);
+        
+        let result = set_wallpaper(&temp_path);
+        
+        // Clean up temp file
+        let _ = std::fs::remove_file(&temp_path);
+        
+        result
+    }
 }
 
 
