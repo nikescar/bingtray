@@ -50,9 +50,7 @@ theme_config:
   social_links:
     gitHub: 'https://github.com/nikescar/bingtray'
   nav:
-    Docs: /docs
     Readme: /readme
-    Credits: /credits
   sidebar:
 
 # gitHub pages deployment(gh-pages.publish) settings # https://github.com/new

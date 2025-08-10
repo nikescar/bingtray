@@ -18,26 +18,26 @@ features:
   - 
     title: Windows
     details: |
-      [X86_64](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-pc-windows-msvc.tar.gz)
+      <a href="https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-pc-windows-msvc.tar.gz">X86_64</a>
   - 
     title: MacOS
     details: |
-      [X86_64](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-apple-darwin.tar.gz)
-      [AARCH64](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-apple-darwin.tar.gz)
+      <a href="https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-apple-darwin.tar.gz">X86_64</a>
+      <a href="https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-apple-darwin.tar.gz">AARCH64</a>
   - 
     title: Linux
     details: |
-      [X86_64](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-unknown-linux-musl.tar.gz)
-      [AARCH64](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-unknown-linux-musl.tar.gz)
+      <a href="https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-unknown-linux-musl.tar.gz">X86_64</a>
+      <a href="https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-unknown-linux-musl.tar.gz">AARCH64</a>
   - 
     title: Android
     details: |
-      [APK/ALL](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk)
-      [GUI/AARCH64](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-linux-android.tar.gz)
-      [GUI/ARMV7](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-armv7-linux-androideabi.tar.gz)
-  - 
-    title: IOS
-    details: |
+      <a href="https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk">APK/ALL</a>
+      <a href="https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-linux-android.tar.gz">GUI/AARCH64</a>
+      <a href="https://github.com/nikescar/bingtray/releases/latest/download/bingtray-armv7-linux-androideabi.tar.gz">GUI/ARMV7</a>
+  # - 
+  #   title: IOS
+  #   details: |
 
 ---
 
