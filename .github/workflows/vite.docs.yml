@@ -1,0 +1,57 @@
+name: Deploy static content to Pages
+on:
+  push:
+    branches: ['main']
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: 'pages'
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: clone solidbase theme github
+        run: |
+          export PATH="/opt/hostedtoolcache/node/22.x.x/x64/bin/:$PATH"
+          export theme_upstream=$(grep -m1 'theme_upstream:' _config.yml | awk '{print $2}' | sed "s/'//g")/archive/refs/heads/main.tar.gz
+          wget -q "$theme_upstream" -O main.tar.gz
+          if [ $? -ne 0 ]; then
+              echo "Failed to download theme from $theme_upstream"
+              exit 1
+          fi
+          mkdir -p .solidbase
+          tar -xzf main.tar.gz --strip-components=1 -C .solidbase
+          pushd ./.solidbase
+          bash ghworkflow.sh --src-path ../
+          popd
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CLOUDFLARE_PAGES_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+          
+      # bash ghworkflow.sh --no-deploy --src-path ../
+      # - name: Setup Pages
+      #   uses: actions/configure-pages@v5
+
+      # - name: Upload artifact
+      #   uses: actions/upload-pages-artifact@v3
+      #   with:
+      #     path: './.solidbase/.output/public'
+          
+      # - name: Deploy to GitHub Pages
+      #   id: deployment
+      #   uses: actions/deploy-pages@v4
