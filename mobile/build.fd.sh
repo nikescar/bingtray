@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# this is a build script for fdroid system.
 
 # extrepo enable debian_official
 [[ $(dpkg -l|grep libssl-dev|grep -c "libssl-dev") -lt 1 ]] && apt install libssl-dev squashfs-tools

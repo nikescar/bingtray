@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# running in github actions
+# this is build script running in github actions for github releases.
+
 # https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md
 # ANDROID_HOME 	/usr/local/lib/android/sdk
 # ANDROID_NDK 	/usr/local/lib/android/sdk/ndk/27.3.13750724
@@ -36,3 +37,4 @@ cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build --release --lib
 cargo ndk -t x86 -o app/src/main/jniLibs/ build --release --lib
 cargo ndk -t x86_64 -o app/src/main/jniLibs/ build --release --lib
 gradle build
+gradle bundleRelease

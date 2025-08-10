@@ -6,8 +6,6 @@ Similar App : [Bigwallpaper Desktop](https://bingwallpaper.microsoft.com/Windows
 
 A cross-platform wallpaper manager that downloads and manages Bing's weekly wallpapers. bing wallpapers are updated weekly in 43 global stores. each store has different sets of 8 images many of them are shared beween markets. We are visiting random market wallpaper list and download new images if we dont have them. If you exhausted all market images, you have wait for a week to get new images. 
 
-
-
 ## Download
 
 | Arch          | Windows        | MacOS         | Linux        | Android        | IOS         |
@@ -19,8 +17,7 @@ A cross-platform wallpaper manager that downloads and manages Bing's weekly wall
 <br/>
 <br/>
 
-
-![bingtray](./imgs/bingtray.gif "bingtray")
+![bingtray](imgs/bingtray.gif "bingtray")
 
 ## Usage
 
@@ -81,5 +78,12 @@ After starting the application, you'll see a tray icon with the following option
 ```
 * android widgets.
 * ios widgets.
-
+* amazon app store https://github.com/marketplace/actions/amazon-appstore-deployment-action
+* snapcraft https://github.com/marketplace/actions/snapcraft-action
+* flathub https://github.com/flatpak/flatpak-github-actions
+* microsoft store https://github.com/marketplace/actions/microsoft-store-publish 
+* ms store https://github.com/marketplace/actions/ms-store-publish
+* app store https://github.com/NiklasEi/bevy_game_template/blob/main/.github/workflows/release-ios-testflight.yaml https://github.com/marketplace/actions/publish-ios-app-to-app-store
+* chrome web store https://github.com/marketplace/actions/chrome-extension-upload-action
+* firefox addon https://github.com/marketplace/actions/firefox-addon-action
 </details>

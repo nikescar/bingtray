@@ -1,32 +1,82 @@
+# configuration for vite.docs solidbase https://github.com/nikescar/mdx-sitegen-solidbase
+# Site settings
 title: bingtray
-description: bing wallpaper setter for win/mac/linux/android.
-show_downloads: true
-remote_theme: nikescar/jekyll-theme-rtd
-plugins:
-- jekyll-remote-theme
+description: Bing wallpaper setter for win/mac/linux/android.
+issue_link: "https://github.com/nikescar/bingtray/issues"
+edit_path: "https://github.com/nikescar/bingtray/edit/main/:path"
+lang: en
+site_favicon: './resources/favicon.ico'
+site_author: Woojae, Park
+repo_url: 'https://github.com/nikescar/bingtray'
+site_url: 'https://bingtray.pages.dev/'
 
-webrick:
-  headers:
-    Access-Control-Allow-Origin: "*"
+# 404 page redirection rules - for github site repo, ex. {id}.github.io
+404_subsite_urls:
+  - /mdx-sitegen-solidbase/
+  # - /subpath/
+  # - /subpath2/
+  # - /github non-site repo/
+
+# Excluded items can be re-enabled by adding them to the `include:` list.
+exclude:
+  - .secrets
+  - .github
+  - .output
+  - .vinxi
+  - .solidbase
+  - .git
+  - .gitignore
+  - node_modules
+  - scripts
+  - tmp
+  - _config.yml
+  - app.config.ts
+  - package.json
+  - package-lock.json
+  - pnpm-lock.yaml
+  - tsconfig.json
+
+# Include in processing.
+# The following items will be processed, even if they would otherwise be excluded.
+include:
+  - .well-known
+  - index.md
+  - imgs
+  - README.md
 
 # Theme settings
-repo_url: 'https://github.com/nikescar/bingtray/'
-edit_on_github: true
-github_docs_folder: false
-sticky_navigation: true
-# prev_next_buttons_location: both
-search_enabled: false
-site_author: Woojae, Park
-# logo: 'https://tui.dure.app/assets/css/theme.css'
-# site_favicon: 'https://tui.dure.app/assets/img/favicon.ico'
-# theme: 'https://nikescar.github.io/jekyll-theme-rtd/assets/css/theme.css'
-# extra_theme: 'https://nikescar.github.io/jekyll-theme-rtd/assets/css/theme_extra.css'
-# prev_next_buttons_location: None
-# prev_next_buttons_location: top
-# prev_next_buttons_location: bottom
-prev_next_buttons_location: both
-# google_analytics: UA-XXXXX-Y
-google_analytics_anonymize_ip: true
-# The highlight.js library provides 79 different colours for their syntax highlighting. The default is github-gist.
-hljs_style: github-gist
-exclude: ['src/*','mobile/*','bingtray-core/*','bingtray/*']
+theme_upstream: 'https://github.com/nikescar/mdx-sitegen-solidbase'
+theme_config:
+  social_links:
+    gitHub: 'https://github.com/nikescar/bingtray'
+  nav:
+    Docs: /docs
+    Readme: /readme
+    Credits: /credits
+  sidebar:
+
+# gitHub pages deployment(gh-pages.publish) settings # https://github.com/new
+# 1. Create a GitHub repository
+# 2. Enable GitHub Pages in the repository settings
+# 3. Generate a personal access token with "repo" and "workflow" scopes and save it as GITHUB_TOKEN secret in your GitHub repository
+# deployment: # https://github.com/settings/personal-access-tokens
+#   provider: 'github-page'
+#   github_token: ${{ secrets.GITHUB_TOKEN }}
+#   github_repo: 'nikescar/mdx-sitegen-solidbase'
+
+# firebase deploy(firebase) settings # https://console.firebase.google.com/u/0/
+# 1. Create a Firebase project
+# 2. Create a service account with the "Firebase Admin SDK" role
+# 3. Generate a private json key for the service account and save it as FIREBASE_SERVICE_ACCOUNT_KEY secret in your GitHub repository
+# deployment: # https://console.cloud.google.com/projectselector2/iam-admin/serviceaccounts?authuser=0&supportedpurview=project
+#   provider: 'firebase'
+#   project: 'mdx-sitegen-solidbase'
+#   service_account_key_text: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
+
+# cloudflare pages deployment settings # https://dash.cloudflare.com/
+# 1. Create a Cloudflare Pages project(Computing > Pages > Direct Upload *pass submision by uploading the zip file provided on the page.)
+# 2. Generate a Cloudflare Pages token and save it as CLOUDFLARE_PAGES_TOKEN secret in your GitHub repository
+deployment: # https://developers.cloudflare.com/pages/how-to/use-direct-upload-with-continuous-integration/#generate-an-api-token
+  provider: 'cloudflare-pages'
+  project: 'bingtray'
+  cloudflare_pages_token: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}

@@ -56,3 +56,14 @@ $ java -jar pepk.jar --keystore=release.keystore --alias=release --output=releas
 ```
 upload created ```release-signing-play-generated.zip``` file.
 
+### Submit app to Amazon Appstore
+
+https://developer.amazon.com/docs/app-submission/submitting-apps-to-amazon-appstore.html
+
+### Publish to Snap
+
+https://documentation.ubuntu.com/snapcraft/stable/how-to/publishing/publish-a-snap/
+
+### Publish to Flathub
+
+https://docs.flathub.org/docs/for-app-authors/submission
