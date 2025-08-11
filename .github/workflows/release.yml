@@ -162,7 +162,7 @@ jobs:
         with:
           # Finally, we store the binary as GitHub artifact for later usage
           name: bingtray-${{ matrix.platform.target }}
-          path: target/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingtray-*
+          path: target/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingtray*
           retention-days: 1
       
       - name: Store artifact Android release arm64 apk
@@ -209,11 +209,7 @@ jobs:
               fi
           done
           cp artifacts/bing*.tar.gz distbin/
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CLOUDFLARE_PAGES_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
-          FIREBASE_SERVICE_ACCOUNT_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_KEY }}
-
+        
       - name: Release
         uses: softprops/action-gh-release@v2
         if: github.ref_type == 'tag'
