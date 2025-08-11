@@ -21,15 +21,14 @@ RepoType: git
 Repo: https://github.com/nikescar/bingtray.git
 
 Builds:
-  - versionName: 0.0.5
-    versionCode: 5
-    commit: v0.0.5
+  - versionName: 0.0.6
+    versionCode: 237875252
+    commit: v0.0.6
     init: echo 'started init.'
     output: mobile/app/build/outputs/apk/release/app-release.apk
     prebuild: echo 'started prebuild'
     scanignore:
       - mobile/Cargo.toml
-      - bingcli/Cargo.toml
       - bingtray-core/Cargo.toml
       - bingtray/Cargo.toml
       - Cargo.toml
@@ -42,5 +41,5 @@ Builds:
 AutoUpdateMode: Version v%v
 UpdateCheckMode: HTTP
 UpdateCheckData: https://api.github.com/repos/nikescar/bingtray/releases/latest|"id":\s*(\d+)|.|"tag_name":\s*"v([^"]+)"
-CurrentVersion: 0.0.5
-CurrentVersionCode: 237875251
+CurrentVersion: 0.0.6
+CurrentVersionCode: 237875252
