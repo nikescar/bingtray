@@ -110,15 +110,11 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-
-      - name: Install rust toolchain for Linux
-        uses: actions-rs/toolchain@v1
+      
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          # We setup Rust toolchain and the desired target
-          profile: minimal
-          toolchain: "${{ env.RUST_VERSION }}"
-          override: true
-          target: ${{ matrix.platform.target }}
+          targets: ${{ matrix.platform.target }}
           components: rustfmt, clippy
 
       - name: Install package for Android
