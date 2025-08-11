@@ -37,7 +37,7 @@ impl BingTrayApp {
         
         if let Some(market_code) = old_codes.choose(&mut rand::thread_rng()) {
             println!("Downloading images for market code: {}", market_code);
-            let (count, _downloaded_images) = download_images_for_market(&self.config, market_code)?;
+            let (count, _downloaded_images) = download_images_for_market(&self.config, market_code, false)?;
             println!("Downloaded {} images", count);
             
             // Update timestamp
@@ -66,7 +66,7 @@ impl BingTrayApp {
             }
         } else {
             // No market codes available, try historical data
-            if let Ok(Some(historical_images)) = bingtray_core::get_next_historical_page(&self.config) {
+            if let Ok(Some(historical_images)) = bingtray_core::get_next_historical_page(&self.config, false) {
                 println!("Downloaded historical images");
                 
                 // Set the first historical image as wallpaper

@@ -23,6 +23,7 @@ required-features = ["desktop"]
 log = { workspace = true }
 bingtray-core = { path = "../bingtray-core", default-features = false }
 chrono = { workspace = true }
+regex = { workspace = true }
 egui = { version = "0.31.1", features = ["default_fonts"] }
 image = { version = "0.25.5", default-features = false, features = ["jpeg", "png", "gif", "webp"] }
 ehttp = { version = "0.5", default-features = false }

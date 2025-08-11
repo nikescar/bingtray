@@ -31,7 +31,7 @@ Builds:
       - mobile/Cargo.toml
       - bingcli/Cargo.toml
       - bingtray-core/Cargo.toml
-      - bingtray-gui/Cargo.toml
+      - bingtray/Cargo.toml
       - Cargo.toml
     build: echo 'started build' && cd mobile && ./build.fd.sh
     postbuild: echo 'postbuild.'

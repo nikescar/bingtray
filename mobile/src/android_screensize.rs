@@ -4,6 +4,9 @@ use jni::objects::JValue;
 #[cfg(target_os = "android")]
 use ndk_context;
 
+#[cfg(target_os = "android")]
+static mut SCREEN_SIZE_LOGGED: bool = false;
+
 /// Get Android screen size (width, height) in pixels using DisplayMetrics
 #[cfg(target_os = "android")]
 pub fn get_screen_size() -> std::io::Result<(i32, i32)> {
@@ -69,7 +72,12 @@ pub fn get_screen_size() -> std::io::Result<(i32, i32)> {
     ).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to get height pixels: {}", e)))?
     .i().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("Failed to convert height to int: {}", e)))?;
 
-    log::info!("Android screen size detected: {}x{} pixels", width, height);
+    unsafe {
+        if !SCREEN_SIZE_LOGGED {
+            log::info!("Android screen size detected: {}x{} pixels", width, height);
+            SCREEN_SIZE_LOGGED = true;
+        }
+    }
 
     Ok((width, height))
 }

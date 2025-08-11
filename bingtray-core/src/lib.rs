@@ -68,6 +68,7 @@ pub struct Config {
     pub config_dir: PathBuf,
     pub unprocessed_dir: PathBuf,
     pub keepfavorite_dir: PathBuf,
+    pub cached_dir: PathBuf,
     pub blacklist_file: PathBuf,
     pub marketcodes_file: PathBuf,
     pub metadata_file: PathBuf,
@@ -88,6 +89,7 @@ impl Config {
             
             let unprocessed_dir = cache_dir.join("unprocessed");
             let keepfavorite_dir = cache_dir.join("keepfavorite");
+            let cached_dir = cache_dir.join("cached");
             let blacklist_file = config_dir.join("blacklist.conf");
             let marketcodes_file = config_dir.join("marketcodes.conf");
             let metadata_file = config_dir.join("metadata.conf");
@@ -109,6 +111,10 @@ impl Config {
             match fs::create_dir_all(&keepfavorite_dir) {
                 Ok(()) => log::info!("Successfully created keepfavorite_dir: {:?}", keepfavorite_dir),
                 Err(e) => log::error!("Failed to create keepfavorite_dir: {:?} - Error: {}", keepfavorite_dir, e),
+            }
+            match fs::create_dir_all(&cached_dir) {
+                Ok(()) => log::info!("Successfully created cached_dir: {:?}", cached_dir),
+                Err(e) => log::error!("Failed to create cached_dir: {:?} - Error: {}", cached_dir, e),
             }
             
             // Create config files if they don't exist
@@ -158,6 +164,7 @@ impl Config {
                             config_dir: config_dir.clone(),
                             unprocessed_dir: unprocessed_dir.clone(),
                             keepfavorite_dir: keepfavorite_dir.clone(),
+                            cached_dir: cached_dir.clone(),
                             blacklist_file: blacklist_file.clone(),
                             marketcodes_file: marketcodes_file.clone(),
                             metadata_file: metadata_file.clone(),
@@ -185,6 +192,7 @@ impl Config {
                             config_dir: config_dir.clone(),
                             unprocessed_dir: unprocessed_dir.clone(),
                             keepfavorite_dir: keepfavorite_dir.clone(),
+                            cached_dir: cached_dir.clone(),
                             blacklist_file: blacklist_file.clone(),
                             marketcodes_file: marketcodes_file.clone(),
                             metadata_file: metadata_file.clone(),
@@ -203,6 +211,7 @@ impl Config {
                 config_dir,
                 unprocessed_dir,
                 keepfavorite_dir,
+                cached_dir,
                 blacklist_file,
                 marketcodes_file,
                 metadata_file,
@@ -216,42 +225,45 @@ impl Config {
                 .context("Failed to get project directories")?;
             
             let config_dir = proj_dirs.config_dir().to_path_buf();
-        let unprocessed_dir = config_dir.join("unprocessed");
-        let keepfavorite_dir = config_dir.join("keepfavorite");
-        let blacklist_file = config_dir.join("blacklist.conf");
-        let marketcodes_file = config_dir.join("marketcodes.conf");
-        let metadata_file = config_dir.join("metadata.conf");
-        let historical_metadata_file = config_dir.join("historical.metadata.conf");
+            let unprocessed_dir = config_dir.join("unprocessed");
+            let keepfavorite_dir = config_dir.join("keepfavorite");
+            let cached_dir = config_dir.join("cached");
+            let blacklist_file = config_dir.join("blacklist.conf");
+            let marketcodes_file = config_dir.join("marketcodes.conf");
+            let metadata_file = config_dir.join("metadata.conf");
+            let historical_metadata_file = config_dir.join("historical.metadata.conf");
 
-        // Create directories if they don't exist
-        fs::create_dir_all(&config_dir)?;
-        fs::create_dir_all(&unprocessed_dir)?;
-        fs::create_dir_all(&keepfavorite_dir)?;
+            // Create directories if they don't exist
+            fs::create_dir_all(&config_dir)?;
+            fs::create_dir_all(&unprocessed_dir)?;
+            fs::create_dir_all(&keepfavorite_dir)?;
+            fs::create_dir_all(&cached_dir)?;
 
-        // Create blacklist.conf if it doesn't exist
-        if !blacklist_file.exists() {
-            fs::write(&blacklist_file, "")?;
-        }
+            // Create blacklist.conf if it doesn't exist
+            if !blacklist_file.exists() {
+                fs::write(&blacklist_file, "")?;
+            }
 
-        // Create metadata.conf if it doesn't exist
-        if !metadata_file.exists() {
-            fs::write(&metadata_file, "")?;
-        }
+            // Create metadata.conf if it doesn't exist
+            if !metadata_file.exists() {
+                fs::write(&metadata_file, "")?;
+            }
 
-        // // Create historical.metadata.conf if it doesn't exist with first line as "0"
-        // if !historical_metadata_file.exists() {
-        //     fs::write(&historical_metadata_file, "0\n")?;
-        // }
+            // // Create historical.metadata.conf if it doesn't exist with first line as "0"
+            // if !historical_metadata_file.exists() {
+            //     fs::write(&historical_metadata_file, "0\n")?;
+            // }
 
-        Ok(Config {
-            config_dir,
-            unprocessed_dir,
-            keepfavorite_dir,
-            blacklist_file,
-            marketcodes_file,
-            metadata_file,
-            historical_metadata_file,
-        })
+            Ok(Config {
+                config_dir,
+                unprocessed_dir,
+                keepfavorite_dir,
+                cached_dir,
+                blacklist_file,
+                marketcodes_file,
+                metadata_file,
+                historical_metadata_file,
+            })
         }
     }
 
@@ -389,23 +401,14 @@ pub fn save_market_codes(config: &Config, market_codes: &HashMap<String, i64>) -
 
 pub fn get_bing_images(market_code: &str) -> Result<Vec<BingImage>> {
     // Try multiple URL configurations to find one that works
-    let urls = vec![
-        format!("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=7&mkt={}", market_code),
-        format!("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt={}", market_code),
-        format!("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1"),  // No market code
-        "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=en-US".to_string(), // Hardcoded
-    ];
+    let url = format!("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt={}", market_code);
+    log::info!("URL: {}", url);
     
-    for (url_idx, url) in urls.iter().enumerate() {
-        log::info!("=== TRYING URL VARIANT {} ===", url_idx + 1);
-        log::info!("URL: {}", url);
-        
-        if let Ok(result) = try_bing_api_url(url, market_code, url_idx + 1) {
-            log::info!("SUCCESS: URL variant {} worked!", url_idx + 1);
-            return Ok(result);
-        }
-        log::error!("FAILED: URL variant {} failed, trying next", url_idx + 1);
+    if let Ok(result) = try_bing_api_url(&url, market_code, 1) {
+        log::info!("SUCCESS: URL variant worked!");
+        return Ok(result);
     }
+    log::error!("FAILED: URL variant failed");
     
     Err(anyhow::anyhow!("All URL variants failed"))
 }
@@ -454,7 +457,7 @@ fn try_bing_api_url(url: &str, market_code: &str, _attempt_num: usize) -> Result
             reqwest::Client::new()
                 .get(&url_owned)
                 .timeout(std::time::Duration::from_secs(30)) // 30 second timeout
-                .header("User-Agent", "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/111.0 Firefox/117.0")
+                .header("User-Agent", "Mozilla/5.0 (X11; Linux x86_64; rv:10.0) Gecko/20100101 Firefox/10.0")
                 .header("Accept", "application/json, text/plain, */*")
                 .header("Accept-Language", "en-US,en;q=0.9")
                 .header("Cache-Control", "no-cache")
@@ -724,6 +727,63 @@ pub fn download_image(image: &BingImage, target_dir: &Path, config: &Config) -> 
     Ok(filepath)
 }
 
+pub fn download_thumbnail_image(image: &BingImage, config: &Config) -> Result<PathBuf> {
+    // Convert the URL to a thumbnail URL with 320x240 dimensions
+    let base_url = if image.url.starts_with("http") {
+        image.url.clone()
+    } else {
+        format!("https://bing.com{}", image.url)
+    };
+    
+    // Create thumbnail URL by adding w=320&h=240 parameters
+    let thumbnail_url = if base_url.contains('?') {
+        format!("{}&w=320&h=240", base_url)
+    } else {
+        format!("{}?w=320&h=240", base_url)
+    };
+
+    // image.url looks like this "/th?id=OHR.TemplePhilae_EN-US5062419351_1920x1080.jpg&rf=LaDigue_1920x1080.jpg&pid=hp"
+    // please extract "OHR.TemplePhilae" part and set it to display_name
+    let display_name = image.url
+        .split("th?id=")
+        .nth(1)
+        .and_then(|s| s.split('_').next())
+        .unwrap_or(&image.title)
+        .to_string();
+    let filename = format!("{}_thumb.jpg", sanitize_filename(&display_name));
+    let filepath = config.cached_dir.join(&filename);
+    
+    // Check if file exists in keepfavorite folder
+    let keepfavorite_path = config.keepfavorite_dir.join(&filename);
+    
+    if keepfavorite_path.exists() {
+        // File already exists in keepfavorite, skip download
+        return Ok(filepath);
+    }
+    
+    if !filepath.exists() {
+        let response = run_async(async move {
+            reqwest::Client::new()
+                .get(&thumbnail_url)
+                .timeout(std::time::Duration::from_secs(30))
+                .header("User-Agent", "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/111.0 Firefox/117.0")
+                .header("Accept", "image/webp,image/apng,image/*,*/*;q=0.8")
+                .header("Referer", "https://www.bing.com/")
+                .send()
+                .await
+        })?;
+        let bytes = run_async(async { response.bytes().await })?;
+        fs::write(&filepath, bytes)?;
+    }
+    
+    // Save metadata if available
+    if let (Some(copyright), Some(copyrightlink)) = (&image.copyright, &image.copyrightlink) {
+        save_image_metadata(config, &sanitize_filename(&display_name), copyright, copyrightlink)?;
+    }
+    
+    Ok(filepath)
+}
+
 pub fn sanitize_filename(filename: &str) -> String {
     let sanitized = filename
         .chars()
@@ -973,7 +1033,7 @@ fn set_wallpaper_linux_fallback(file_path: &Path) -> Result<bool> {
     }
 }
 
-pub fn download_images_for_market(config: &Config, market_code: &str) -> Result<(usize, Vec<BingImage>)> {
+pub fn download_images_for_market(config: &Config, market_code: &str, thumb_mode: bool) -> Result<(usize, Vec<BingImage>)> {
     let images = get_bing_images(market_code)?;
     let mut downloaded_count = 0;
     let mut downloaded_images = Vec::new();
@@ -987,21 +1047,35 @@ pub fn download_images_for_market(config: &Config, market_code: &str) -> Result<
             .to_string();
         display_name = sanitize_filename(&display_name);
 
-        let unprocessed_path = config.unprocessed_dir.join(format!("{}.jpg", display_name));
-        let keepfavorite_path = config.keepfavorite_dir.join(format!("{}.jpg", display_name));
-        if !unprocessed_path.exists() && !keepfavorite_path.exists() && !is_blacklisted(config, &display_name)? {
-            match download_image(&image, &config.unprocessed_dir, config) {
+        let filename_suffix = if thumb_mode { "_thumb.jpg" } else { ".jpg" };
+        let target_dir = if thumb_mode { &config.cached_dir } else { &config.unprocessed_dir };
+        
+        let target_path = target_dir.join(format!("{}{}", display_name, filename_suffix));
+        let keepfavorite_path = config.keepfavorite_dir.join(format!("{}{}", display_name, filename_suffix));
+        
+        if !target_path.exists() && !keepfavorite_path.exists() && !is_blacklisted(config, &display_name)? {
+            
+            let download_result = if thumb_mode {
+                download_thumbnail_image(&image, config)
+            } else {
+                download_image(&image, &config.unprocessed_dir, config)
+            };
+            
+            match download_result {
                 Ok(filepath) => {
-                    println!("Downloaded image: {}", filepath.display());
+                    let download_type = if thumb_mode { "thumbnail" } else { "image" };
+                    println!("Downloaded {}: {}", download_type, filepath.display());
                     downloaded_count += 1;
                     downloaded_images.push((*image).clone());
                 }
                 Err(e) => {
-                    eprintln!("Failed to download image {}: {}", display_name, e);
+                    let download_type = if thumb_mode { "thumbnail" } else { "image" };
+                    eprintln!("Failed to download {} {}: {}", download_type, display_name, e);
                 }
             }
         } else {
-            println!("Skipping already downloaded or blacklisted image: {}", display_name);
+            let download_type = if thumb_mode { "thumbnail" } else { "image" };
+            println!("Skipping already downloaded or blacklisted {}: {}", download_type, display_name);
         }
     }
     
@@ -1177,7 +1251,8 @@ pub fn download_historical_data(config: &Config, starting_index: usize) -> Resul
     }
 
     // save all historical images to historial.metadata.conf file
-    let current_page = if starting_index == 0 { 1 } else { starting_index };
+    // Set current_page = 0 since we're returning the first page of data (page 0)
+    let current_page = 0;
     let mut metadata_content = format!("{}\n", current_page);
     for image in &historical_images {
         metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
@@ -1290,9 +1365,9 @@ pub fn load_historical_metadata(config: &Config) -> Result<(usize, Vec<Historica
     let lines: Vec<&str> = content.lines().collect();
     
     let current_page = if lines.is_empty() {
-        1
+        0
     } else {
-        lines[0].parse::<usize>().unwrap_or(1)
+        lines[0].parse::<usize>().unwrap_or(0)
     };
     
     let mut historical_images = Vec::new();
@@ -1308,20 +1383,22 @@ pub fn load_historical_metadata(config: &Config) -> Result<(usize, Vec<Historica
 }
 
 /// Get next historical page data
-pub fn get_next_historical_page(config: &Config) -> Result<Option<Vec<HistoricalImage>>> {
+pub fn get_next_historical_page(config: &Config, thumb_mode: bool) -> Result<Option<Vec<HistoricalImage>>> {
     let (current_page, existing_images) = load_historical_metadata(config)?;
     
     // Calculate total pages from existing data
     let total_pages = existing_images.len() / 8 + if existing_images.len() % 8 > 0 { 1 } else { 0 };
     
+    // Next page to show
+    let next_page = current_page + 1;
+    
     // Check if we have more pages available
-    if current_page >= total_pages {
+    if next_page >= total_pages {
         return Ok(None);
     }
     
-    // Get next page data from existing images
-    let next_page = current_page + 1;
-    let start_index = (next_page - 1) * 8;
+    // Get next page data from existing images (0-based indexing)
+    let start_index = next_page * 8;
     let end_index = (start_index + 8).min(existing_images.len());
     
     if start_index >= existing_images.len() {
@@ -1341,10 +1418,13 @@ pub fn get_next_historical_page(config: &Config) -> Result<Option<Vec<Historical
             .to_string();
         display_name = sanitize_filename(&display_name);
 
-        let unprocessed_path = config.unprocessed_dir.join(format!("{}.jpg", display_name));
-        let keepfavorite_path = config.keepfavorite_dir.join(format!("{}.jpg", display_name));
+        let filename_suffix = if thumb_mode { "_thumb.jpg" } else { ".jpg" };
+        let target_dir = if thumb_mode { &config.cached_dir } else { &config.unprocessed_dir };
         
-        if !unprocessed_path.exists() && !keepfavorite_path.exists() && !is_blacklisted(config, &display_name)? {
+        let target_path = target_dir.join(format!("{}{}", display_name, filename_suffix));
+        let keepfavorite_path = config.keepfavorite_dir.join(format!("{}{}", display_name, filename_suffix));
+        
+        if !target_path.exists() && !keepfavorite_path.exists() && !is_blacklisted(config, &display_name)? {
             // Convert HistoricalImage to BingImage for download
             let bing_image = BingImage {
                 url: new_image.url.clone(),
@@ -1353,16 +1433,25 @@ pub fn get_next_historical_page(config: &Config) -> Result<Option<Vec<Historical
                 copyrightlink: Some(new_image.copyrightlink.clone()),
             };
             
-            match download_image(&bing_image, &config.unprocessed_dir, config) {
+            let download_result = if thumb_mode {
+                download_thumbnail_image(&bing_image, config)
+            } else {
+                download_image(&bing_image, &config.unprocessed_dir, config)
+            };
+            
+            match download_result {
                 Ok(filepath) => {
-                    println!("Downloaded historical image: {}", filepath.display());
+                    let download_type = if thumb_mode { "historical thumbnail" } else { "historical image" };
+                    println!("Downloaded {}: {}", download_type, filepath.display());
                 }
                 Err(e) => {
-                    eprintln!("Failed to download historical image {}: {}", display_name, e);
+                    let download_type = if thumb_mode { "historical thumbnail" } else { "historical image" };
+                    eprintln!("Failed to download {} {}: {}", download_type, display_name, e);
                 }
             }
         } else {
-            println!("Skipping already downloaded or blacklisted historical image: {}", display_name);
+            let download_type = if thumb_mode { "historical thumbnail" } else { "historical image" };
+            println!("Skipping already downloaded or blacklisted {}: {}", download_type, display_name);
         }
         
         downloaded_images.push(new_image.clone());

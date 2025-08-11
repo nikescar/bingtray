@@ -3,10 +3,9 @@ use poll_promise::Promise;
 use egui::{Vec2b, Pos2, pos2, Rect, Sense, Shape, Stroke, Vec2, emath};
 use egui::epaint::StrokeKind;
 use log::{trace, warn, info, error};
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
-use serde::Deserialize;
-use bingtray_core::{Config, BingImage, get_bing_images, load_market_codes, get_old_market_codes};
+use bingtray_core::*;
 
 #[cfg(target_os = "android")]
 use crate::android_screensize::get_screen_size;
@@ -14,34 +13,6 @@ use crate::android_screensize::get_screen_size;
 #[cfg(not(target_os = "android"))]
 use screen_size;
 
-#[derive(Deserialize, Debug)]
-struct BingImageData {
-    images: Vec<BingImageCompat>,
-}
-
-#[derive(Deserialize, Debug)]
-struct BingImageCompat {
-    #[serde(rename = "fullstartdate")]
-    #[allow(dead_code)]
-    full_start_date: String,
-    url: String,
-    copyright: String,
-    #[serde(rename = "copyrightlink")]
-    copyright_link: String,
-    title: String,
-    #[allow(dead_code)]
-    quiz: String,
-    #[allow(dead_code)]
-    wp: bool,
-    #[allow(dead_code)]
-    hsh: String,
-    #[allow(dead_code)]
-    drk: i32,
-    #[allow(dead_code)]
-    top: i32,
-    #[allow(dead_code)]
-    bot: i32,
-}
 
 #[derive(Clone)]
 struct CarouselImage {
@@ -58,7 +29,6 @@ struct Resource {
     response: ehttp::Response,
     text: Option<String>,
     image: Option<Image<'static>>,
-    colored_text: Option<ColoredText>,
 }
 
 impl Resource {
@@ -75,18 +45,15 @@ impl Resource {
             Self {
                 response,
                 text: None,
-                colored_text: None,
                 image: Some(image),
             }
         } else {
             let text = response.text();
-            let colored_text = text.and_then(|text| syntax_highlighting(ctx, &response, text));
             let text = text.map(|text| text.to_owned());
 
             Self {
                 response,
                 text,
-                colored_text,
                 image: None,
             }
         }
@@ -135,6 +102,8 @@ pub struct BingtrayApp {
     #[cfg_attr(feature = "serde", serde(skip))]
     market_code_index: usize,
     #[cfg_attr(feature = "serde", serde(skip))]
+    infinite_scroll_page_index: usize,
+    #[cfg_attr(feature = "serde", serde(skip))]
     current_market_codes: Vec<String>,
     #[cfg_attr(feature = "serde", serde(skip))]
     scroll_position: f32,
@@ -159,6 +128,17 @@ pub struct BingtrayApp {
     cached_screen_size: Option<(f32, f32)>,
     #[cfg_attr(feature = "serde", serde(skip))]
     screen_size_failed: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    seen_image_names: std::collections::HashSet<String>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    image_display_rect: Option<egui::Rect>,
+    // New fields for historical images and market code caching
+    #[cfg_attr(feature = "serde", serde(skip))]
+    showing_historical: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    market_exhausted: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    market_code_timestamps: std::collections::HashMap<String, i64>,
 }
 
 impl Default for BingtrayApp {
@@ -166,42 +146,28 @@ impl Default for BingtrayApp {
         let config = Config::new().ok();
         info!("Config creation result: {:?}", config.is_some());
         
-        let current_market_codes = if let Some(ref config) = config {
-            info!("Attempting to load market codes...");
-            match load_market_codes(config) {
+        let (current_market_codes, market_code_timestamps) = if let Some(ref cfg) = config {
+            info!("Loading market codes from config (will use marketcodes.conf if available)");
+            match load_market_codes(cfg) {
                 Ok(codes) => {
-                    info!("Successfully loaded {} market codes", codes.len());
-                    if codes.is_empty() {
-                        warn!("No market codes loaded from config, using default fallback");
-                        vec!["en-US".to_string(), "en-GB".to_string(), "ja-JP".to_string(), "de-DE".to_string(), "fr-FR".to_string()]
-                    } else {
-                        let old_codes = get_old_market_codes(&codes);
-                        info!("Filtered to {} old market codes: {:?}", old_codes.len(), old_codes);
-                        
-                        // If no old codes available, use some recent ones or fallback
-                        if old_codes.is_empty() {
-                            warn!("No old market codes available, using first few available codes");
-                            let available_codes: Vec<String> = codes.keys().take(5).cloned().collect();
-                            if available_codes.is_empty() {
-                                vec!["en-US".to_string(), "en-GB".to_string(), "ja-JP".to_string()]
-                            } else {
-                                available_codes
-                            }
-                        } else {
-                            old_codes
-                        }
+                    let old_codes = get_old_market_codes(&codes);
+                    info!("Successfully loaded {} market codes from config", old_codes.len());
+                    if codes.len() > 0 && cfg.marketcodes_file.exists() {
+                        info!("Market codes loaded from local file: {:?}", cfg.marketcodes_file);
+                    } else if codes.len() > 0 {
+                        info!("Market codes fetched from internet and will be saved to: {:?}", cfg.marketcodes_file);
                     }
+                    (old_codes, codes)
                 }
                 Err(e) => {
-                    warn!("Failed to load market codes: {}, using fallback", e);
-                    vec!["en-US".to_string(), "en-GB".to_string(), "ja-JP".to_string()]
+                    warn!("Failed to load market codes from config: {}, using fallback", e);
+                    (vec!["en-US".to_string()], std::collections::HashMap::new())
                 }
             }
         } else {
-            warn!("No config available, using fallback market codes");
-            vec!["en-US".to_string(), "en-GB".to_string(), "ja-JP".to_string()]
+            info!("No config available, using default market codes");
+            (vec!["en-US".to_string()], std::collections::HashMap::new())
         };
-        
         info!("Final market codes: {:?}", current_market_codes);
         
         // Get actual screen size for rectangle calculation
@@ -251,6 +217,7 @@ impl Default for BingtrayApp {
             bing_api_promise: None,
             config,
             market_code_index: 0,
+            infinite_scroll_page_index: 0,
             current_market_codes,
             scroll_position: 0.0,
             loading_more: false,
@@ -263,6 +230,12 @@ impl Default for BingtrayApp {
             current_main_image_url: None,
             cached_screen_size: None,
             screen_size_failed: false,
+            seen_image_names: std::collections::HashSet::new(),
+            image_display_rect: None,
+            // Initialize new fields
+            showing_historical: false,
+            market_exhausted: false,
+            market_code_timestamps,
         }
     }
 }
@@ -275,26 +248,33 @@ impl crate::Demo for BingtrayApp {
     fn show(&mut self, ctx: &egui::Context, _open: &mut bool) {
         use crate::View as _;
 
-        // please get screen_size from screen_size crate in case of windows,linux,maxos
-        // in case of android, use get_screen_size from ../android_screensize.rs
+        // Always show the window regardless of internet connectivity
+        // Get screen size with fallback values to ensure UI remains functional
         #[cfg(target_os = "android")]
-        let screen_size = get_screen_size().unwrap_or((1920, 1080)); // Default to 1920x1080 if error
+        let screen_size = get_screen_size().unwrap_or((1080, 1920)); // Default mobile portrait
         #[cfg(not(target_os = "android"))]
-        let screen_size = screen_size::get_primary_screen_size().unwrap_or((1920, 1080)); // Default to 1920x1080 if error
+        let screen_size = screen_size::get_primary_screen_size().unwrap_or((1920, 1080)); // Default desktop
 
+        // Create window that's always visible and functional
         let mut window = egui::Window::new(&self.title)
             .default_width(screen_size.0 as f32)
             .default_height(screen_size.1 as f32)
-            .id(egui::Id::new("demo_window_options")) // required since we change the title
+            .id(egui::Id::new("demo_window_options"))
             .resizable(self.resizable)
             .constrain(self.constrain)
             .collapsible(self.collapsible)
             .title_bar(self.title_bar)
             .scroll(self.scroll2);
+            
         if self.anchored {
             window = window.anchor(self.anchor, self.anchor_offset);
         }
-        window.show(ctx, |ui| self.ui(ui));
+        
+        // Always show the window - UI functionality should not depend on network connectivity
+        window.show(ctx, |ui| {
+            // Ensure UI is always rendered, even without network
+            self.ui(ui);
+        });
     }
 }
 
@@ -302,7 +282,7 @@ impl crate::Demo for BingtrayApp {
 impl crate::View for BingtrayApp {
     fn ui(&mut self, ui: &mut egui::Ui) {
         let prev_url = self.url.clone();
-        let trigger_fetch = ui_url(ui, &mut self.url, &mut self.carousel_images, &mut self.carousel_promises, &mut self.selected_carousel_image, &mut self.main_panel_image, &mut self.main_panel_promise, &mut self.image_cache, &mut self.bing_api_promise, &mut self.config, &mut self.market_code_index, &mut self.current_market_codes, &mut self.scroll_position, &mut self.loading_more, &mut self.reset_rectangle_for_new_image, &mut self.current_main_image_url);
+        let trigger_fetch = ui_url(ui, &mut self.url, &mut self.carousel_images, &mut self.carousel_promises, &mut self.selected_carousel_image, &mut self.main_panel_image, &mut self.main_panel_promise, &mut self.image_cache, &mut self.bing_api_promise, &mut self.config, &mut self.market_code_index, &mut self.infinite_scroll_page_index, &mut self.current_market_codes, &mut self.scroll_position, &mut self.loading_more, &mut self.reset_rectangle_for_new_image, &mut self.current_main_image_url, &mut self.seen_image_names, &mut self.wallpaper_status, &mut self.wallpaper_start_time, &mut self.showing_historical, &mut self.market_exhausted, &mut self.market_code_timestamps);
 
         if trigger_fetch {
             let ctx = ui.ctx().clone();
@@ -369,15 +349,16 @@ impl crate::View for BingtrayApp {
                     ui.ctx().request_repaint();
                     
                     // Process each image from the Bing API response
+                    // Process all images without throttling to ensure all pages load
                     for bing_image in bing_images {
-                            // Construct the full URLs - use the URL as-is from Bing API
+                            // Use bingtray-core functions for URL handling
                             let base_url = if bing_image.url.starts_with("http") {
                                 bing_image.url.clone()
                             } else {
                                 format!("https://bing.com{}", bing_image.url)
                             };
                             
-                            // Add size parameters properly
+                            // Create thumbnail and full URLs using the same method as core
                             let separator = if base_url.contains('?') { "&" } else { "?" };
                             let thumbnail_url = format!("{}{}w=320&h=240", base_url, separator);
                             let full_url = format!("{}{}w=1920&h=1080", base_url, separator);
@@ -386,21 +367,30 @@ impl crate::View for BingtrayApp {
                             info!("Thumbnail URL: {}", thumbnail_url);
                             info!("Full URL: {}", full_url);
                             
-                            // Extract better title from URL if original title is "Info" or generic
+                            // Extract display name using bingtray-core method
+                            let display_name = bing_image.url
+                                .split("th?id=")
+                                .nth(1)
+                                .and_then(|s| s.split('_').next())
+                                .unwrap_or(&bing_image.title)
+                                .to_string();
+                            
+                            // Skip duplicate images based on display name (e.g., OHR_AdelieWPD, OHR_AileyUptown)
+                            let image_name = display_name.replace("OHR.", "");
+                            if self.seen_image_names.contains(&image_name) {
+                                info!("Skipping duplicate image: {}", image_name);
+                                continue;
+                            }
+                            self.seen_image_names.insert(image_name.clone());
+                            
                             let display_title = if bing_image.title == "Info" || bing_image.title.is_empty() {
-                                // Extract from URL like bingtray-core does
-                                bing_image.url
-                                    .split("th?id=")
-                                    .nth(1)
-                                    .and_then(|s| s.split('_').next())
-                                    .map(|s| s.replace("OHR.", "").replace("_", " "))
-                                    .unwrap_or_else(|| bing_image.title.clone())
+                                sanitize_filename(&display_name).replace("OHR.", "").replace("_", " ")
                             } else {
                                 bing_image.title.clone()
                             };
                             
                             let carousel_image = CarouselImage {
-                                title: display_title,
+                                title: display_title.clone(),
                                 copyright: bing_image.copyright.clone().unwrap_or_default(),
                                 copyright_link: bing_image.copyrightlink.clone().unwrap_or_default(),
                                 thumbnail_url: thumbnail_url.clone(),
@@ -411,49 +401,126 @@ impl crate::View for BingtrayApp {
                             
                             self.carousel_images.push(carousel_image.clone());
                             
-                            // Fetch the thumbnail image
+                            // Check cache before downloading thumbnails
+                            if self.image_cache.contains_key(&thumbnail_url) {
+                                info!("Using cached thumbnail for: {}", display_title);
+                                continue;
+                            }
+                            
+                            // Download thumbnails using the same pattern as core
                             let ctx = ui.ctx().clone();
                             let (sender, promise) = Promise::new();
                             let request = ehttp::Request::get(&thumbnail_url);
                             
                             ehttp::fetch(request, move |response| {
-                                ctx.request_repaint();
-                                let result = response.map(|response| {
-                                    info!("Bing image response: status={}, size={} bytes", response.status, response.bytes.len());
+                            ctx.request_repaint();
+                            let result = response.map(|response| {
+                                info!("Bing image response: status={}, size={} bytes", response.status, response.bytes.len());
+                                
+                                if response.status == 200 && !response.bytes.is_empty() {
+                                    let image_bytes = response.bytes.to_vec();
+                                    info!("Loading carousel image: {} bytes from {}", image_bytes.len(), response.url);
+                                    ctx.include_bytes(response.url.clone(), response.bytes.clone());
+                                    ctx.request_repaint();
+                                    let image = Image::from_uri(response.url.clone());
+                                    info!("Created carousel image widget for: {}", response.url);
                                     
-                                    if response.status == 200 && !response.bytes.is_empty() {
-                                        let image_bytes = response.bytes.to_vec();
-                                        info!("Loading carousel image: {} bytes from {}", image_bytes.len(), response.url);
-                                        ctx.include_bytes(response.url.clone(), response.bytes.clone());
-                                        ctx.request_repaint();
-                                        let image = Image::from_uri(response.url.clone());
-                                        info!("Created carousel image widget for: {}", response.url);
-                                        
-                                        CarouselImage {
-                                            title: carousel_image.title.clone(),
-                                            copyright: carousel_image.copyright.clone(),
-                                            copyright_link: carousel_image.copyright_link.clone(),
-                                            thumbnail_url: carousel_image.thumbnail_url.clone(),
-                                            full_url: carousel_image.full_url.clone(),
-                                            image: Some(image),
-                                            image_bytes: Some(image_bytes),
-                                        }
-                                    } else {
-                                        CarouselImage {
-                                            title: carousel_image.title.clone(),
-                                            copyright: carousel_image.copyright.clone(),
-                                            copyright_link: carousel_image.copyright_link.clone(),
-                                            thumbnail_url: carousel_image.thumbnail_url.clone(),
-                                            full_url: carousel_image.full_url.clone(),
-                                            image: None,
-                                            image_bytes: None,
-                                        }
+                                    CarouselImage {
+                                        title: carousel_image.title.clone(),
+                                        copyright: carousel_image.copyright.clone(),
+                                        copyright_link: carousel_image.copyright_link.clone(),
+                                        thumbnail_url: carousel_image.thumbnail_url.clone(),
+                                        full_url: carousel_image.full_url.clone(),
+                                        image: Some(image),
+                                        image_bytes: Some(image_bytes),
                                     }
-                                });
-                                sender.send(result);
+                                } else {
+                                    // Try fallback URL patterns for 404 errors
+                                    // if response.status == 404 {
+                                    //     info!("Attempting fallback URL patterns for 404 error");
+                                        
+                                    //     // Extract the image ID from the failed URL and try alternative patterns
+                                    //     let original_url = &response.url;
+                                    //     let fallback_urls = generate_fallback_urls(original_url);
+                                        
+                                    //     if !fallback_urls.is_empty() {
+                                    //         for fallback_url in fallback_urls {
+                                    //             info!("Trying fallback URL: {}", fallback_url);
+                                    //             let ctx = ctx.clone();
+                                    //             let carousel_image_for_fallback = carousel_image.clone();
+                                    //             let (sender, _promise) = Promise::new();
+                                    //             let request = ehttp::Request::get(&fallback_url);
+                                                
+                                    //             ehttp::fetch(request, move |result| {
+                                    //                 let result = result.map(|response| {
+                                    //                     if response.status == 200 && !response.bytes.is_empty() {
+                                    //                         let image_bytes = response.bytes.to_vec();
+                                    //                         info!("Fallback URL successful: {} bytes from {}", image_bytes.len(), response.url);
+                                    //                         ctx.include_bytes(response.url.clone(), response.bytes.clone());
+                                    //                         ctx.request_repaint();
+                                    //                         let image = Image::from_uri(response.url.clone());
+                                                            
+                                    //                         CarouselImage {
+                                    //                             title: carousel_image_for_fallback.title.clone(),
+                                    //                             copyright: carousel_image_for_fallback.copyright.clone(),
+                                    //                             copyright_link: carousel_image_for_fallback.copyright_link.clone(),
+                                    //                             thumbnail_url: carousel_image_for_fallback.thumbnail_url.clone(),
+                                    //                             full_url: carousel_image_for_fallback.full_url.clone(),
+                                    //                             image: Some(image),
+                                    //                             image_bytes: Some(image_bytes),
+                                    //                         }
+                                    //                     } else {
+                                    //                         info!("Fallback URL also failed: status {} - marking for removal", response.status);
+                                    //                         // Return a special marker to indicate this image should be removed
+                                    //                         CarouselImage {
+                                    //                             title: "REMOVE_ME".to_string(), // Special marker
+                                    //                             copyright: carousel_image_for_fallback.copyright.clone(),
+                                    //                             copyright_link: carousel_image_for_fallback.copyright_link.clone(),
+                                    //                             thumbnail_url: carousel_image_for_fallback.thumbnail_url.clone(),
+                                    //                             full_url: carousel_image_for_fallback.full_url.clone(),
+                                    //                             image: None,
+                                    //                             image_bytes: None,
+                                    //                         }
+                                    //                     }
+                                    //                 });
+                                    //                 sender.send(result);
+                                    //             });
+                                                
+                                    //             // Try only the first fallback URL for now to avoid too many requests
+                                    //             break;
+                                    //         }
+                                    //     } else {
+                                    //         info!("No fallback URLs available - marking for removal");
+                                    //         // No fallback URLs available, mark for removal
+                                    //         return CarouselImage {
+                                    //             title: "REMOVE_ME".to_string(), // Special marker
+                                    //             copyright: carousel_image.copyright.clone(),
+                                    //             copyright_link: carousel_image.copyright_link.clone(),
+                                    //             thumbnail_url: carousel_image.thumbnail_url.clone(),
+                                    //             full_url: carousel_image.full_url.clone(),
+                                    //             image: None,
+                                    //             image_bytes: None,
+                                    //         };
+                                    //     }
+                                    // }
+                                    
+                                    // Default fallback - mark for removal
+                                    info!("Failed to load image from {}: status {} - marking for removal", response.url, response.status);
+                                    CarouselImage {
+                                        title: "REMOVE_ME".to_string(), // Special marker
+                                        copyright: carousel_image.copyright.clone(),
+                                        copyright_link: carousel_image.copyright_link.clone(),
+                                        thumbnail_url: carousel_image.thumbnail_url.clone(),
+                                        full_url: carousel_image.full_url.clone(),
+                                        image: None,
+                                        image_bytes: None,
+                                    }
+                                }
                             });
-                            
-                            self.carousel_promises.push(promise);
+                            sender.send(result);
+                        });
+                        
+                        self.carousel_promises.push(promise);
                         }
                         
                         // Force another repaint after adding all promises
@@ -463,6 +530,11 @@ impl crate::View for BingtrayApp {
                     error!("Failed to fetch Bing API data: {}", e);
                     self.bing_api_promise = None;
                     self.loading_more = false; // Reset loading state on error
+                    
+                    // Show error message to user
+                    self.wallpaper_status = Some(format!("✗ {}", e));
+                    self.wallpaper_start_time = Some(SystemTime::now());
+                    
                     // Force repaint to update UI on error
                     ui.ctx().request_repaint();
                 }
@@ -480,31 +552,44 @@ impl crate::View for BingtrayApp {
                 match result {
                     Ok(carousel_image) => {
                         info!("Promise completed for image: {} (has image: {})", carousel_image.thumbnail_url, carousel_image.image.is_some());
-                        // Find the corresponding image in carousel_images and update it
-                        let mut found = false;
-                        for existing_img in self.carousel_images.iter_mut() {
-                            if existing_img.thumbnail_url == carousel_image.thumbnail_url || existing_img.full_url == carousel_image.full_url {
-                                existing_img.image = carousel_image.image.clone();
-                                existing_img.image_bytes = carousel_image.image_bytes.clone();
-                                info!("Updated image in carousel for: {} (image: {})", existing_img.title, existing_img.image.is_some());
-                                found = true;
-                                break;
-                            }
-                        }
-                        if !found {
-                            warn!("Could not find matching carousel image for: {}", carousel_image.thumbnail_url);
-                            // Let's also try to match by title as a fallback
+                        
+                        // Check if this image should be removed
+                        if carousel_image.title == "REMOVE_ME" {
+                            info!("Removing failed image from carousel: {}", carousel_image.thumbnail_url);
+                            // Find and remove the image from carousel_images
+                            self.carousel_images.retain(|img| {
+                                !(img.thumbnail_url == carousel_image.thumbnail_url || img.full_url == carousel_image.full_url)
+                            });
+                            ui.ctx().request_repaint();
+                        } else {
+                            // Find the corresponding image in carousel_images and update it
+                            let mut found = false;
                             for existing_img in self.carousel_images.iter_mut() {
-                                if existing_img.title == carousel_image.title {
+                                if existing_img.thumbnail_url == carousel_image.thumbnail_url || existing_img.full_url == carousel_image.full_url {
                                     existing_img.image = carousel_image.image.clone();
                                     existing_img.image_bytes = carousel_image.image_bytes.clone();
-                                    info!("Updated image in carousel by title for: {}", existing_img.title);
+                                    info!("Updated image in carousel for: {} (image: {})", existing_img.title, existing_img.image.is_some());
+                                    found = true;
                                     break;
                                 }
                             }
+                            if !found {
+                                warn!("Could not find matching carousel image for: {}", carousel_image.thumbnail_url);
+                                // Let's also try to match by title as a fallback, but skip REMOVE_ME
+                                if carousel_image.title != "REMOVE_ME" {
+                                    for existing_img in self.carousel_images.iter_mut() {
+                                        if existing_img.title == carousel_image.title {
+                                            existing_img.image = carousel_image.image.clone();
+                                            existing_img.image_bytes = carousel_image.image_bytes.clone();
+                                            info!("Updated image in carousel by title for: {}", existing_img.title);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            // Force immediate repaint when each image is updated
+                            ui.ctx().request_repaint();
                         }
-                        // Force immediate repaint when each image is updated
-                        ui.ctx().request_repaint();
                     }
                     Err(e) => {
                         error!("Promise failed for carousel image: {}", e);
@@ -517,6 +602,29 @@ impl crate::View for BingtrayApp {
             let _ = self.carousel_promises.remove(i);
         }
         
+        // Note: Disabled deferred downloading to fix infinite loop on Android
+        // The main download system during API response processing should be sufficient
+        
+        // Clean up images that have been in the carousel for a while but still have no image loaded
+        // This handles cases where promises might have failed without being caught
+        if self.carousel_promises.is_empty() {
+            let initial_count = self.carousel_images.len();
+            self.carousel_images.retain(|img| {
+                // Keep images that have successfully loaded
+                if img.image.is_some() {
+                    true
+                } else {
+                    // Remove images that are placeholders and have been around for more than expected
+                    info!("Removing image that failed to load: {}", img.title);
+                    false
+                }
+            });
+            if self.carousel_images.len() != initial_count {
+                info!("Cleaned up {} failed images from carousel", initial_count - self.carousel_images.len());
+                ui.ctx().request_repaint();
+            }
+        }
+
         // Force regular repaints while promises are active to ensure timely UI updates
         if !self.carousel_promises.is_empty() || self.bing_api_promise.is_some() {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(500));
@@ -606,8 +714,8 @@ impl crate::View for BingtrayApp {
                             info!("Square corners: {:?}", self.square_corners);
                             info!("Square center: {:?}, size factor: {}, screen ratio: {}", self.square_center, self.square_size_factor, self.screen_ratio);
                             
-                            let crop_rect = if self.screen_ratio > 0.0 {
-                                // Try to get actual image dimensions from the image bytes
+                            let crop_rect = {
+                                // Get actual image dimensions from the image bytes
                                 let (bitmap_width, bitmap_height) = if let Some(bytes) = &main_image.image_bytes {
                                     // Decode image to get actual dimensions using the correct API
                                     match image::ImageReader::new(std::io::Cursor::new(bytes))
@@ -636,36 +744,120 @@ impl crate::View for BingtrayApp {
                                     (1920, 1080)
                                 };
                                 
-                                let bitmap_ratio = bitmap_height as f32 / bitmap_width as f32;
+                                info!("Using bitmap {}x{} for selected rectangle cropping", bitmap_width, bitmap_height);
+                                info!("Selected rectangle corners: top-left=({:.1},{:.1}), bottom-right=({:.1},{:.1})", 
+                                      self.square_corners[0].x, self.square_corners[0].y,
+                                      self.square_corners[2].x, self.square_corners[2].y);
                                 
-                                info!("Using bitmap {}x{}, ratio: {:.3}, screen ratio: {:.3}", 
-                                      bitmap_width, bitmap_height, bitmap_ratio, self.screen_ratio);
-                                info!("Crop decision: bitmap_ratio ({:.3}) > screen_ratio ({:.3}) = {}", 
-                                      bitmap_ratio, self.screen_ratio, bitmap_ratio > self.screen_ratio);
+                                // Use selected rectangle coordinates, but extend right edge to image right end
+                                // square_corners[0] = top-left, square_corners[2] = bottom-right
+                                // Convert from image display coordinates to actual bitmap pixel coordinates
+                                // The square_corners are in the coordinate system of the displayed image
+                                // We need to scale them to match the actual bitmap dimensions
                                 
-                                if bitmap_ratio > self.screen_ratio {
-                                    // Image is taller than screen, crop top and bottom
-                                    let crop_height = (bitmap_width as f32 * self.screen_ratio) as i32;
-                                    let y = (bitmap_height - crop_height) / 2;
-                                    let crop = (0, y, bitmap_width, y + crop_height);
-                                    info!("Cropping top/bottom: {:?}", crop);
-                                    Some(crop)
+                                let (left, top, bottom, right) = if let Some(display_rect) = self.image_display_rect {
+                                    // Transform coordinates from display space to bitmap space
+                                    let display_width = display_rect.width();
+                                    let display_height = display_rect.height();
+                                    
+                                    // Calculate the actual image dimensions as displayed (considering aspect ratio)
+                                    let image_aspect_ratio = bitmap_width as f32 / bitmap_height as f32;
+                                    let display_aspect_ratio = display_width / display_height;
+                                    
+                                    // Determine actual image display area within the display_rect
+                                    let (actual_img_width, actual_img_height, img_offset_x, img_offset_y) = if image_aspect_ratio > display_aspect_ratio {
+                                        // Image is wider than display area - letterboxed top/bottom
+                                        let actual_width = display_width;
+                                        let actual_height = display_width / image_aspect_ratio;
+                                        let offset_y = (display_height - actual_height) / 2.0;
+                                        (actual_width, actual_height, 0.0, offset_y)
+                                    } else {
+                                        // Image is taller than display area - letterboxed left/right
+                                        let actual_height = display_height;
+                                        let actual_width = display_height * image_aspect_ratio;
+                                        let offset_x = (display_width - actual_width) / 2.0;
+                                        (actual_width, actual_height, offset_x, 0.0)
+                                    };
+                                    
+                                    // Convert square corners from screen coordinates to image display coordinates
+                                    // NOTE: The square corners are already relative to the displayed image, not screen
+                                    let img_relative_top_left_x = self.square_corners[0].x;
+                                    let img_relative_top_left_y = self.square_corners[0].y;
+                                    let img_relative_bottom_right_x = self.square_corners[2].x;
+                                    let img_relative_bottom_right_y = self.square_corners[2].y;
+                                    
+                                    // Clamp coordinates to image display area
+                                    let clamped_top_left_x = img_relative_top_left_x.max(0.0).min(actual_img_width);
+                                    let clamped_top_left_y = img_relative_top_left_y.max(0.0).min(actual_img_height);
+                                    let clamped_bottom_right_x = img_relative_bottom_right_x.max(0.0).min(actual_img_width);
+                                    let clamped_bottom_right_y = img_relative_bottom_right_y.max(0.0).min(actual_img_height);
+                                    
+                                    // Convert to relative coordinates within the actual image area (0.0 to 1.0)
+                                    let rel_left = if actual_img_width > 0.0 { clamped_top_left_x / actual_img_width } else { 0.0 };
+                                    let rel_top = if actual_img_height > 0.0 { clamped_top_left_y / actual_img_height } else { 0.0 };
+                                    let rel_right = if actual_img_width > 0.0 { clamped_bottom_right_x / actual_img_width } else { 1.0 };
+                                    let rel_bottom = if actual_img_height > 0.0 { clamped_bottom_right_y / actual_img_height } else { 1.0 };
+                                    
+                                    // Convert relative coordinates to bitmap pixel coordinates
+                                    let left = ((rel_left * bitmap_width as f32).max(0.0)).min(bitmap_width as f32 - 1.0) as i32;
+                                    let top = ((rel_top * bitmap_height as f32).max(0.0)).min(bitmap_height as f32 - 1.0) as i32;
+                                    let right = bitmap_width; // Always extend to image's right edge as requested
+                                    let bottom = ((rel_bottom * bitmap_height as f32).max(0.0)).min(bitmap_height as f32) as i32;
+                                    
+                                    // Ensure bottom is greater than top to avoid zero-height rectangles
+                                    let bottom = if bottom <= top {
+                                        warn!("Rectangle has zero or negative height! top={}, bottom={}, forcing minimum height", top, bottom);
+                                        (top + bitmap_height / 4).min(bitmap_height) // Use 1/4 of image height as minimum
+                                    } else {
+                                        bottom
+                                    };
+                                    
+                                    info!("Display rect: {}x{} at ({:.1},{:.1})", display_width, display_height, display_rect.min.x, display_rect.min.y);
+                                    info!("Image aspect: {:.3}, display aspect: {:.3}", image_aspect_ratio, display_aspect_ratio);
+                                    info!("Actual image area: {}x{} at offset ({:.1},{:.1})", actual_img_width, actual_img_height, img_offset_x, img_offset_y);
+                                    info!("Original square corners: top-left=({:.1},{:.1}), bottom-right=({:.1},{:.1})", 
+                                          self.square_corners[0].x, self.square_corners[0].y, 
+                                          self.square_corners[2].x, self.square_corners[2].y);
+                                    info!("Clamped square corners: top-left=({:.1},{:.1}), bottom-right=({:.1},{:.1})", 
+                                          clamped_top_left_x, clamped_top_left_y, 
+                                          clamped_bottom_right_x, clamped_bottom_right_y);
+                                    info!("Relative coords: left={:.3}, top={:.3}, right={:.3}, bottom={:.3}", rel_left, rel_top, rel_right, rel_bottom);
+                                    info!("Bitmap dimensions: {}x{}, transformed coords: left={}, top={}, right={}, bottom={}", bitmap_width, bitmap_height, left, top, right, bottom);
+                                    
+                                    (left, top, bottom, right)
                                 } else {
-                                    // Image is wider than screen, crop sides  
-                                    let crop_width = (bitmap_height as f32 / self.screen_ratio) as i32;
-                                    let x = (bitmap_width - crop_width) / 2;
-                                    let crop = (x, 0, x + crop_width, bitmap_height);
-                                    info!("Cropping left/right: {:?}", crop);
-                                    Some(crop)
-                                }
-                            } else {
-                                info!("Invalid screen ratio: {}, skipping crop", self.screen_ratio);
-                                None
+                                    // Fallback if display rect is not available (shouldn't happen)
+                                    warn!("Image display rect not available, using direct coordinate mapping");
+                                    // Assume square corners are already in image coordinate space
+                                    let left = (self.square_corners[0].x.max(0.0)).min(bitmap_width as f32 - 1.0) as i32;
+                                    let top = (self.square_corners[0].y.max(0.0)).min(bitmap_height as f32 - 1.0) as i32;
+                                    let right = bitmap_width; // Always extend to image's right edge as requested
+                                    let bottom = (self.square_corners[2].y.max(0.0)).min(bitmap_height as f32) as i32;
+                                    (left, top, bottom, right)
+                                };
+                                
+                                // Ensure coordinates are within image bounds
+                                let left = left.max(0).min(bitmap_width - 1);
+                                let top = top.max(0).min(bitmap_height - 1);
+                                let right = right.min(bitmap_width);
+                                let bottom = bottom.max(top + 1).min(bitmap_height);
+                                
+                                let crop = (left, top, right, bottom);
+                                info!("Final crop coordinates: left={}, top={}, right={}, bottom={} ({}x{} pixels)", 
+                                      crop.0, crop.1, crop.2, crop.3, crop.2 - crop.0, crop.3 - crop.1);
+                                info!("Selection represents {:.1}% width and {:.1}% height of original image",
+                                      ((crop.2 - crop.0) as f32 / bitmap_width as f32) * 100.0,
+                                      ((crop.3 - crop.1) as f32 / bitmap_height as f32) * 100.0);
+                                Some(crop)
                             };
                             
-                            info!("Starting cropped wallpaper setting with {} bytes, crop: {:?}", image_data.len(), crop_rect);
+                            if let Some(crop) = crop_rect {
+                                info!("Starting cropped wallpaper setting with {} bytes, crop: left={}, top={}, right={}, bottom={}", image_data.len(), crop.0, crop.1, crop.2, crop.3);
+                            } else {
+                                info!("Starting cropped wallpaper setting with {} bytes, crop: None", image_data.len());
+                            }
                             
-                            // Crop the image in Rust instead of relying on Android's crop hint
+                            // Use Rust image cropping to pre-crop the bytes before sending to Android
                             let final_image_data = if let Some((left, top, right, bottom)) = crop_rect {
                                 info!("Attempting to crop image in Rust before sending to Android");
                                 match image::ImageReader::new(std::io::Cursor::new(&image_data))
@@ -727,16 +919,16 @@ impl crate::View for BingtrayApp {
                             
                             // Start wallpaper setting in background thread using pre-cropped bytes
                             std::thread::spawn(move || {
-                                log::info!("BingtrayApp: Starting wallpaper setting from pre-cropped bytes in background thread");
+                                log::info!("BingtrayApp: Starting wallpaper setting with pre-cropped image bytes");
                                 match crate::set_wallpaper_from_bytes(&final_image_data) {
                                     Ok(true) => {
-                                        log::info!("BingtrayApp: Cropped wallpaper setting from bytes completed successfully");
+                                        log::info!("BingtrayApp: Cropped wallpaper setting completed successfully");
                                     }
                                     Ok(false) => {
-                                        log::error!("BingtrayApp: Cropped wallpaper setting from bytes failed");
+                                        log::error!("BingtrayApp: Cropped wallpaper setting failed");
                                     }
                                     Err(e) => {
-                                        log::error!("BingtrayApp: Error during cropped wallpaper setting from bytes: {}", e);
+                                        log::error!("BingtrayApp: Error during cropped wallpaper setting: {}", e);
                                     }
                                 }
                             });
@@ -761,47 +953,26 @@ impl crate::View for BingtrayApp {
                 // show copyright button and open copyright_link on click
                 if !main_image.copyright.is_empty() && !main_image.copyright_link.is_empty() {
                     if ui.button("More Info").clicked() {
-                        let copyright_url = if main_image.copyright_link.starts_with("http") {
-                            main_image.copyright_link.clone()
-                        } else {
-                            format!("https://bing.com{}", main_image.copyright_link)
-                        };
-                        
-                        info!("Opening copyright URL: {}", copyright_url);
-                        if let Err(e) = webbrowser::open(&copyright_url) {
-                            error!("Failed to open copyright URL: {}", e);
-                            self.wallpaper_status = Some(format!("✗ Failed to open copyright URL: {}", e));
-                            self.wallpaper_start_time = Some(SystemTime::now());
-                        } else {
-                            self.wallpaper_status = Some("✓ Opened copyright URL".to_string());
-                            self.wallpaper_start_time = Some(SystemTime::now());
+                        match Self::resolve_url(&main_image.copyright_link) {
+                            Some(copyright_url) => {
+                                info!("Opening copyright URL: {}", copyright_url);
+                                if let Err(e) = webbrowser::open(&copyright_url) {
+                                    error!("Failed to open copyright URL: {}", e);
+                                    self.wallpaper_status = Some(format!("✗ Failed to open copyright URL: {}", e));
+                                    self.wallpaper_start_time = Some(SystemTime::now());
+                                } else {
+                                    self.wallpaper_status = Some("✓ Opened copyright URL".to_string());
+                                    self.wallpaper_start_time = Some(SystemTime::now());
+                                }
+                            }
+                            None => {
+                                error!("Invalid copyright URL, cannot open: {}", main_image.copyright_link);
+                                self.wallpaper_status = Some("✗ Invalid copyright URL".to_string());
+                                self.wallpaper_start_time = Some(SystemTime::now());
+                            }
                         }
                     }
                 }
-                
-                
-                // Square shape controls
-                // let reset_clicked = ui.button("Reset Size").clicked();
-                
-                // if reset_clicked {
-                //     // Reset to match screen size
-                //     let screen_rect = ui.ctx().screen_rect();
-                //     let screen_width = screen_rect.width();
-                //     let screen_height = screen_rect.height();
-                //     self.screen_ratio = screen_width / screen_height;
-                    
-                //     // Set square size to match actual screen dimensions
-                //     self.square_size_factor = 1.0;
-                //     let _square_width = screen_width * 0.3; // 30% of screen width
-                    
-                //     // Center the square
-                //     let center_x = screen_width / 2.0;
-                //     let center_y = screen_height / 2.0;
-                //     self.square_center = pos2(center_x, center_y);
-                    
-                //     self.update_square_corners();
-                // }
-
             });
             
             // Update screen ratio before rendering
@@ -822,6 +993,9 @@ impl crate::View for BingtrayApp {
                 
                 // Now overlay the square shape on top  
                 let overlay_rect = image_response.rect;
+                
+                // Store the image display rect for coordinate transformation
+                self.image_display_rect = Some(overlay_rect);
                 
                 // Reset rectangle size for new image if needed
                 if self.reset_rectangle_for_new_image {
@@ -888,11 +1062,18 @@ fn ui_url(
     bing_api_promise: &mut Option<Promise<Result<Vec<BingImage>, String>>>,
     config: &mut Option<Config>,
     market_code_index: &mut usize,
+    infinite_scroll_page_index: &mut usize,
     current_market_codes: &mut Vec<String>,
     scroll_position: &mut f32,
     loading_more: &mut bool,
     reset_rectangle_for_new_image: &mut bool,
     current_main_image_url: &mut Option<String>,
+    seen_image_names: &mut std::collections::HashSet<String>,
+    wallpaper_status: &mut Option<String>,
+    wallpaper_start_time: &mut Option<SystemTime>,
+    showing_historical: &mut bool,
+    market_exhausted: &mut bool,
+    market_code_timestamps: &mut std::collections::HashMap<String, i64>,
 ) -> bool {
     let trigger_fetch = false;
     #[cfg(target_os = "android")]
@@ -902,12 +1083,80 @@ fn ui_url(
     egui::TopBottomPanel::top("top_panel")
     .min_height(100.0)
     .show_inside(ui, |ui| {
-        ui.label("Bingtray Wallpapers");
+        
+        ui.horizontal(|ui| {
+            ui.label("Bingtray Wallpapers");
+            
+            // Add About button after title
+            if ui.button("About").clicked() {
+                if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
+                    error!("Failed to open About URL: {}", e);
+                    *wallpaper_status = Some(format!("✗ Failed to open About page: {}", e));
+                    *wallpaper_start_time = Some(SystemTime::now());
+                } else {
+                    *wallpaper_status = Some("✓ Opened About page".to_string());
+                    *wallpaper_start_time = Some(SystemTime::now());
+                }
+            }
+        });
         ui.add_space(5.0);
         ui.separator();
         
         if !carousel_images.is_empty() {
-            ui.label(format!("Loaded {} images", carousel_images.len()));
+            let loaded_count = carousel_images.iter().filter(|img| img.image.is_some()).count();
+            
+            // Determine if we're showing market data or historical data
+            if *showing_historical {
+                // We're showing historical data
+                ui.horizontal(|ui| {
+                    ui.label(format!("📜 Loaded {}/{} images from historical data successfully", loaded_count, carousel_images.len()));
+                    
+                    // Add reset button to go back to fresh market codes
+                    if ui.button("🔄 Reset to Fresh Markets").clicked() {
+                        info!("Resetting to fresh market codes mode");
+                        *showing_historical = false;
+                        *market_exhausted = false;
+                        *market_code_index = 0;
+                        *infinite_scroll_page_index = 0;
+                        
+                        // Clear carousel images to start fresh
+                        carousel_images.clear();
+                        carousel_promises.clear();
+                        *selected_carousel_image = None;
+                        *main_panel_image = None;
+                        *main_panel_promise = None;
+                        seen_image_names.clear();
+                        
+                        // Clear timestamps to force fresh downloads
+                        market_code_timestamps.clear();
+                        if let Some(cfg) = config.as_ref() {
+                            if let Err(e) = save_market_codes(cfg, market_code_timestamps) {
+                                error!("Failed to clear market code timestamps: {}", e);
+                            }
+                        }
+                        
+                        *wallpaper_status = Some("✓ Reset to fresh markets mode".to_string());
+                        *wallpaper_start_time = Some(SystemTime::now());
+                    }
+                });
+            } else if !current_market_codes.is_empty() {
+                // We have market codes available, show market code info
+                let current_market_index = (*market_code_index % current_market_codes.len()) + 1; // 1-based for display
+                let total_market_codes = current_market_codes.len();
+                let current_market_code = &current_market_codes[(*market_code_index) % current_market_codes.len()];
+                
+                ui.label(format!(
+                    "Loaded {}/{} images from market {}/{} ({}) successfully", 
+                    loaded_count, 
+                    carousel_images.len(),
+                    current_market_index,
+                    total_market_codes,
+                    current_market_code
+                ));
+            } else {
+                // No market codes, showing historical data
+                ui.label(format!("Loaded {}/{} images from historical data successfully", loaded_count, carousel_images.len()));
+            }
             // Simple horizontal scroll area
             let scroll_response = egui::ScrollArea::horizontal()
                 .auto_shrink(false)
@@ -951,6 +1200,7 @@ fn ui_url(
                                                     info!("Received full image response: status={}, size={} bytes", response.status, response.bytes.len());
                                                     
                                                     if response.status != 200 {
+                                                        // Default fallback - return image with no data
                                                         error!("Failed to fetch full image: status={}", response.status);
                                                         return CarouselImage {
                                                             title: carousel_image_clone.title.clone(),
@@ -994,8 +1244,8 @@ fn ui_url(
                                 }
                                 
                                 // Show truncated title
-                                let title = if carousel_image.title.len() > 15 {
-                                    format!("{}...", &carousel_image.title[..15])
+                                let title = if carousel_image.title.chars().count() > 15 {
+                                    format!("{}...", carousel_image.title.chars().take(15).collect::<String>())
                                 } else {
                                     carousel_image.title.clone()
                                 };
@@ -1008,93 +1258,194 @@ fn ui_url(
             
             // Check scroll position and trigger infinite scroll at 80%
             let scroll_pos = scroll_response.state.offset;
-            if scroll_pos.x > 0.0 {
-                let available_width = ui.available_width();
-                let content_width = carousel_images.len() as f32 * 125.0; // 120px + 5px spacing
-                let max_scroll = (content_width - available_width).max(0.0);
-                
+            let available_width = ui.available_width();
+            let content_width = carousel_images.len() as f32 * 125.0; // 120px + 5px spacing
+            let max_scroll = (content_width - available_width).max(0.0);
+            
+            // Handle infinite scroll trigger
+            let should_load_more = if max_scroll > 0.0 {
+                // Normal case: content is scrollable
+                let scroll_percentage = scroll_pos.x / max_scroll;
+                scroll_percentage > 0.8
+            } else {
+                // Special case: screen is wider than content, trigger when we have fewer than expected images
+                // Assume we want at least enough images to fill 80% more than the current screen width
+                let expected_images_for_screen = ((available_width * 1.8) / 125.0).ceil() as usize;
+                carousel_images.len() < expected_images_for_screen
+            };
+            
+            if should_load_more && !*loading_more && carousel_images.len() > 0 {
                 if max_scroll > 0.0 {
                     let scroll_percentage = scroll_pos.x / max_scroll;
+                    info!("Scroll threshold reached: {:.1}% - Loading more images", scroll_percentage * 100.0);
+                } else {
+                    info!("Screen wider than content ({:.0}px vs {:.0}px) - Loading more images", available_width, content_width);
+                }
+                *loading_more = true;
+                
+                // Check if there's already a promise running - if so, don't create a new one
+                if bing_api_promise.is_some() {
+                    info!("API request already in progress, skipping infinite scroll load");
+                    *loading_more = false;
+                } else {
+                
+                    // Load more images like desktop version does (market codes + historical fallback)
+                    if let Some(config) = config {
+                    info!("Loading additional market codes for infinite scroll (from marketcodes.conf if available)");
+                    let market_codes = match load_market_codes(config) {
+                        Ok(codes) => {
+                            if config.marketcodes_file.exists() {
+                                info!("Using existing market codes from local file for infinite scroll");
+                            } else {
+                                info!("Fetched fresh market codes from internet for infinite scroll");
+                            }
+                            codes
+                        }
+                        Err(e) => {
+                            warn!("Failed to load market codes for infinite scroll: {}, using defaults", e);
+                            HashMap::new()
+                        }
+                    };
+                    let old_codes = get_old_market_codes(&market_codes);
                     
-                    // Trigger load more when scrolled 80% to the right and not already loading
-                    if scroll_percentage > 0.8 && !*loading_more && carousel_images.len() > 0 {
-                        info!("Scroll threshold reached: {:.1}% - Loading more images", scroll_percentage * 100.0);
-                        *loading_more = true;
+                    // Check if we should switch to historical mode
+                    if !*market_exhausted && !old_codes.is_empty() {
+                        // Find next market code that hasn't been visited in 7 days
+                        let mut found_fresh_market = false;
+                        let mut attempts = 0;
+                        let max_attempts = old_codes.len();
                         
-                        // Load more images like desktop version does (market codes + historical fallback)
-                        if let Some(config) = config {
-                            let market_codes = load_market_codes(config).unwrap_or_default();
-                            let old_codes = get_old_market_codes(&market_codes);
+                        while attempts < max_attempts && !found_fresh_market {
+                            let market_code = &old_codes[*market_code_index % old_codes.len()];
                             
-                            if !old_codes.is_empty() {
-                                // Try next available market code (cycle through all available codes)
-                                let market_code = &old_codes[*market_code_index % old_codes.len()];
-                                info!("Loading more images for market code: {} (index {})", market_code, *market_code_index);
-                                *market_code_index += 1;
+                            // Check if this market code was visited recently
+                            let now = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs() as i64;
+                            let seven_days_ago = now - (7 * 24 * 60 * 60);
+                            
+                            let is_recent = if let Some(&last_visit) = market_code_timestamps.get(market_code) {
+                                last_visit > seven_days_ago
+                            } else {
+                                false
+                            };
+                            
+                            if !is_recent {
+                                // This market code is fresh, use it
+                                info!("Loading fresh images for market code: {} (not visited in 7+ days)", market_code);
                                 
-                                let _ctx = ui.ctx().clone();
+                                // Update timestamp for this market code
+                                market_code_timestamps.insert(market_code.clone(), now);
+                                
+                                // Save the updated timestamps
+                                if let Err(e) = save_market_codes(config, market_code_timestamps) {
+                                    error!("Failed to save market code timestamps: {}", e);
+                                }
+                                
+                                *market_code_index += 1;
+                                *infinite_scroll_page_index += 1;
+                                
+                                let ctx = ui.ctx().clone();
                                 let (sender, promise) = Promise::new();
                                 let market_code_for_thread = market_code.clone();
                                 
                                 std::thread::spawn(move || {
+                                    info!("Starting API call for fresh market: {}", market_code_for_thread);
                                     let result = get_bing_images(&market_code_for_thread)
                                         .map_err(|e| format!("Error fetching Bing images: {}", e));
                                     sender.send(result);
+                                    ctx.request_repaint();
                                 });
                                 
                                 *bing_api_promise = Some(promise);
-                                *market_code_index += 1;
+                                found_fresh_market = true;
                             } else {
-                                // Try historical data when market codes are exhausted
-                                info!("No more market codes available, trying historical data for infinite scroll");
-                                
-                                let config_clone = config.clone();
-                                let _ctx = ui.ctx().clone();
-                                let (sender, promise) = Promise::new();
-                                
-                                std::thread::spawn(move || {
-                                    let result = bingtray_core::get_next_historical_page(&config_clone)
-                                        .map_err(|e| format!("Error fetching historical images: {}", e))
-                                        .and_then(|opt| match opt {
-                                            Some(historical_images) => {
-                                                // Convert HistoricalImage to BingImage
-                                                let bing_images: Vec<BingImage> = historical_images.iter().map(|h| BingImage {
-                                                    url: h.url.clone(),
-                                                    title: h.title.clone(),
-                                                    copyright: Some(h.copyright.clone()),
-                                                    copyrightlink: Some(h.copyrightlink.clone()),
-                                                }).collect();
-                                                Ok(bing_images)
-                                            }
-                                            None => {
-                                                // If no more historical pages, try to download more historical data
-                                                match bingtray_core::download_more_historical_data(&config_clone) {
-                                                    Ok(historical_images) => {
-                                                        let bing_images: Vec<BingImage> = historical_images.iter().map(|h| BingImage {
-                                                            url: h.url.clone(),
-                                                            title: h.title.clone(),
-                                                            copyright: Some(h.copyright.clone()),
-                                                            copyrightlink: Some(h.copyrightlink.clone()),
-                                                        }).collect();
-                                                        Ok(bing_images)
-                                                    }
-                                                    Err(e) => Err(format!("No more historical data available: {}", e))
-                                                }
-                                            }
-                                        });
-                                    sender.send(result);
-                                });
-                                
-                                *bing_api_promise = Some(promise);
+                                info!("Market code {} was visited recently (within 7 days), skipping", market_code);
+                                *market_code_index += 1;
+                                attempts += 1;
                             }
-                        } else {
-                            *loading_more = false;
+                        }
+                        
+                        if !found_fresh_market {
+                            info!("All market codes visited within 7 days, switching to historical mode");
+                            *market_exhausted = true;
+                            *showing_historical = true;
                         }
                     }
+                    
+                    // If market codes are exhausted or we're in historical mode, load historical images
+                    if *market_exhausted || *showing_historical || old_codes.is_empty() {
+                        info!("Loading historical images (market_exhausted: {}, showing_historical: {}, old_codes empty: {})", 
+                              *market_exhausted, *showing_historical, old_codes.is_empty());
+                        
+                        *showing_historical = true;
+                        
+                        let config_clone = config.clone();
+                        let ctx = ui.ctx().clone();
+                        let (sender, promise) = Promise::new();
+                        
+                        std::thread::spawn(move || {
+                            // First check if we need to do initial historical data download
+                            let result = if !config_clone.historical_metadata_file.exists() {
+                                info!("No historical metadata found, downloading initial historical data");
+                                download_historical_data(&config_clone, 0)
+                                    .map_err(|e| format!("Error downloading initial historical data: {}", e))
+                                    .map(|historical_images| {
+                                        // Convert HistoricalImage to BingImage
+                                        let bing_images: Vec<BingImage> = historical_images.iter().map(|h| BingImage {
+                                            url: h.url.clone(),
+                                            title: h.title.clone(),
+                                            copyright: Some(h.copyright.clone()),
+                                            copyrightlink: Some(h.copyrightlink.clone()),
+                                        }).collect();
+                                        bing_images
+                                    })
+                            } else {
+                                info!("Historical metadata exists, getting next page");
+                                get_next_historical_page(&config_clone, true)
+                                    .map_err(|e| format!("Error fetching historical images: {}", e))
+                                    .and_then(|opt| match opt {
+                                        Some(historical_images) => {
+                                            // Convert HistoricalImage to BingImage
+                                            let bing_images: Vec<BingImage> = historical_images.iter().map(|h| BingImage {
+                                                url: h.url.clone(),
+                                                title: h.title.clone(),
+                                                copyright: Some(h.copyright.clone()),
+                                                copyrightlink: Some(h.copyrightlink.clone()),
+                                            }).collect();
+                                            Ok(bing_images)
+                                        }
+                                        None => Err("No more historical data available".to_string())
+                                    })
+                            };
+                            sender.send(result);
+                            ctx.request_repaint();
+                        });
+                        
+                        *bing_api_promise = Some(promise);
+                    }
+                } else {
+                    *loading_more = false;
+                }
                 }
             }
         } else {
-            ui.label("Click 'Fetch Bing Daily Image' to load images");
+            ui.label("Welcome to Bingtray! Click 'Fetch Bing Daily Image' to load wallpapers.");
+            ui.add_space(10.0);
+            
+            // Show a placeholder card to demonstrate the UI works even without internet
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.label("📱 Bingtray Mobile");
+                    ui.separator();
+                    ui.label("Features:");
+                    ui.label("• Download Bing daily wallpapers");
+                    ui.label("• Crop and set wallpapers");
+                    ui.add_space(5.0);
+                    ui.small("Internet connection required for fetching new images.");
+                });
+            });
         }
     });
     
@@ -1128,6 +1479,11 @@ fn ui_url(
             *loading_more = false;
             *market_code_index = 0;
             *current_main_image_url = None;
+            seen_image_names.clear();
+            
+            // Reset historical mode flags
+            *showing_historical = false;
+            *market_exhausted = false;
 
             // Use bingtray-core to fetch images
             if let Some(_config) = config {
@@ -1143,26 +1499,43 @@ fn ui_url(
                 info!("Fetching Bing images using bingtray-core for market: {}", market_code);
                 info!("Available market codes: {:?}", current_market_codes);
                 
-                let _ctx = ui.ctx().clone();
+                // Update timestamp for this market code
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs() as i64;
+                market_code_timestamps.insert(market_code.clone(), now);
+                
+                // Save the updated timestamps
+                if let Err(e) = save_market_codes(_config, market_code_timestamps) {
+                    error!("Failed to save market code timestamps: {}", e);
+                }
+                
+                let ctx = ui.ctx().clone();
                 let (sender, promise) = Promise::new();
                 let market_code = market_code.clone();
                 
                 std::thread::spawn(move || {
                     info!("Starting API call in background thread for market: {}", market_code);
+                    
+                    // Attempt network request without blocking UI
                     let result = match get_bing_images(&market_code) {
                         Ok(images) => {
-                            info!("API call successful: {} images received", images.len());
-                            for (i, img) in images.iter().enumerate() {
-                                info!("Image {}: title='{}', url='{}'", i, img.title, img.url);
-                            }
+                            info!("Successfully fetched {} images from network", images.len());
                             Ok(images)
                         }
                         Err(e) => {
-                            error!("API call failed: {}", e);
-                            Err(format!("Error fetching Bing images: {}", e))
+                            error!("Network request failed: {}", e);
+                            // Don't block UI - just provide user feedback
+                            Err(format!("Network unavailable: {}. You can still use the app - fetch will retry when connection is restored.", e))
                         }
                     };
+                    
+                    // Send result to UI thread (success or failure)
                     sender.send(result);
+                    
+                    // Request repaint to process the result
+                    ctx.request_repaint();
                 });
                 
                 *bing_api_promise = Some(promise);
@@ -1176,22 +1549,24 @@ fn ui_url(
             } else {
                 warn!("No config available, creating fallback API call");
                 // Even without config, try to fetch images with a default market code
-                let _ctx = ui.ctx().clone();
+                let ctx = ui.ctx().clone();
                 let (sender, promise) = Promise::new();
                 
                 std::thread::spawn(move || {
                     info!("Starting fallback API call for en-US");
                     let result = match get_bing_images("en-US") {
                         Ok(images) => {
-                            info!("Fallback API call successful: {} images received", images.len());
+                            info!("Successfully fetched {} images from fallback network call", images.len());
                             Ok(images)
                         }
                         Err(e) => {
-                            error!("Fallback API call failed: {}", e);
-                            Err(format!("Error fetching Bing images: {}", e))
+                            error!("Fallback network request failed: {}", e);
+                            // Don't block UI - just provide user feedback
+                            Err(format!("Network unavailable: {}. You can still use the app - fetch will retry when connection is restored.", e))
                         }
                     };
                     sender.send(result);
+                    ctx.request_repaint();
                 });
                 
                 *bing_api_promise = Some(promise);
@@ -1216,7 +1591,6 @@ fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_status: &mut Op
         response,
         text,
         image,
-        colored_text,
     } = resource;
 
     ui.monospace(format!("url:          {}", response.url));
@@ -1295,51 +1669,12 @@ fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_status: &mut Op
                         *wallpaper_start_time = Some(SystemTime::now());
                     }
                 }
-            } else if let Some(colored_text) = colored_text {
-                colored_text.ui(ui);
             } else if let Some(text) = &text {
                 ui.add(egui::Label::new(text).selectable(true));
             } else {
                 ui.monospace("[binary]");
             }
         });
-    }
-
-
-    fn syntax_highlighting(
-    _ctx: &egui::Context,
-    response: &ehttp::Response,
-    _text: &str,
-) -> Option<ColoredText> {
-    let extension_and_rest: Vec<&str> = response.url.rsplitn(2, '.').collect();
-    let _extension = extension_and_rest.first()?;
-    #[cfg(not(target_os = "android"))]
-    {
-        let theme = egui_extras::syntax_highlighting::CodeTheme::from_style(&_ctx.style());
-        Some(ColoredText(egui_extras::syntax_highlighting::highlight(
-            _ctx,
-            &_ctx.style(),
-            &theme,
-            _text,
-            _extension,
-        )))
-    }
-    #[cfg(target_os = "android")]
-    {
-        // For Android, just return plain text without syntax highlighting
-        None
-    }
-}
-
-struct ColoredText(egui::text::LayoutJob);
-
-impl ColoredText {
-    pub fn ui(&self, ui: &mut egui::Ui) {
-        let mut job = self.0.clone();
-        job.wrap.max_width = ui.available_width();
-        let galley = ui.fonts(|f| f.layout_job(job));
-        ui.add(egui::Label::new(galley).selectable(true));
-    }
 }
 
 impl BingtrayApp {
@@ -1657,12 +1992,12 @@ impl BingtrayApp {
             }
         };
         
-        // Center the rectangle in the image
-        let center_x = image_rect.left() + image_width / 2.0;
-        let center_y = image_rect.top() + image_height / 2.0;
+        // Center the rectangle in the image (use coordinates relative to image rect, not screen)
+        let center_x = image_width / 2.0;
+        let center_y = image_height / 2.0;
         
-        // Update the rectangle
-        self.square_center = pos2(center_x - image_rect.left(), center_y - image_rect.top());
+        // Update the rectangle center relative to the image area
+        self.square_center = pos2(center_x, center_y);
         
         // Update size factor based on new dimensions (relative to actual screen width)
         let (screen_width, _screen_height) = self.get_actual_screen_size();
@@ -1742,8 +2077,11 @@ impl BingtrayApp {
 
     fn has_next_wallpaper_available(&self) -> bool {
         if let Some(config) = &self.config {
-            // Check if there are available market codes to download from
-            let market_codes = load_market_codes(config).unwrap_or_default();
+            // Check if there are available market codes to download from (preferably from local file)
+            let market_codes = match load_market_codes(config) {
+                Ok(codes) => codes,
+                Err(_) => HashMap::new(), // Fallback to empty map on error
+            };
             let old_codes = get_old_market_codes(&market_codes);
             if !old_codes.is_empty() {
                 return true;
@@ -1751,112 +2089,112 @@ impl BingtrayApp {
             
             // Check if historical data is available when no market codes are available
             if let Ok((current_page, total_pages)) = bingtray_core::get_historical_page_info(config) {
+                // If no historical metadata file exists yet, we can still download initial historical data
+                if current_page == 0 && total_pages == 0 {
+                    return true; // We can download initial historical data
+                }
                 return current_page < total_pages;
+            } else {
+                // If there's an error loading historical page info, we can still try to download initial data
+                return true;
             }
         }
         
         false
     }
+    
+    /// Validates and resolves a potentially relative URL to an absolute URL
+    /// Returns None if the URL is malformed or invalid
+    fn resolve_url(url: &str) -> Option<String> {
+        // Check for empty or whitespace-only URLs
+        let trimmed = url.trim();
+        if trimmed.is_empty() {
+            error!("Empty URL provided");
+            return None;
+        }
+        
+        // Check for obviously malformed URLs
+        if trimmed.contains('\n') || trimmed.contains('\r') || trimmed.contains('\t') {
+            error!("Malformed URL contains control characters: {}", trimmed);
+            return None;
+        }
+        
+        let resolved_url = if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+            // Already an absolute URL
+            trimmed.to_string()
+        } else if trimmed.starts_with("//") {
+            // Protocol-relative URL, add https:
+            format!("https:{}", trimmed)
+        } else if trimmed.starts_with("/") {
+            // Absolute path, add Bing domain
+            format!("https://www.bing.com{}", trimmed)
+        } else {
+            // Log suspicious relative paths and reject them
+            error!("Suspicious relative URL that may be malformed: {}", trimmed);
+            return None;
+        };
+        
+        // Basic validation of the resolved URL
+        if resolved_url.len() > 2048 {
+            error!("URL too long (>2048 chars): {}", resolved_url);
+            return None;
+        }
+        
+        // Check for basic URL structure
+        if !resolved_url.contains("://") {
+            error!("Malformed URL missing protocol: {}", resolved_url);
+            return None;
+        }
+        
+        Some(resolved_url)
+    }
 
-    fn load_next_images(&mut self) -> bool {
-        if let Some(config) = &mut self.config {
-            // First try market codes
-            let mut market_codes = load_market_codes(config).unwrap_or_default();
-            let old_codes = get_old_market_codes(&market_codes);
-            
-            if !old_codes.is_empty() {
-                // Use the current market index or pick the first available old code
-                if self.market_code_index < self.current_market_codes.len() {
-                    let market_code = &self.current_market_codes[self.market_code_index];
-                    info!("Loading images for market code: {}", market_code);
-                    
-                    if let Ok(images) = get_bing_images(market_code) {
-                        // Process and add images to carousel
-                        for bing_image in images {
-                            let thumbnail_url = format!("https://bing.com{}", bing_image.url);
-                            let full_url = format!("https://bing.com{}", bing_image.url.replace("_480x270", "_UHD"));
-                            
-                            let carousel_image = CarouselImage {
-                                title: bing_image.title.clone(),
-                                copyright: bing_image.copyright.clone().unwrap_or_default(),
-                                copyright_link: bing_image.copyrightlink.clone().unwrap_or_default(),
-                                thumbnail_url: thumbnail_url.clone(),
-                                full_url: full_url.clone(),
-                                image: None,
-                                image_bytes: None,
-                            };
-                            
-                            self.carousel_images.push(carousel_image);
-                        }
-                        
-                        // Increment market index for next time
-                        self.market_code_index += 1;
-                        
-                        // Update timestamp for this market code
-                        market_codes.insert(market_code.clone(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64);
-                        let _ = bingtray_core::save_market_codes(config, &market_codes);
-                        
-                        info!("Successfully loaded {} images from market code {}", self.carousel_images.len(), market_code);
-                        return true;
-                    }
-                }
-            }
-            
-            // Try historical data when market codes are exhausted or unavailable
-            info!("No market codes available, trying historical data");
-            match bingtray_core::get_next_historical_page(config) {
-                Ok(Some(historical_images)) => {
-                    // Convert and add historical images to carousel
-                    for historical_image in historical_images {
-                        let carousel_image = CarouselImage {
-                            title: historical_image.title.clone(),
-                            copyright: historical_image.copyright.clone(),
-                            copyright_link: historical_image.copyrightlink.clone(),
-                            thumbnail_url: historical_image.url.clone(),
-                            full_url: historical_image.url.clone(),
-                            image: None,
-                            image_bytes: None,
-                        };
-                        
-                        self.carousel_images.push(carousel_image);
-                    }
-                    
-                    info!("Successfully loaded {} historical images", self.carousel_images.len());
-                    return true;
-                }
-                Ok(None) => {
-                    // Try to download more historical data
-                    match bingtray_core::download_more_historical_data(config) {
-                        Ok(historical_images) => {
-                            // Convert and add new historical images to carousel
-                            for historical_image in historical_images {
-                                let carousel_image = CarouselImage {
-                                    title: historical_image.title.clone(),
-                                    copyright: historical_image.copyright.clone(),
-                                    copyright_link: historical_image.copyrightlink.clone(),
-                                    thumbnail_url: historical_image.url.clone(),
-                                    full_url: historical_image.url.clone(),
-                                    image: None,
-                                    image_bytes: None,
-                                };
-                                
-                                self.carousel_images.push(carousel_image);
-                            }
-                            
-                            info!("Successfully loaded {} additional historical images", self.carousel_images.len());
-                            return true;
-                        }
-                        Err(e) => {
-                            info!("No more historical data available: {}", e);
-                        }
-                    }
+    // Check if a market code was visited within the last 7 days
+    fn is_market_code_recent(&self, market_code: &str) -> bool {
+        if let Some(&last_visit) = self.market_code_timestamps.get(market_code) {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs() as i64;
+            let seven_days_ago = now - (7 * 24 * 60 * 60); // 7 days in seconds
+            last_visit > seven_days_ago
+        } else {
+            false
+        }
+    }
+
+    // Update the timestamp for a market code
+    fn update_market_code_timestamp(&mut self, market_code: &str) {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        self.market_code_timestamps.insert(market_code.to_string(), now);
+    }
+
+    // Load market code timestamps from bingtray-core
+    fn load_market_code_timestamps(&mut self) {
+        if let Some(ref config) = self.config {
+            match load_market_codes(config) {
+                Ok(market_codes) => {
+                    self.market_code_timestamps = market_codes;
+                    info!("Loaded {} market code timestamps", self.market_code_timestamps.len());
                 }
                 Err(e) => {
-                    error!("Failed to load historical data: {}", e);
+                    warn!("Failed to load market code timestamps: {}", e);
                 }
             }
         }
-        
-        false
+    }
+
+    // Save market code timestamps to bingtray-core
+    fn save_market_code_timestamps(&self) {
+        if let Some(ref config) = self.config {
+            if let Err(e) = save_market_codes(config, &self.market_code_timestamps) {
+                error!("Failed to save market code timestamps: {}", e);
+            } else {
+                info!("Saved {} market code timestamps", self.market_code_timestamps.len());
+            }
+        }
     }
 }
