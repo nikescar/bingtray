@@ -147,7 +147,6 @@ jobs:
           releaseFiles: mobile/app/build/outputs/bundle/release/app-release.aab
           track: production
           inAppUpdatePriority: 2
-          userFraction: 0.33
           debugSymbols: mobile/app/build/intermediates/merged_native_libs/release/mergeReleaseNativeLibs/out/lib
 
       - name: Non Android, Native bingtray Build ${{ matrix.platform.name }} binary
