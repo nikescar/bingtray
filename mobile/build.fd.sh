@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # this is a build script for fdroid system.
+# gitlab-runner 18.3.0~pre  registry.gitlab.com/fdroid/fdroidserver:buildserver-bookworm
 
 # extrepo enable debian_official
-[[ $(dpkg -l|grep libssl-dev|grep -c "libssl-dev") -lt 1 ]] && apt install libssl-dev squashfs-tools
-[[ $(which x|grep -c "/x") -lt 1 ]] && cargo install xbuild
+# [[ $(dpkg -l|grep libssl-dev|grep -c "libssl-dev") -lt 1 ]] && apt install libssl-dev squashfs-tools
+# [[ $(which x|grep -c "/x") -lt 1 ]] && cargo install xbuild
 [[ ! -d "$HOME/.local" ]] && mkdir -p $HOME/.local $HOME/.android
 
 # https://static.rust-lang.org/dist/rust-1.88.0-x86_64-unknown-linux-gnu.tar.xz

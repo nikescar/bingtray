@@ -42,7 +42,7 @@ $ base64 release.keystore > release-key-keystore_base64_encoded.txt
 # KEY_ALIAS={crate_name}-release-key
 ```
 
-### upload signing key on google play
+### Upload signing key on google play
 
 To upload java singing keystore to google play. You need download upload-encryption key from store.
 

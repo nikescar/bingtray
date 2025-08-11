@@ -22,7 +22,7 @@ Repo: https://github.com/nikescar/bingtray.git
 
 Builds:
   - versionName: 0.0.6
-    versionCode: 237875252
+    versionCode: 239015706
     commit: v0.0.6
     init: echo 'started init.'
     output: mobile/app/build/outputs/apk/release/app-release.apk
@@ -42,4 +42,4 @@ AutoUpdateMode: Version v%v
 UpdateCheckMode: HTTP
 UpdateCheckData: https://api.github.com/repos/nikescar/bingtray/releases/latest|"id":\s*(\d+)|.|"tag_name":\s*"v([^"]+)"
 CurrentVersion: 0.0.6
-CurrentVersionCode: 237875252
+CurrentVersionCode: 239015706

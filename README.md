@@ -86,4 +86,5 @@ After starting the application, you'll see a tray icon with the following option
 * app store https://github.com/NiklasEi/bevy_game_template/blob/main/.github/workflows/release-ios-testflight.yaml https://github.com/marketplace/actions/publish-ios-app-to-app-store
 * chrome web store https://github.com/marketplace/actions/chrome-extension-upload-action
 * firefox addon https://github.com/marketplace/actions/firefox-addon-action
+* fdroid build script on debian bookworm
 </details>
