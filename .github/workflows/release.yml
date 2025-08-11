@@ -136,7 +136,7 @@ jobs:
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > ./mobile/app/release.keystore
           echo "${{ secrets.STORE_PASSWORD }}" | keytool -list -v -keystore $PWD/mobile/app/release.keystore
 
-          pushd android
+          pushd mobile
           bash ./build.gh.sh
           cp ./app/build/outputs/apk/release/app-release.apk ./app/build/outputs/apk/release/bingtray-all-signed.apk
           ls -al ./app/build/outputs/apk/release
