@@ -1,0 +1,56 @@
+app-id: pe.nikescar.bingtray
+runtime: org.freedesktop.Platform
+runtime-version: '23.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: bingtray
+separate-locales: false
+finish-args:
+  - --share=ipc
+  - --socket=x11
+  - --socket=wayland
+  - --share=network
+  - --filesystem=xdg-config/bingtray:create
+  - --filesystem=xdg-pictures:rw
+  - --filesystem=xdg-data/backgrounds:create
+  - --system-talk-name=org.freedesktop.Accounts
+  - --talk-name=org.freedesktop.portal.Desktop
+  - --talk-name=org.freedesktop.portal.Background
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/bingtray/cargo
+    RUST_BACKTRACE: '1'
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /man
+  - /share/doc
+  - /share/gtk-doc
+  - /share/man
+  - /share/pkgconfig
+  - "*.la"
+  - "*.a"
+
+modules:
+  - name: bingtray
+    buildsystem: simple
+    build-options:
+      env:
+        CARGO_HOME: /run/build/bingtray/cargo
+    build-commands:
+      - cargo build --release --bin bingtray
+      - install -Dm755 target/release/bingtray -t /app/bin/
+      - install -Dm644 bingtray/resources/logo.png /app/share/icons/hicolor/256x256/apps/pe.nikescar.bingtray.png
+      - install -Dm644 pe.nikescar.bingtray.desktop /app/share/applications/pe.nikescar.bingtray.desktop
+      - install -Dm644 pe.nikescar.bingtray.metainfo.xml /app/share/metainfo/pe.nikescar.bingtray.metainfo.xml
+    sources:
+      - type: git
+        url: https://github.com/nikescar/bingtray.git
+        tag: v0.0.6
+      - type: file
+        path: pe.nikescar.bingtray.desktop
+      - type: file
+        path: pe.nikescar.bingtray.metainfo.xml

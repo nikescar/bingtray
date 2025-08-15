@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=BingTray
+Comment=Bing Wallpaper Manager - Download and manage Bing's weekly wallpapers
+Exec=bingtray
+Icon=pe.nikescar.bingtray
+Categories=Graphics;Photography;
+Keywords=wallpaper;background;bing;desktop;
+StartupNotify=true
+StartupWMClass=bingtray

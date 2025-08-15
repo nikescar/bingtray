@@ -39,7 +39,7 @@ The application creates configuration files in:
 - `blacklist.conf`: Hash list of blacklisted images
 - `marketcodes.conf`: Market codes and last download timestamps
 
-## Usage
+## Menu
 
 After starting the application, you'll see a tray icon with the following options:
 - **0. Cache Dir Contents**: Open folder image and configs are saved

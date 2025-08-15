@@ -68,8 +68,6 @@ pub struct BingtrayApp {
     collapsible: bool,
     resizable: bool,
     constrain: bool,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    scroll2: Vec2b,
     anchored: bool,
     #[cfg_attr(feature = "serde", serde(skip))]
     anchor: egui::Align2,
@@ -199,7 +197,6 @@ impl Default for BingtrayApp {
             collapsible: false,
             resizable: false,
             constrain: false,
-            scroll2: Vec2b::TRUE,
             anchored: true,
             anchor: egui::Align2::CENTER_TOP,
             anchor_offset: egui::Vec2::ZERO,
@@ -263,8 +260,7 @@ impl crate::Demo for BingtrayApp {
             .resizable(self.resizable)
             .constrain(self.constrain)
             .collapsible(self.collapsible)
-            .title_bar(self.title_bar)
-            .scroll(self.scroll2);
+            .title_bar(self.title_bar);
             
         if self.anchored {
             window = window.anchor(self.anchor, self.anchor_offset);

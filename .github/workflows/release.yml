@@ -38,13 +38,13 @@ jobs:
             target: arm-unknown-linux-musleabihf
             build-args: "--release"
 
-          # - name: Freebsd x86_64
-          #   target: x86_64-unknown-freebsd
-          #   build-args: "--release"
+          - name: Freebsd x86_64
+            target: x86_64-unknown-freebsd
+            build-args: "--release"
 
-          # - name: Freebsd x86
-          #   target: i686-unknown-freebsd
-          #   build-args: "--release"
+          - name: Freebsd x86
+            target: i686-unknown-freebsd
+            build-args: "--release"
 
           - name: Android aarch64
             target: aarch64-linux-android
