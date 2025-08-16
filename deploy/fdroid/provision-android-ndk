@@ -1,0 +1,30 @@
+#!/bin/bash
+#
+# $1 is the root dir to install the NDKs into
+# $2 and after are the NDK releases to install
+
+echo $0
+set -e
+set -x
+
+NDK_BASE=$1
+shift
+
+test -e $NDK_BASE || mkdir -p $NDK_BASE
+cd $NDK_BASE
+
+for version in $@; do
+    if [ ! -e ${NDK_BASE}/${version} ]; then
+        unzip /vagrant/cache/android-ndk-${version}-linux*.zip > /dev/null
+        mv android-ndk-${version} \
+	   `sed -En 's,^Pkg.Revision *= *(.+),\1,p' android-ndk-${version}/source.properties`
+    fi
+done
+
+# allow gradle/etc to install missing NDK versions
+chgrp vagrant $NDK_BASE
+chmod g+w $NDK_BASE
+
+# ensure all users can read and execute the NDK
+chmod -R a+rX $NDK_BASE/
+find $NDK_BASE/ -type f -executable -exec chmod a+x -- {} +

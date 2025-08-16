@@ -1,0 +1,27 @@
+#!/bin/sh
+#
+# sets up the environment vars needed by the build process
+
+set -e
+set -x
+
+bsenv=/etc/profile.d/bsenv.sh
+
+echo "# generated on "`date` > $bsenv
+
+echo export ANDROID_HOME=$1 >> $bsenv
+echo 'export PATH=$PATH:${ANDROID_HOME}/tools:${ANDROID_HOME}/platform-tools:/opt/gradle/bin' >> $bsenv
+echo "export DEBIAN_FRONTEND=noninteractive" >> $bsenv
+echo 'export home_vagrant=/home/vagrant' >> $bsenv
+echo 'export fdroidserver=$home_vagrant/fdroidserver' >> $bsenv
+echo 'export LC_ALL=C.UTF-8' >> $bsenv
+
+chmod 0644 $bsenv
+
+# make sure that SSH never hangs at a password or key prompt
+mkdir -p /etc/ssh/ssh_config.d/
+cat << EOF >> /etc/ssh/ssh_config.d/fdroid
+Host *
+    StrictHostKeyChecking yes
+    BatchMode yes
+EOF

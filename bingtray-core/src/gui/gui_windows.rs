@@ -50,7 +50,11 @@ impl Default for GuiGroups {
     fn default() -> Self {
         Self {
             demos: GuiGroup::new(vec![
-                Box::<super::bingtray_app::BingtrayApp>::default(),
+                {
+                    // Create a default BingtrayApp with no services initially
+                    // Services will be injected when available through platform-specific setup
+                    Box::<super::bingtray_app::BingtrayApp>::default()
+                },
             ]),
         }
     }
@@ -96,6 +100,22 @@ impl Default for DemoWindows {
 }
 
 impl DemoWindows {
+    /// Set up platform services for the BingtrayApp
+    pub fn setup_services<W, S>(&mut self, wallpaper_setter: W, screen_size_provider: S) 
+    where 
+        W: super::bingtray_app::WallpaperSetter + 'static,
+        S: super::bingtray_app::ScreenSizeProvider + 'static,
+    {
+        // Find the BingtrayApp and inject services
+        for demo in &mut self.groups.demos.demos {
+            if let Some(bingtray_app) = demo.as_any_mut().downcast_mut::<super::bingtray_app::BingtrayApp>() {
+                bingtray_app.set_wallpaper_setter(std::sync::Arc::new(wallpaper_setter));
+                bingtray_app.set_screen_size_provider(std::sync::Arc::new(screen_size_provider));
+                break;
+            }
+        }
+    }
+
     /// Show the app ui (menu bar and windows).
     pub fn ui(&mut self, ctx: &Context) {
         self.mobile_ui(ctx);

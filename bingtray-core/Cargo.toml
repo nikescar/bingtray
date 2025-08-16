@@ -5,9 +5,13 @@ license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[features]
+default = ["serde"]
+serde = ["dep:serde", "dep:serde_json"]
+
 [dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 reqwest = { workspace = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
@@ -17,7 +21,25 @@ scraper = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true }
 
+# GUI dependencies
+egui = { workspace = true }
+eframe = { workspace = true }
+ehttp = "0.5"
+egui_extras = { workspace = true }
+webbrowser = { version = "1.0.5", default-features = false }
+poll-promise = "0.3"
+image = { version = "0.25", features = ["jpeg", "png"] }
+mimalloc = "0.1"
+env_logger = "0.11"
+
+wgpu = { workspace = true }
+
+# Web-specific dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+web-sys = "0.3"
+
 # Conditional dependencies for non-Android platforms
 [target.'cfg(not(target_os = "android"))'.dependencies]
 directories = { workspace = true }
 wallpaper = { workspace = true }
+egui-winit = { version = "0.32" }

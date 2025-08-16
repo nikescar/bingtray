@@ -1,10 +1,19 @@
 use anyhow::{Context, Result};
 use chrono::{Utc, NaiveDate, Duration};
+#[cfg(feature = "serde")]
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "serde")]
+use serde_json;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use log::info;
+
+pub mod gui;
+pub mod web;
+
+#[cfg(target_arch = "wasm32")]
+pub use web::{Anchor, WrapApp};
 
 #[cfg(not(target_os = "android"))]
 use directories::ProjectDirs;
@@ -41,7 +50,8 @@ where
     rx.recv().expect("Failed to receive result from async task")
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct BingImage {
     pub url: String,
     pub title: String,
@@ -49,12 +59,14 @@ pub struct BingImage {
     pub copyrightlink: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct BingResponse {
     pub images: Vec<BingImage>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 pub struct HistoricalImage {
     pub fullstartdate: String,
     pub url: String,
@@ -74,8 +86,6 @@ pub struct Config {
     pub metadata_file: PathBuf,
     pub historical_metadata_file: PathBuf,
 }
-
-
 
 impl Config {
     pub fn new() -> Result<Self> {
@@ -483,6 +493,7 @@ fn try_bing_api_url(url: &str, market_code: &str, _attempt_num: usize) -> Result
                             continue;
                         }
                         
+                        #[cfg(feature = "serde")]
                         match serde_json::from_str::<BingResponse>(&text) {
                             Ok(bing_response) => {
                                 log::info!("Successfully parsed {} images from response", bing_response.images.len());
@@ -495,6 +506,13 @@ fn try_bing_api_url(url: &str, market_code: &str, _attempt_num: usize) -> Result
                                 last_error = Some(e.into());
                                 continue;
                             }
+                        }
+                        
+                        #[cfg(not(feature = "serde"))]
+                        {
+                            log::error!("Serde feature not enabled - cannot parse JSON response");
+                            last_error = Some(anyhow::anyhow!("Serde feature required for JSON parsing"));
+                            continue;
                         }
                     }
                     Err(e) => {
@@ -1216,7 +1234,7 @@ pub fn get_old_market_codes(market_codes: &HashMap<String, i64>) -> Vec<String> 
 }
 
 /// Download and parse historical data from GitHub repository
-pub fn download_historical_data(config: &Config, starting_index: usize) -> Result<Vec<HistoricalImage>> {
+pub fn download_historical_data(config: &Config, _starting_index: usize) -> Result<Vec<HistoricalImage>> {
     // Check if historical metadata conf exists, if so, load and return first 8 images
     if config.historical_metadata_file.exists() {
         let (_, images) = load_historical_metadata(config)?;
@@ -1255,7 +1273,14 @@ pub fn download_historical_data(config: &Config, starting_index: usize) -> Resul
     let current_page = 0;
     let mut metadata_content = format!("{}\n", current_page);
     for image in &historical_images {
-        metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
+        #[cfg(feature = "serde")]
+        {
+            metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
+        }
+        #[cfg(not(feature = "serde"))]
+        {
+            metadata_content.push_str(&format!("{:?}\n", image));
+        }
     }
     fs::write(&config.historical_metadata_file, metadata_content)?;
 
@@ -1373,8 +1398,16 @@ pub fn load_historical_metadata(config: &Config) -> Result<(usize, Vec<Historica
     let mut historical_images = Vec::new();
     for line in lines.iter().skip(1) {
         if !line.trim().is_empty() {
-            if let Ok(image) = serde_json::from_str::<HistoricalImage>(line) {
-                historical_images.push(image);
+            #[cfg(feature = "serde")]
+            {
+                if let Ok(image) = serde_json::from_str::<HistoricalImage>(line) {
+                    historical_images.push(image);
+                }
+            }
+            #[cfg(not(feature = "serde"))]
+            {
+                // Without serde, we can't parse stored historical data
+                // This is expected when serde feature is disabled
             }
         }
     }
@@ -1466,7 +1499,14 @@ pub fn get_next_historical_page(config: &Config, thumb_mode: bool) -> Result<Opt
     // Update current page to next page in the metadata file
     let mut metadata_content = format!("{}\n", next_page);
     for image in &existing_images {
-        metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
+        #[cfg(feature = "serde")]
+        {
+            metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
+        }
+        #[cfg(not(feature = "serde"))]
+        {
+            metadata_content.push_str(&format!("{:?}\n", image));
+        }
     }
     fs::write(&config.historical_metadata_file, metadata_content)?;
 
@@ -1519,7 +1559,14 @@ pub fn download_more_historical_data(config: &Config) -> Result<Vec<HistoricalIm
             // Update metadata file with all images
             let mut metadata_content = format!("{}\n", current_page);
             for image in &all_images {
-                metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
+                #[cfg(feature = "serde")]
+        {
+            metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
+        }
+        #[cfg(not(feature = "serde"))]
+        {
+            metadata_content.push_str(&format!("{:?}\n", image));
+        }
             }
             fs::write(&config.historical_metadata_file, metadata_content)?;
             
@@ -1536,7 +1583,14 @@ pub fn download_more_historical_data(config: &Config) -> Result<Vec<HistoricalIm
                 let new_page = current_page + 1;
                 let mut metadata_content = format!("{}\n", new_page);
                 for image in &existing_images {
-                    metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
+                    #[cfg(feature = "serde")]
+        {
+            metadata_content.push_str(&format!("{}\n", serde_json::to_string(image)?));
+        }
+        #[cfg(not(feature = "serde"))]
+        {
+            metadata_content.push_str(&format!("{:?}\n", image));
+        }
                 }
                 fs::write(&config.historical_metadata_file, metadata_content)?;
                 

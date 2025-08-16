@@ -1,0 +1,1 @@
+https://github.com/f-droid/fdroidserver/tree/master/buildserver

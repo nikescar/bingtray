@@ -1,29 +1,36 @@
 use egui::Image;
 use poll_promise::Promise;
-use egui::{Vec2b, Pos2, pos2, Rect, Sense, Shape, Stroke, Vec2, emath};
+use egui::{Pos2, pos2, Rect, Sense, Shape, Stroke, Vec2, emath};
 use egui::epaint::StrokeKind;
 use log::{trace, warn, info, error};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
-use bingtray_core::*;
+use std::sync::Arc;
+use crate::{BingImage, Config, load_market_codes, get_old_market_codes, sanitize_filename, save_market_codes, get_bing_images, get_next_historical_page, download_historical_data};
+use crate::gui::{Demo, View};
 
-#[cfg(target_os = "android")]
-use crate::android_screensize::get_screen_size;
+pub trait WallpaperSetter: Send + Sync {
+    fn set_wallpaper_from_bytes(&self, image_bytes: &[u8]) -> std::io::Result<bool>;
+}
 
-#[cfg(not(target_os = "android"))]
-use screen_size;
-
+pub trait ScreenSizeProvider: Send + Sync {
+    fn get_screen_size(&self) -> std::io::Result<(i32, i32)>;
+}
 
 #[derive(Clone)]
-struct CarouselImage {
-    title: String,
-    copyright: String,
-    copyright_link: String,
-    thumbnail_url: String,
-    full_url: String,
-    image: Option<Image<'static>>,
-    image_bytes: Option<Vec<u8>>,
+pub struct CarouselImage {
+    pub title: String,
+    pub copyright: String,
+    pub copyright_link: String,
+    pub thumbnail_url: String,
+    pub full_url: String,
+    pub image_bytes: Option<Vec<u8>>,
 }
+
+// Note: android_screensize is defined in the mobile crate, not here
+
+// #[cfg(not(target_os = "android"))]
+// use screen_size; // Removed due to compilation issues
 
 struct Resource {
     response: ehttp::Response,
@@ -112,6 +119,10 @@ pub struct BingtrayApp {
     square_corners: [Pos2; 4],
     #[cfg_attr(feature = "serde", serde(skip))]
     square_size_factor: f32,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    wallpaper_setter: Option<Arc<dyn WallpaperSetter + Send + Sync>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    screen_size_provider: Option<Arc<dyn ScreenSizeProvider + Send + Sync>>,
     #[cfg_attr(feature = "serde", serde(skip))]
     square_center: Pos2,
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -233,24 +244,27 @@ impl Default for BingtrayApp {
             showing_historical: false,
             market_exhausted: false,
             market_code_timestamps,
+            wallpaper_setter: None,
+            screen_size_provider: None,
         }
     }
 }
 
-impl crate::Demo for BingtrayApp {
+impl Demo for BingtrayApp {
     fn name(&self) -> &'static str {
         "BingtrayApp"
     }
 
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
     fn show(&mut self, ctx: &egui::Context, _open: &mut bool) {
-        use crate::View as _;
+        use crate::gui::View as _;
 
         // Always show the window regardless of internet connectivity
         // Get screen size with fallback values to ensure UI remains functional
-        #[cfg(target_os = "android")]
-        let screen_size = get_screen_size().unwrap_or((1080, 1920)); // Default mobile portrait
-        #[cfg(not(target_os = "android"))]
-        let screen_size = screen_size::get_primary_screen_size().unwrap_or((1920, 1080)); // Default desktop
+        let screen_size = self.get_screen_size_internal();
 
         // Create window that's always visible and functional
         let mut window = egui::Window::new(&self.title)
@@ -275,7 +289,15 @@ impl crate::Demo for BingtrayApp {
 }
 
 
-impl crate::View for BingtrayApp {
+impl eframe::App for BingtrayApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            self.ui(ui);
+        });
+    }
+}
+
+impl View for BingtrayApp {
     fn ui(&mut self, ui: &mut egui::Ui) {
         let prev_url = self.url.clone();
         let trigger_fetch = ui_url(ui, &mut self.url, &mut self.carousel_images, &mut self.carousel_promises, &mut self.selected_carousel_image, &mut self.main_panel_image, &mut self.main_panel_promise, &mut self.image_cache, &mut self.bing_api_promise, &mut self.config, &mut self.market_code_index, &mut self.infinite_scroll_page_index, &mut self.current_market_codes, &mut self.scroll_position, &mut self.loading_more, &mut self.reset_rectangle_for_new_image, &mut self.current_main_image_url, &mut self.seen_image_names, &mut self.wallpaper_status, &mut self.wallpaper_start_time, &mut self.showing_historical, &mut self.market_exhausted, &mut self.market_code_timestamps);
@@ -391,7 +413,6 @@ impl crate::View for BingtrayApp {
                                 copyright_link: bing_image.copyrightlink.clone().unwrap_or_default(),
                                 thumbnail_url: thumbnail_url.clone(),
                                 full_url: full_url.clone(),
-                                image: None,
                                 image_bytes: None,
                             };
                             
@@ -427,7 +448,6 @@ impl crate::View for BingtrayApp {
                                         copyright_link: carousel_image.copyright_link.clone(),
                                         thumbnail_url: carousel_image.thumbnail_url.clone(),
                                         full_url: carousel_image.full_url.clone(),
-                                        image: Some(image),
                                         image_bytes: Some(image_bytes),
                                     }
                                 } else {
@@ -508,7 +528,6 @@ impl crate::View for BingtrayApp {
                                         copyright_link: carousel_image.copyright_link.clone(),
                                         thumbnail_url: carousel_image.thumbnail_url.clone(),
                                         full_url: carousel_image.full_url.clone(),
-                                        image: None,
                                         image_bytes: None,
                                     }
                                 }
@@ -547,7 +566,7 @@ impl crate::View for BingtrayApp {
                 completed_indices.push(i);
                 match result {
                     Ok(carousel_image) => {
-                        info!("Promise completed for image: {} (has image: {})", carousel_image.thumbnail_url, carousel_image.image.is_some());
+                        info!("Promise completed for image: {} (has image: {})", carousel_image.thumbnail_url, carousel_image.image_bytes.is_some());
                         
                         // Check if this image should be removed
                         if carousel_image.title == "REMOVE_ME" {
@@ -562,9 +581,8 @@ impl crate::View for BingtrayApp {
                             let mut found = false;
                             for existing_img in self.carousel_images.iter_mut() {
                                 if existing_img.thumbnail_url == carousel_image.thumbnail_url || existing_img.full_url == carousel_image.full_url {
-                                    existing_img.image = carousel_image.image.clone();
                                     existing_img.image_bytes = carousel_image.image_bytes.clone();
-                                    info!("Updated image in carousel for: {} (image: {})", existing_img.title, existing_img.image.is_some());
+                                    info!("Updated image in carousel for: {} (image: {})", existing_img.title, existing_img.image_bytes.is_some());
                                     found = true;
                                     break;
                                 }
@@ -575,7 +593,6 @@ impl crate::View for BingtrayApp {
                                 if carousel_image.title != "REMOVE_ME" {
                                     for existing_img in self.carousel_images.iter_mut() {
                                         if existing_img.title == carousel_image.title {
-                                            existing_img.image = carousel_image.image.clone();
                                             existing_img.image_bytes = carousel_image.image_bytes.clone();
                                             info!("Updated image in carousel by title for: {}", existing_img.title);
                                             break;
@@ -607,7 +624,7 @@ impl crate::View for BingtrayApp {
             let initial_count = self.carousel_images.len();
             self.carousel_images.retain(|img| {
                 // Keep images that have successfully loaded
-                if img.image.is_some() {
+                if img.image_bytes.is_some() {
                     true
                 } else {
                     // Remove images that are placeholders and have been around for more than expected
@@ -632,7 +649,7 @@ impl crate::View for BingtrayApp {
             if let Some(result) = promise.ready() {
                 match result {
                     Ok(resource) => {
-                        ui_resource(ui, resource, &mut self.wallpaper_status, &mut self.wallpaper_start_time);
+                        ui_resource(ui, resource, &mut self.wallpaper_status, &mut self.wallpaper_start_time, &self.wallpaper_setter);
                     }
                     Err(error) => {
                         // This should only happen if the fetch API isn't available or something similar.
@@ -667,11 +684,17 @@ impl crate::View for BingtrayApp {
                     if let Some(bytes) = &main_image.image_bytes {
                         if !bytes.is_empty() {
                             let image_data = bytes.clone();
+                            let setter = self.wallpaper_setter.clone();
                             info!("Starting wallpaper setting with {} bytes", image_data.len());
                             // Start wallpaper setting in background thread using bytes directly
                             std::thread::spawn(move || {
                                 log::info!("BingtrayApp: Starting wallpaper setting from bytes in background thread");
-                                match crate::set_wallpaper_from_bytes(&image_data) {
+                                let result = if let Some(setter) = setter {
+                                    setter.set_wallpaper_from_bytes(&image_data)
+                                } else {
+                                    Err(std::io::Error::new(std::io::ErrorKind::NotFound, "No wallpaper setter available"))
+                                };
+                                match result {
                                     Ok(true) => {
                                         log::info!("BingtrayApp: Wallpaper setting from bytes completed successfully");
                                     }
@@ -705,6 +728,7 @@ impl crate::View for BingtrayApp {
                     if let Some(bytes) = &main_image.image_bytes {
                         if !bytes.is_empty() {
                             let image_data = bytes.clone();
+                            let setter = self.wallpaper_setter.clone();
                             
                             // Calculate crop rectangle using screen aspect ratio approach (like the Kotlin example)
                             info!("Square corners: {:?}", self.square_corners);
@@ -916,7 +940,12 @@ impl crate::View for BingtrayApp {
                             // Start wallpaper setting in background thread using pre-cropped bytes
                             std::thread::spawn(move || {
                                 log::info!("BingtrayApp: Starting wallpaper setting with pre-cropped image bytes");
-                                match crate::set_wallpaper_from_bytes(&final_image_data) {
+                                let result = if let Some(setter) = setter {
+                                    setter.set_wallpaper_from_bytes(&final_image_data)
+                                } else {
+                                    Err(std::io::Error::new(std::io::ErrorKind::NotFound, "No wallpaper setter available"))
+                                };
+                                match result {
                                     Ok(true) => {
                                         log::info!("BingtrayApp: Cropped wallpaper setting completed successfully");
                                     }
@@ -975,7 +1004,7 @@ impl crate::View for BingtrayApp {
             self.update_screen_ratio(ui);
             
             // Display the main panel image with square shape overlay
-            if let Some(image) = &main_image.image {
+            if let Some(image_bytes) = &main_image.image_bytes {
                 // Only log when the main panel image changes
                 let image_url = &main_image.full_url;
                 if self.current_main_image_url.as_ref() != Some(image_url) {
@@ -984,7 +1013,11 @@ impl crate::View for BingtrayApp {
                 }
                 
                 // Display the background image first
-                let image_widget = image.clone().max_width(ui.available_width());
+                // Force consistent 16:9 aspect ratio to prevent factor calculation inconsistency
+                let available_width = ui.available_width();
+                let target_height = available_width * 9.0 / 16.0; // Force 16:9 aspect ratio
+                let image_widget = egui::Image::from_bytes(format!("bytes://main_panel_image_{}", main_image.full_url), image_bytes.clone())
+                    .fit_to_exact_size(egui::Vec2::new(available_width, target_height));
                 let image_response = ui.add(image_widget);
                 
                 // Now overlay the square shape on top  
@@ -999,6 +1032,14 @@ impl crate::View for BingtrayApp {
                     let actual_screen_size = Vec2::new(actual_screen_width, actual_screen_height);
                     self.initialize_rectangle_for_image(overlay_rect, actual_screen_size);
                     self.reset_rectangle_for_new_image = false;
+                } else {
+                    // Always update the screen ratio when image display changes, even if rectangle isn't reset
+                    let (actual_screen_width, actual_screen_height) = self.get_actual_screen_size();
+                    let actual_screen_ratio = actual_screen_width / actual_screen_height;
+                    if (actual_screen_ratio - self.screen_ratio).abs() > 0.01 {
+                        self.screen_ratio = actual_screen_ratio;
+                        self.update_square_corners();
+                    }
                 }
                 
                 ui.allocate_new_ui(
@@ -1099,7 +1140,7 @@ fn ui_url(
         ui.separator();
         
         if !carousel_images.is_empty() {
-            let loaded_count = carousel_images.iter().filter(|img| img.image.is_some()).count();
+            let loaded_count = carousel_images.iter().filter(|img| img.image_bytes.is_some()).count();
             
             // Determine if we're showing market data or historical data
             if *showing_historical {
@@ -1162,11 +1203,11 @@ fn ui_url(
                         // Display all carousel images
                         for (i, carousel_image) in carousel_images.iter().enumerate() {
                             ui.vertical(|ui| {
-                                if let Some(image) = &carousel_image.image {
+                                if let Some(image_bytes) = &carousel_image.image_bytes {
                                     // Display the image
-                                    let mut sized_image = image.clone();
-                                    sized_image = sized_image.fit_to_exact_size(egui::Vec2::new(120.0, 80.0));
-                                    let image_button = egui::ImageButton::new(sized_image);
+                                    let image_widget = egui::Image::from_bytes(format!("bytes://carousel_image_{}", i), image_bytes.clone())
+                                        .fit_to_exact_size(egui::Vec2::new(120.0, 80.0));
+                                    let image_button = egui::ImageButton::new(image_widget);
                                     let response = ui.add(image_button);
                                     
                                     if response.clicked() {
@@ -1204,7 +1245,6 @@ fn ui_url(
                                                             copyright_link: carousel_image_clone.copyright_link.clone(),
                                                             thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
                                                             full_url: carousel_image_clone.full_url.clone(),
-                                                            image: None,
                                                             image_bytes: None,
                                                         };
                                                     }
@@ -1220,7 +1260,6 @@ fn ui_url(
                                                         copyright_link: carousel_image_clone.copyright_link.clone(),
                                                         thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
                                                         full_url: carousel_image_clone.full_url.clone(),
-                                                        image: Some(image),
                                                         image_bytes: Some(image_bytes),
                                                     }
                                                 });
@@ -1582,7 +1621,7 @@ fn ui_url(
     trigger_fetch
 }
 
-fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_status: &mut Option<String>, wallpaper_start_time: &mut Option<SystemTime>) {
+fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_status: &mut Option<String>, wallpaper_start_time: &mut Option<SystemTime>, wallpaper_setter: &Option<Arc<dyn WallpaperSetter + Send + Sync>>) {
     let Resource {
         response,
         text,
@@ -1629,12 +1668,18 @@ fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_status: &mut Op
                     {
                         if !response.bytes.is_empty() {
                             let image_data = response.bytes.clone();
+                            let setter = wallpaper_setter.clone();
                             info!("Starting wallpaper setting with {} bytes", image_data.len());
                             
                             // Start wallpaper setting in background thread using bytes directly
                             std::thread::spawn(move || {
                                 log::info!("BingtrayApp: Starting wallpaper setting from bytes in background thread");
-                                match crate::set_wallpaper_from_bytes(&image_data) {
+                                let result = if let Some(setter) = setter {
+                                    setter.set_wallpaper_from_bytes(&image_data)
+                                } else {
+                                    Err(std::io::Error::new(std::io::ErrorKind::NotFound, "No wallpaper setter available"))
+                                };
+                                match result {
                                     Ok(true) => {
                                         log::info!("BingtrayApp: Wallpaper setting from bytes completed successfully");
                                     }
@@ -1674,6 +1719,54 @@ fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_status: &mut Op
 }
 
 impl BingtrayApp {
+    pub fn set_wallpaper_setter(&mut self, setter: Arc<dyn WallpaperSetter + Send + Sync>) {
+        self.wallpaper_setter = Some(setter);
+    }
+
+    pub fn set_screen_size_provider(&mut self, provider: Arc<dyn ScreenSizeProvider + Send + Sync>) {
+        self.screen_size_provider = Some(provider);
+        // Clear cached screen size to force recalculation with new provider
+        self.cached_screen_size = None;
+        self.screen_size_failed = false;
+        
+        // Immediately update screen ratio with actual screen size
+        let (screen_width, screen_height) = self.get_actual_screen_size();
+        let new_screen_ratio = screen_width / screen_height;
+        if (new_screen_ratio - self.screen_ratio).abs() > 0.01 {
+            info!("Screen size provider set - updating ratio from {:.3} to {:.3} ({}x{})", 
+                  self.screen_ratio, new_screen_ratio, screen_width, screen_height);
+            self.screen_ratio = new_screen_ratio;
+            self.update_square_corners();
+        }
+    }
+
+    fn set_wallpaper_from_bytes_internal(&self, image_bytes: &[u8]) -> std::io::Result<bool> {
+        if let Some(ref setter) = self.wallpaper_setter {
+            setter.set_wallpaper_from_bytes(image_bytes)
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "No wallpaper setter available"
+            ))
+        }
+    }
+
+    fn get_screen_size_internal(&self) -> (i32, i32) {
+        if let Some(ref provider) = self.screen_size_provider {
+            provider.get_screen_size().unwrap_or((1080, 1920))
+        } else {
+            // Fallback based on platform
+            #[cfg(target_os = "android")]
+            {
+                (1080, 1920) // Default Android resolution
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+(1920, 1080) // Fallback for non-Android
+            }
+        }
+    }
+
     fn update_square_corners(&mut self) {
         // Get actual screen dimensions for rectangle calculation
         let (screen_width, screen_height) = self.get_actual_screen_size();
@@ -2006,20 +2099,15 @@ impl BingtrayApp {
     }
 
     fn get_initial_screen_size() -> (f32, f32) {
+        // Static fallback when no service is available yet
+        // Use a more conservative ratio that will be updated when actual screen size is detected
         #[cfg(target_os = "android")]
         {
-            match get_screen_size() {
-                Ok((width, height)) => (width as f32, height as f32),
-                Err(_) => (1080.0, 1920.0), // Default mobile resolution
-            }
+            (1080.0, 2340.0) // Modern Android resolution (closer to actual device ratio)
         }
-        
         #[cfg(not(target_os = "android"))]
         {
-            match screen_size::get_primary_screen_size() {
-                Ok((width, height)) => (width as f32, height as f32),
-                Err(_) => (1920.0, 1080.0), // Default desktop resolution
-            }
+(1920.0, 1080.0) // Fallback for non-Android
         }
     }
 
@@ -2034,40 +2122,11 @@ impl BingtrayApp {
             return (1080.0, 1920.0); // Default mobile resolution
         }
         
-        #[cfg(target_os = "android")]
         {
-            match get_screen_size() {
-                Ok((width, height)) => {
-                    let result = (width as f32, height as f32);
-                    self.cached_screen_size = Some(result);
-                    result
-                }
-                Err(_e) => {
-                    // Mark as failed and use default without logging repeatedly
-                    self.screen_size_failed = true;
-                    let result = (1080.0, 1920.0); // Default mobile resolution
-                    self.cached_screen_size = Some(result);
-                    result
-                }
-            }
-        }
-        
-        #[cfg(not(target_os = "android"))]
-        {
-            match screen_size::get_primary_screen_size() {
-                Ok((width, height)) => {
-                    let result = (width as f32, height as f32);
-                    self.cached_screen_size = Some(result);
-                    result
-                }
-                Err(_e) => {
-                    // Mark as failed and use default without logging repeatedly
-                    self.screen_size_failed = true;
-                    let result = (1920.0, 1080.0); // Default desktop resolution
-                    self.cached_screen_size = Some(result);
-                    result
-                }
-            }
+            let screen_size = self.get_screen_size_internal();
+            let result = (screen_size.0 as f32, screen_size.1 as f32);
+            self.cached_screen_size = Some(result);
+            result
         }
     }
 
@@ -2084,7 +2143,7 @@ impl BingtrayApp {
             }
             
             // Check if historical data is available when no market codes are available
-            if let Ok((current_page, total_pages)) = bingtray_core::get_historical_page_info(config) {
+            if let Ok((current_page, total_pages)) = crate::get_historical_page_info(config) {
                 // If no historical metadata file exists yet, we can still download initial historical data
                 if current_page == 0 && total_pages == 0 {
                     return true; // We can download initial historical data

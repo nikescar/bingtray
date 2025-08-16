@@ -5,9 +5,17 @@
 use android_activity::AndroidApp;
 use eframe::{egui, NativeOptions};
 
-mod gui;
 mod android_wallpaper;
 mod android_screensize;
+mod bingtray_service;
+
+use bingtray_core::gui;
+
+// Export modules for external use
+pub use gui::{Demo, DemoWindows, View};
+pub use android_wallpaper::{set_wallpaper_from_bytes, set_wallpaper_from_bytes_with_crop};
+pub use android_screensize::get_screen_size;
+pub use bingtray_service::AndroidBingtrayService;
 
 #[cfg(target_os = "android")]
 #[no_mangle]
@@ -56,9 +64,22 @@ fn android_main(app: AndroidApp) {
     }
 }
 
-#[derive(Default)]
 pub struct BingtrayApp {
     demo_windows: gui::DemoWindows,
+}
+
+impl Default for BingtrayApp {
+    fn default() -> Self {
+        let mut demo_windows = gui::DemoWindows::default();
+        
+        // Inject platform services
+        demo_windows.setup_services(
+            AndroidBingtrayService,
+            AndroidBingtrayService,
+        );
+        
+        Self { demo_windows }
+    }
 }
 
 impl BingtrayApp {
@@ -79,11 +100,6 @@ impl eframe::App for BingtrayApp {
         self.demo_windows.ui(ctx);
     }
 }
-
-// Export modules for external use
-pub use gui::{Demo, DemoWindows, View};
-pub use android_wallpaper::{set_wallpaper_from_bytes, set_wallpaper_from_bytes_with_crop};
-pub use android_screensize::get_screen_size;
 
 /// Detect narrow screens. This is used to show a simpler UI on mobile devices,
 /// especially for the web demo at <https://egui.rs>.
