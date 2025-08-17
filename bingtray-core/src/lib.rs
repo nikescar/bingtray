@@ -15,13 +15,14 @@ pub mod web;
 #[cfg(target_arch = "wasm32")]
 pub use web::{Anchor, WrapApp};
 
-#[cfg(not(target_os = "android"))]
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use directories::ProjectDirs;
 
 #[cfg(not(target_os = "android"))]
 use std::process::Command;
 
 // Helper function to run async code in sync context
+#[cfg(not(target_arch = "wasm32"))]
 fn run_async<F, T>(future: F) -> T
 where
     F: std::future::Future<Output = T> + Send + 'static,
@@ -33,11 +34,21 @@ where
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     
     let rt = RUNTIME.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .expect("Failed to create Tokio runtime")
+        #[cfg(target_arch = "wasm32")]
+        {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .expect("Failed to create Tokio runtime")
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .expect("Failed to create Tokio runtime")
+        }
     });
     
     // Use the runtime to spawn the task and wait for completion
@@ -229,7 +240,7 @@ impl Config {
             })
         }
         
-        #[cfg(not(target_os = "android"))]
+        #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
         {
             let proj_dirs = ProjectDirs::from("com", "bingtray", "bingtray")
                 .context("Failed to get project directories")?;
@@ -275,11 +286,38 @@ impl Config {
                 historical_metadata_file,
             })
         }
+        
+        // WASM configuration - use in-memory paths
+        #[cfg(target_arch = "wasm32")]
+        {
+            use std::path::PathBuf;
+            
+            let config_dir = PathBuf::from("/tmp/bingtray");
+            let unprocessed_dir = config_dir.join("unprocessed");
+            let keepfavorite_dir = config_dir.join("keepfavorite");
+            let cached_dir = config_dir.join("cached");
+            let blacklist_file = config_dir.join("blacklist.conf");
+            let marketcodes_file = config_dir.join("marketcodes.conf");
+            let metadata_file = config_dir.join("metadata.conf");
+            let historical_metadata_file = config_dir.join("historical.metadata.conf");
+
+            Ok(Config {
+                config_dir,
+                unprocessed_dir,
+                keepfavorite_dir,
+                cached_dir,
+                blacklist_file,
+                marketcodes_file,
+                metadata_file,
+                historical_metadata_file,
+            })
+        }
     }
 
 
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn get_market_codes() -> Result<Vec<String>> {
     log::info!("get_market_codes: Fetching market codes from Microsoft docs");
     let url = "https://learn.microsoft.com/en-us/bing/search-apis/bing-web-search/reference/market-codes";
@@ -356,6 +394,7 @@ pub fn get_market_codes() -> Result<Vec<String>> {
     Ok(market_codes)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_market_codes(config: &Config) -> Result<HashMap<String, i64>> {
     log::info!("load_market_codes: Checking if marketcodes file exists: {:?}", config.marketcodes_file);
     if !config.marketcodes_file.exists() {
@@ -409,6 +448,40 @@ pub fn save_market_codes(config: &Config, market_codes: &HashMap<String, i64>) -
     }
 }
 
+// WASM stubs for unavailable functions
+#[cfg(target_arch = "wasm32")]
+pub fn load_market_codes(_config: &Config) -> Result<HashMap<String, i64>> {
+    Ok(HashMap::new())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn download_images_for_market(_config: &Config, _market_code: &str, _thumb_mode: bool) -> Result<(usize, Vec<BingImage>)> {
+    Ok((0, Vec::new()))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn get_bing_images(_market_code: &str) -> Result<Vec<BingImage>> {
+    Ok(Vec::new())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn download_historical_data(_config: &Config, _starting_index: usize) -> Result<Vec<HistoricalImage>> {
+    Ok(Vec::new())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn download_image(_image: &BingImage, _target_dir: &Path, _config: &Config) -> Result<PathBuf> {
+    use std::path::PathBuf;
+    Ok(PathBuf::from("/tmp/placeholder.jpg"))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn download_thumbnail_image(_image: &BingImage, _config: &Config) -> Result<PathBuf> {
+    use std::path::PathBuf;
+    Ok(PathBuf::from("/tmp/placeholder_thumb.jpg"))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn get_bing_images(market_code: &str) -> Result<Vec<BingImage>> {
     // Try multiple URL configurations to find one that works
     let url = format!("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt={}", market_code);
@@ -423,6 +496,7 @@ pub fn get_bing_images(market_code: &str) -> Result<Vec<BingImage>> {
     Err(anyhow::anyhow!("All URL variants failed"))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn try_bing_api_url(url: &str, market_code: &str, _attempt_num: usize) -> Result<Vec<BingImage>> {
     
     // Add comprehensive network diagnostics for Android debugging
@@ -693,6 +767,7 @@ fn try_bing_api_url(url: &str, market_code: &str, _attempt_num: usize) -> Result
     Err(last_error.unwrap_or_else(|| anyhow::anyhow!("All {} attempts failed", max_retries)))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn download_image(image: &BingImage, target_dir: &Path, config: &Config) -> Result<PathBuf> {
     let url = if image.url.starts_with("http") {
         image.url.clone()
@@ -745,6 +820,7 @@ pub fn download_image(image: &BingImage, target_dir: &Path, config: &Config) -> 
     Ok(filepath)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn download_thumbnail_image(image: &BingImage, config: &Config) -> Result<PathBuf> {
     // Convert the URL to a thumbnail URL with 320x240 dimensions
     let base_url = if image.url.starts_with("http") {
@@ -889,7 +965,7 @@ pub fn is_blacklisted(config: &Config, filename: &str) -> Result<bool> {
     Ok(blacklist.lines().any(|line| line.trim() == filename))
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 pub fn get_desktop_environment() -> String {
     if let Ok(desktop_session) = std::env::var("DESKTOP_SESSION") {
         let session = desktop_session.to_lowercase();
@@ -943,8 +1019,8 @@ pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
         }
     }
     
-    // Use wallpaper crate for cross-platform wallpaper setting (non-Android)
-    #[cfg(not(target_os = "android"))]
+    // Use wallpaper crate for cross-platform wallpaper setting (non-Android, non-WASM)
+    #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
     {
         match wallpaper::set_from_path(&file_loc) {
             Ok(_) => {
@@ -959,9 +1035,16 @@ pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
             }
         }
     }
+    
+    // WASM fallback - wallpaper setting not supported
+    #[cfg(target_arch = "wasm32")]
+    {
+        eprintln!("Wallpaper setting not supported on WASM");
+        Ok(false)
+    }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 fn set_wallpaper_linux_fallback(file_path: &Path) -> Result<bool> {
     let file_loc = file_path.to_string_lossy();
     let desktop_env = get_desktop_environment();
@@ -1051,6 +1134,7 @@ fn set_wallpaper_linux_fallback(file_path: &Path) -> Result<bool> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn download_images_for_market(config: &Config, market_code: &str, thumb_mode: bool) -> Result<(usize, Vec<BingImage>)> {
     let images = get_bing_images(market_code)?;
     let mut downloaded_count = 0;
@@ -1234,6 +1318,7 @@ pub fn get_old_market_codes(market_codes: &HashMap<String, i64>) -> Vec<String> 
 }
 
 /// Download and parse historical data from GitHub repository
+#[cfg(not(target_arch = "wasm32"))]
 pub fn download_historical_data(config: &Config, _starting_index: usize) -> Result<Vec<HistoricalImage>> {
     // Check if historical metadata conf exists, if so, load and return first 8 images
     if config.historical_metadata_file.exists() {
@@ -1514,6 +1599,7 @@ pub fn get_next_historical_page(config: &Config, thumb_mode: bool) -> Result<Opt
 }
 
 /// Download more historical data when current data is exhausted
+#[cfg(not(target_arch = "wasm32"))]
 pub fn download_more_historical_data(config: &Config) -> Result<Vec<HistoricalImage>> {
     // Load current metadata to check existing images count
     let (current_page, existing_images) = load_historical_metadata(config)?;

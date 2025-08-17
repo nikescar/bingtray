@@ -5,6 +5,9 @@ license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [features]
 default = ["serde"]
 serde = ["dep:serde", "dep:serde_json"]
@@ -23,23 +26,39 @@ tokio = { workspace = true }
 
 # GUI dependencies
 egui = { workspace = true }
-eframe = { workspace = true }
-ehttp = "0.5"
+eframe = { workspace = true, default-features = false }
 egui_extras = { workspace = true }
+wgpu = { workspace = true }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
 webbrowser = { version = "1.0.5", default-features = false }
+ehttp = "0.5"
 poll-promise = "0.3"
 image = { version = "0.25", features = ["jpeg", "png"] }
-mimalloc = "0.1"
 env_logger = "0.11"
-
-wgpu = { workspace = true }
 
 # Web-specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-web-sys = "0.3"
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3.73"
+js-sys = "0.3.77"
+getrandom = { version = "0.2.16", features = ["js"] }
+tokio = { version = "1.0", features = ["sync", "macros", "io-util", "rt", "time"], default-features = false }
+eframe = { git = "https://github.com/emilk/egui", default-features = false, features = ["default_fonts", "glow"] }
 
-# Conditional dependencies for non-Android platforms
-[target.'cfg(not(target_os = "android"))'.dependencies]
+# Conditional dependencies for non-Android and non-WASM platforms
+[target.'cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))'.dependencies]
 directories = { workspace = true }
 wallpaper = { workspace = true }
-egui-winit = { version = "0.32" }
+# egui-winit = { version = "0.31.1" }
+
+# native:
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = { version = "0.10", default-features = false, features = [
+  "auto-color",
+  "humantime",
+] }
+mimalloc = "0.1"
+tokio = { version = "1.0", features = ["sync", "macros", "io-util", "rt", "rt-multi-thread", "time"], default-features = false }
+rfd = { version = "0.15.3", optional = true }

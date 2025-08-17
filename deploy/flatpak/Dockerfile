@@ -2,7 +2,7 @@
 # Based on https://github.com/vrutkovs/flatpak-bat
 FROM fedora:39
 
-LABEL maintainer="BingTray Development Team"
+LABEL maintainer="BingTray"
 LABEL description="Container for building and testing BingTray Flatpak"
 
 # Install Flatpak and dependencies

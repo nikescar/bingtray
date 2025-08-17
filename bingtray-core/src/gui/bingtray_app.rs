@@ -3,10 +3,57 @@ use poll_promise::Promise;
 use egui::{Pos2, pos2, Rect, Sense, Shape, Stroke, Vec2, emath};
 use egui::epaint::StrokeKind;
 use log::{trace, warn, info, error};
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
+#[cfg(target_arch = "wasm32")]
+use js_sys::Date;
 use std::collections::HashMap;
 use std::sync::Arc;
+
+// Cross-platform time utilities
+#[cfg(not(target_arch = "wasm32"))]
+type TimeStamp = SystemTime;
+
+#[cfg(target_arch = "wasm32")]
+type TimeStamp = f64; // JavaScript timestamp in milliseconds
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_current_time() -> TimeStamp {
+    SystemTime::now()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_current_time() -> TimeStamp {
+    Date::now()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_current_timestamp_secs() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
+}
+
+#[cfg(target_arch = "wasm32")]
+fn get_current_timestamp_secs() -> i64 {
+    (Date::now() / 1000.0) as i64
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn time_elapsed_secs(start_time: TimeStamp) -> u64 {
+    SystemTime::now().duration_since(start_time).unwrap_or_default().as_secs()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn time_elapsed_secs(start_time: TimeStamp) -> u64 {
+    ((Date::now() - start_time) / 1000.0) as u64
+}
+#[cfg(not(target_arch = "wasm32"))]
 use crate::{BingImage, Config, load_market_codes, get_old_market_codes, sanitize_filename, save_market_codes, get_bing_images, get_next_historical_page, download_historical_data};
+
+#[cfg(target_arch = "wasm32")]
+use crate::{BingImage, Config, load_market_codes, get_old_market_codes, sanitize_filename, save_market_codes, get_next_historical_page};
 use crate::gui::{Demo, View};
 
 pub trait WallpaperSetter: Send + Sync {
@@ -87,7 +134,7 @@ pub struct BingtrayApp {
     #[cfg_attr(feature = "serde", serde(skip))]
     wallpaper_status: Option<String>,
     #[cfg_attr(feature = "serde", serde(skip))]
-    wallpaper_start_time: Option<SystemTime>,
+    wallpaper_start_time: Option<TimeStamp>,
     #[cfg_attr(feature = "serde", serde(skip))]
     carousel_images: Vec<CarouselImage>,
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -548,7 +595,7 @@ impl View for BingtrayApp {
                     
                     // Show error message to user
                     self.wallpaper_status = Some(format!("✗ {}", e));
-                    self.wallpaper_start_time = Some(SystemTime::now());
+                    self.wallpaper_start_time = Some(get_current_time());
                     
                     // Force repaint to update UI on error
                     ui.ctx().request_repaint();
@@ -708,18 +755,18 @@ impl View for BingtrayApp {
                             });
                             // Immediately update UI status without waiting
                             self.wallpaper_status = Some("✓ Wallpaper setting started (using bytes)".to_string());
-                            self.wallpaper_start_time = Some(SystemTime::now());
+                            self.wallpaper_start_time = Some(get_current_time());
                             ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
                             log::info!("BingtrayApp: Finished processing wallpaper setting request from bytes");
                         } else {
                             error!("No image data available");
                             self.wallpaper_status = Some("✗ No image data available".to_string());
-                            self.wallpaper_start_time = Some(SystemTime::now());
+                            self.wallpaper_start_time = Some(get_current_time());
                         }
                     } else {
                         error!("No image data available");
                         self.wallpaper_status = Some("✗ No image data available".to_string());
-                        self.wallpaper_start_time = Some(SystemTime::now());
+                        self.wallpaper_start_time = Some(get_current_time());
                     }
                 }
                 
@@ -960,18 +1007,18 @@ impl View for BingtrayApp {
                             
                             // Immediately update UI status without waiting
                             self.wallpaper_status = Some("✓ Cropped wallpaper setting started".to_string());
-                            self.wallpaper_start_time = Some(SystemTime::now());
+                            self.wallpaper_start_time = Some(get_current_time());
                             ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
                             log::info!("BingtrayApp: Finished processing cropped wallpaper setting request from bytes");
                         } else {
                             error!("No image data available for cropped wallpaper");
                             self.wallpaper_status = Some("✗ No image data available for cropped wallpaper".to_string());
-                            self.wallpaper_start_time = Some(SystemTime::now());
+                            self.wallpaper_start_time = Some(get_current_time());
                         }
                     } else {
                         error!("No image data available for cropped wallpaper");
                         self.wallpaper_status = Some("✗ No image data available for cropped wallpaper".to_string());
-                        self.wallpaper_start_time = Some(SystemTime::now());
+                        self.wallpaper_start_time = Some(get_current_time());
                     }
                 }
                 
@@ -984,16 +1031,16 @@ impl View for BingtrayApp {
                                 if let Err(e) = webbrowser::open(&copyright_url) {
                                     error!("Failed to open copyright URL: {}", e);
                                     self.wallpaper_status = Some(format!("✗ Failed to open copyright URL: {}", e));
-                                    self.wallpaper_start_time = Some(SystemTime::now());
+                                    self.wallpaper_start_time = Some(get_current_time());
                                 } else {
                                     self.wallpaper_status = Some("✓ Opened copyright URL".to_string());
-                                    self.wallpaper_start_time = Some(SystemTime::now());
+                                    self.wallpaper_start_time = Some(get_current_time());
                                 }
                             }
                             None => {
                                 error!("Invalid copyright URL, cannot open: {}", main_image.copyright_link);
                                 self.wallpaper_status = Some("✗ Invalid copyright URL".to_string());
-                                self.wallpaper_start_time = Some(SystemTime::now());
+                                self.wallpaper_start_time = Some(get_current_time());
                             }
                         }
                     }
@@ -1061,9 +1108,9 @@ impl View for BingtrayApp {
         // Handle wallpaper status display
         if let Some(status) = &self.wallpaper_status {
             if let Some(start_time) = self.wallpaper_start_time {
-                let elapsed = SystemTime::now().duration_since(start_time).unwrap_or_default();
+                let elapsed_secs = time_elapsed_secs(start_time);
                 
-                if elapsed.as_secs() < 10 {
+                if elapsed_secs < 10 {
                     // Show status for up to 10 seconds
                     ui.horizontal(|ui| {
                         if status.contains("started") {
@@ -1107,7 +1154,7 @@ fn ui_url(
     current_main_image_url: &mut Option<String>,
     seen_image_names: &mut std::collections::HashSet<String>,
     wallpaper_status: &mut Option<String>,
-    wallpaper_start_time: &mut Option<SystemTime>,
+    wallpaper_start_time: &mut Option<TimeStamp>,
     showing_historical: &mut bool,
     market_exhausted: &mut bool,
     market_code_timestamps: &mut std::collections::HashMap<String, i64>,
@@ -1129,10 +1176,10 @@ fn ui_url(
                 if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
                     error!("Failed to open About URL: {}", e);
                     *wallpaper_status = Some(format!("✗ Failed to open About page: {}", e));
-                    *wallpaper_start_time = Some(SystemTime::now());
+                    *wallpaper_start_time = Some(get_current_time());
                 } else {
                     *wallpaper_status = Some("✓ Opened About page".to_string());
-                    *wallpaper_start_time = Some(SystemTime::now());
+                    *wallpaper_start_time = Some(get_current_time());
                 }
             }
         });
@@ -1173,7 +1220,7 @@ fn ui_url(
                         }
                         
                         *wallpaper_status = Some("✓ Reset to fresh markets mode".to_string());
-                        *wallpaper_start_time = Some(SystemTime::now());
+                        *wallpaper_start_time = Some(get_current_time());
                     }
                 });
             } else if !current_market_codes.is_empty() {
@@ -1354,10 +1401,7 @@ fn ui_url(
                             let market_code = &old_codes[*market_code_index % old_codes.len()];
                             
                             // Check if this market code was visited recently
-                            let now = SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs() as i64;
+                            let now = get_current_timestamp_secs();
                             let seven_days_ago = now - (7 * 24 * 60 * 60);
                             
                             let is_recent = if let Some(&last_visit) = market_code_timestamps.get(market_code) {
@@ -1387,8 +1431,11 @@ fn ui_url(
                                 
                                 std::thread::spawn(move || {
                                     info!("Starting API call for fresh market: {}", market_code_for_thread);
+                                    #[cfg(not(target_arch = "wasm32"))]
                                     let result = get_bing_images(&market_code_for_thread)
                                         .map_err(|e| format!("Error fetching Bing images: {}", e));
+                                    #[cfg(target_arch = "wasm32")]
+                                    let result = Ok(Vec::new());
                                     sender.send(result);
                                     ctx.request_repaint();
                                 });
@@ -1424,11 +1471,15 @@ fn ui_url(
                             // First check if we need to do initial historical data download
                             let result = if !config_clone.historical_metadata_file.exists() {
                                 info!("No historical metadata found, downloading initial historical data");
-                                download_historical_data(&config_clone, 0)
+                                #[cfg(not(target_arch = "wasm32"))]
+                                let data_result = download_historical_data(&config_clone, 0);
+                                #[cfg(target_arch = "wasm32")]
+                                let data_result: Result<Vec<crate::HistoricalImage>, anyhow::Error> = Ok(Vec::new());
+                                data_result
                                     .map_err(|e| format!("Error downloading initial historical data: {}", e))
                                     .map(|historical_images| {
                                         // Convert HistoricalImage to BingImage
-                                        let bing_images: Vec<BingImage> = historical_images.iter().map(|h| BingImage {
+                                        let bing_images: Vec<BingImage> = historical_images.iter().map(|h: &crate::HistoricalImage| BingImage {
                                             url: h.url.clone(),
                                             title: h.title.clone(),
                                             copyright: Some(h.copyright.clone()),
@@ -1535,10 +1586,7 @@ fn ui_url(
                 info!("Available market codes: {:?}", current_market_codes);
                 
                 // Update timestamp for this market code
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_secs() as i64;
+                let now = get_current_timestamp_secs();
                 market_code_timestamps.insert(market_code.clone(), now);
                 
                 // Save the updated timestamps
@@ -1554,6 +1602,7 @@ fn ui_url(
                     info!("Starting API call in background thread for market: {}", market_code);
                     
                     // Attempt network request without blocking UI
+                    #[cfg(not(target_arch = "wasm32"))]
                     let result = match get_bing_images(&market_code) {
                         Ok(images) => {
                             info!("Successfully fetched {} images from network", images.len());
@@ -1565,6 +1614,9 @@ fn ui_url(
                             Err(format!("Network unavailable: {}. You can still use the app - fetch will retry when connection is restored.", e))
                         }
                     };
+                    
+                    #[cfg(target_arch = "wasm32")]
+                    let result = Ok(Vec::new());
                     
                     // Send result to UI thread (success or failure)
                     sender.send(result);
@@ -1589,6 +1641,7 @@ fn ui_url(
                 
                 std::thread::spawn(move || {
                     info!("Starting fallback API call for en-US");
+                    #[cfg(not(target_arch = "wasm32"))]
                     let result = match get_bing_images("en-US") {
                         Ok(images) => {
                             info!("Successfully fetched {} images from fallback network call", images.len());
@@ -1600,6 +1653,10 @@ fn ui_url(
                             Err(format!("Network unavailable: {}. You can still use the app - fetch will retry when connection is restored.", e))
                         }
                     };
+                    
+                    #[cfg(target_arch = "wasm32")]
+                    let result = Ok(Vec::new());
+                    
                     sender.send(result);
                     ctx.request_repaint();
                 });
@@ -1621,7 +1678,7 @@ fn ui_url(
     trigger_fetch
 }
 
-fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_status: &mut Option<String>, wallpaper_start_time: &mut Option<SystemTime>, wallpaper_setter: &Option<Arc<dyn WallpaperSetter + Send + Sync>>) {
+fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_status: &mut Option<String>, wallpaper_start_time: &mut Option<TimeStamp>, wallpaper_setter: &Option<Arc<dyn WallpaperSetter + Send + Sync>>) {
     let Resource {
         response,
         text,
@@ -1694,20 +1751,20 @@ fn ui_resource(ui: &mut egui::Ui, resource: &Resource, wallpaper_status: &mut Op
                             
                             // Immediately update UI status without waiting
                             *wallpaper_status = Some("✓ Wallpaper setting started (using bytes)".to_string());
-                            *wallpaper_start_time = Some(SystemTime::now());
+                            *wallpaper_start_time = Some(get_current_time());
                             ui.ctx().request_repaint_after(std::time::Duration::from_secs(1));
                             log::info!("BingtrayApp: Finished processing wallpaper setting request from bytes");
                         } else {
                             error!("No image data available");
                             *wallpaper_status = Some("✗ No image data available".to_string());
-                            *wallpaper_start_time = Some(SystemTime::now());
+                            *wallpaper_start_time = Some(get_current_time());
                         }
                     }
                     #[cfg(not(target_os = "android"))]
                     {
                         warn!("Wallpaper setting is only available on Android");
                         *wallpaper_status = Some("⚠ Wallpaper setting only available on Android".to_string());
-                        *wallpaper_start_time = Some(SystemTime::now());
+                        *wallpaper_start_time = Some(get_current_time());
                     }
                 }
             } else if let Some(text) = &text {
@@ -2207,10 +2264,7 @@ impl BingtrayApp {
     // Check if a market code was visited within the last 7 days
     fn is_market_code_recent(&self, market_code: &str) -> bool {
         if let Some(&last_visit) = self.market_code_timestamps.get(market_code) {
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs() as i64;
+            let now = get_current_timestamp_secs();
             let seven_days_ago = now - (7 * 24 * 60 * 60); // 7 days in seconds
             last_visit > seven_days_ago
         } else {
@@ -2220,10 +2274,7 @@ impl BingtrayApp {
 
     // Update the timestamp for a market code
     fn update_market_code_timestamp(&mut self, market_code: &str) {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64;
+        let now = get_current_timestamp_secs();
         self.market_code_timestamps.insert(market_code.to_string(), now);
     }
 

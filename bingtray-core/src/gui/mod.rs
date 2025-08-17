@@ -10,6 +10,10 @@ pub trait View {
     fn ui(&mut self, ui: &mut egui::Ui);
 }
 
+pub fn is_mobile(ctx: &egui::Context) -> bool {
+    ctx.input(|i| i.screen_rect().width() < 768.0)
+}
+
 pub trait Demo {
     fn is_enabled(&self, _ctx: &egui::Context) -> bool {
         true

@@ -164,6 +164,7 @@ pub struct State {
     demo: DemoApp,
     selected_anchor: Anchor,
     backend_panel: crate::gui::gui_windows::DemoWindows,
+    #[cfg_attr(feature = "serde", serde(skip))]
     dropped_files: Vec<egui::DroppedFile>,
 }
 
@@ -184,12 +185,12 @@ impl WrapApp {
             state: State::default(),
         };
 
-        #[cfg(feature = "persistence")]
-        if let Some(storage) = cc.storage {
-            if let Some(state) = eframe::get_value(storage, eframe::APP_KEY) {
-                slf.state = state;
-            }
-        }
+        // #[cfg(feature = "persistence")]
+        // if let Some(storage) = cc.storage {
+        //     if let Some(state) = eframe::get_value(storage, eframe::APP_KEY) {
+        //         slf.state = state;
+        //     }
+        // }
 
         slf
     }
@@ -211,10 +212,10 @@ impl WrapApp {
 
 #[cfg(target_arch = "wasm32")]
 impl eframe::App for WrapApp {
-    #[cfg(feature = "persistence")]
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, eframe::APP_KEY, &self.state);
-    }
+    // #[cfg(feature = "persistence")]
+    // fn save(&mut self, storage: &mut dyn eframe::Storage) {
+    //     eframe::set_value(storage, eframe::APP_KEY, &self.state);
+    // }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         #[cfg(target_arch = "wasm32")]
@@ -245,15 +246,13 @@ impl eframe::App for WrapApp {
                 });
             });
 
-        self.state.backend_panel.update(ctx, frame);
+        self.state.backend_panel.ui(ctx);
 
         if !crate::gui::is_mobile(ctx) {
             // cmd = self.backend_panel(ctx, frame);
         }
 
         self.show_selected_app(ctx, frame);
-
-        self.state.backend_panel.end_of_frame(ctx);
 
         self.ui_file_drag_and_drop(ctx);
 
@@ -347,17 +346,17 @@ impl WrapApp {
         // Collect dropped files:
         ctx.input(|i| {
             if !i.raw.dropped_files.is_empty() {
-                self.dropped_files.clone_from(&i.raw.dropped_files);
+                self.state.dropped_files.clone_from(&i.raw.dropped_files);
             }
         });
 
         // Show dropped files (if any):
-        if !self.dropped_files.is_empty() {
+        if !self.state.dropped_files.is_empty() {
             let mut open = true;
             egui::Window::new("Dropped files")
                 .open(&mut open)
                 .show(ctx, |ui| {
-                    for file in &self.dropped_files {
+                    for file in &self.state.dropped_files {
                         let mut info = if let Some(path) = &file.path {
                             path.display().to_string()
                         } else if !file.name.is_empty() {
@@ -381,7 +380,7 @@ impl WrapApp {
                     }
                 });
             if !open {
-                self.dropped_files.clear();
+                self.state.dropped_files.clear();
             }
         }
     }
