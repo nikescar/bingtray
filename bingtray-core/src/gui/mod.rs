@@ -1,10 +1,16 @@
+#[cfg(not(target_arch = "wasm32"))]
 pub mod bingtray_app;
 pub mod gui_windows;
 
 pub use {
-    bingtray_app::BingtrayApp,
     gui_windows::DemoWindows,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use bingtray_app::BingtrayApp;
+
+#[cfg(target_arch = "wasm32")]
+pub use crate::wasm::WasmBingtrayApp;
 
 pub trait View {
     fn ui(&mut self, ui: &mut egui::Ui);

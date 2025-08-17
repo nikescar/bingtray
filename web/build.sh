@@ -43,6 +43,7 @@ echo "Building rust…"
     --lib \
     --target wasm32-unknown-unknown \
     --no-default-features \
+    --package bingtray-core
     # --features ${FEATURES}
 )
 
@@ -53,7 +54,36 @@ TARGET="target"
 echo "Generating JS bindings for wasm…"
 TARGET_NAME="${OUT_FILE_NAME}.wasm"
 WASM_PATH="${TARGET}/wasm32-unknown-unknown/$BUILD/$TARGET_NAME"
-wasm-bindgen "${WASM_PATH}" --out-dir web --out-name ${OUT_FILE_NAME} --no-modules --no-typescript
+wasm-bindgen "${WASM_PATH}" --out-dir web --out-name ${OUT_FILE_NAME} --target web --no-typescript
+
+# Embed all JS files from snippets directory into bingtray_core.js
+if [ -d "web/snippets" ]; then
+    echo "Embedding all JS files from snippets directory into bingtray_core.js…"
+    
+    # First, remove import statements that reference snippets
+    sed -i '/import.*snippets/d' "web/${OUT_FILE_NAME}.js"
+    
+    # Then embed the JS files at the top of the file
+    temp_file=$(mktemp)
+    {
+        echo "// Embedded snippets:"
+        find web/snippets -name "*.js" -type f | while read -r js_file; do
+            echo "// From $(basename "$js_file"):"
+            cat "$js_file"
+            echo ""
+        done
+        echo ""
+        cat "web/${OUT_FILE_NAME}.js"
+    } > "$temp_file"
+    
+    mv "$temp_file" "web/${OUT_FILE_NAME}.js"
+    
+    echo "Removing snippets directory…"
+    rm -rf web/snippets
+    echo "All JS files embedded and snippets directory cleaned up"
+else
+    echo "Warning: snippets directory not found"
+fi
 
 # if this fails with "error: cannot import from modules (`env`) with `--no-modules`", you can use:
 # wasm2wat target/wasm32-unknown-unknown/release/egui_demo_app.wasm | rg env

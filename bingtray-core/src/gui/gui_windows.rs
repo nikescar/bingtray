@@ -1,5 +1,5 @@
 use std::collections::BTreeSet;
-use egui::{Context, ScrollArea, Ui};
+use egui::{Context, Ui};
 use crate::gui::Demo;
 
 struct GuiGroup {
@@ -51,9 +51,17 @@ impl Default for GuiGroups {
         Self {
             demos: GuiGroup::new(vec![
                 {
-                    // Create a default BingtrayApp with no services initially
-                    // Services will be injected when available through platform-specific setup
-                    Box::<super::bingtray_app::BingtrayApp>::default()
+                    #[cfg(not(target_arch = "wasm32"))]
+                    {
+                        // Create a default BingtrayApp with no services initially
+                        // Services will be injected when available through platform-specific setup
+                        Box::<super::bingtray_app::BingtrayApp>::default()
+                    }
+                    #[cfg(target_arch = "wasm32")]
+                    {
+                        // Use the WASM-specific app for web builds
+                        Box::<crate::wasm::WasmBingtrayApp>::default()
+                    }
                 },
             ]),
         }
@@ -100,7 +108,8 @@ impl Default for DemoWindows {
 }
 
 impl DemoWindows {
-    /// Set up platform services for the BingtrayApp
+    /// Set up platform services for the BingtrayApp (only available on non-WASM platforms)
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn setup_services<W, S>(&mut self, wallpaper_setter: W, screen_size_provider: S) 
     where 
         W: super::bingtray_app::WallpaperSetter + 'static,
@@ -122,40 +131,7 @@ impl DemoWindows {
     }
 
     fn mobile_ui(&mut self, ctx: &Context) {
-        self.mobile_top_bar(ctx);
         self.groups.windows(ctx, &mut self.open);
     }
 
-    fn mobile_top_bar(&mut self, ctx: &Context) {
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
-            // put top padding above top menu_bar for Android status bar
-            ui.add_space(40.0);
-            egui::menu::bar(ui, |ui| {
-                let font_size = 16.5;
-
-                ui.menu_button(egui::RichText::new("⏷ menu").size(font_size), |ui| {
-                    ui.set_style(ui.ctx().style()); // ignore the "menu" style set by `menu_button`.
-                    self.demo_list_ui(ui);
-                    if ui.ui_contains_pointer() && ui.input(|i| i.pointer.any_click()) {
-                        ui.close_menu();
-                    }
-                });
-            });
-        });
-    }
-
-    fn demo_list_ui(&mut self, ui: &mut egui::Ui) {
-        ScrollArea::vertical().show(ui, |ui| {
-            ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                self.groups.checkboxes(ui, &mut self.open);
-                ui.separator();
-                if ui.button("Exit").clicked() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
-                }
-                if ui.button("Organize windows").clicked() {
-                    ui.ctx().memory_mut(|mem| mem.reset_areas());
-                }
-            });
-        });
-    }
 }

@@ -1,0 +1,82 @@
+// Public API exports for bingtray-core
+
+// Re-export core functionality
+pub use crate::core::storage::{
+    Config,
+    open_config_directory,
+    sanitize_filename,
+    get_next_image,
+    move_to_keepfavorite,
+    blacklist_image,
+    need_more_images,
+};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use crate::core::storage::{
+    download_images_for_market,
+};
+
+pub use crate::core::database::{
+    load_market_codes,
+    save_market_codes,
+    get_old_market_codes,
+    get_historical_page_info,
+    download_historical_data,
+    load_historical_metadata,
+    save_image_metadata,
+    get_image_metadata,
+    is_blacklisted,
+};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use crate::core::database::{
+    get_next_historical_page,
+};
+
+pub use crate::core::request::{
+    BingImage,
+    BingResponse,
+    HistoricalImage,
+    get_market_codes,
+    get_bing_images,
+};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use crate::core::request::{
+    try_bing_api_url,
+};
+
+pub use crate::core::view::{
+    calculate_screen_rectangle,
+    draw_selection_rectangle,
+    calculate_image_crop_rect,
+    handle_corner_dragging,
+    center_rectangle_on_image,
+};
+
+// Re-export GUI components
+#[cfg(not(target_arch = "wasm32"))]
+pub use crate::gui::bingtray_app::{
+    WallpaperSetter,
+    ScreenSizeProvider,
+    BingtrayApp,
+    CarouselImage,
+};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use crate::core::storage::{
+    download_image,
+    download_thumbnail_image,
+};
+
+// Wallpaper functionality
+pub use crate::wallpaper::{set_wallpaper};
+
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+pub use crate::wallpaper::get_desktop_environment;
+
+#[cfg(target_arch = "wasm32")]
+pub use crate::wasm::{WasmBingtrayApp, SqliteDb, HttpClient};
+
+#[cfg(target_arch = "wasm32")]
+pub use crate::web::{Anchor, WrapApp};

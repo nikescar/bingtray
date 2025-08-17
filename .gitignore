@@ -133,7 +133,7 @@ Temporary Items
 
 .secrets
 .solidbase
-
+web/tmp/
 bingtray/tmp/
 bingtray-core/tmp/
 web/bingtray_core.js

@@ -1,9 +1,8 @@
 #![allow(clippy::mem_forget)] // False positives from #[wasm_bindgen] macro
 
 #[cfg(target_arch = "wasm32")]
-use crate::gui::is_mobile;
-#[cfg(target_arch = "wasm32")]
 use eframe::wasm_bindgen::{self, prelude::*};
+#[cfg(target_arch = "wasm32")]
 // use crate::WrapApp;
 
 /// Our handle to the web app from JavaScript.
@@ -61,6 +60,34 @@ impl WebHandle {
             // _app.example();
         }
     }
+    
+    /// Initialize the database for the WASM app
+    #[wasm_bindgen]
+    pub async fn init_database(&self) -> Result<(), wasm_bindgen::JsValue> {
+        web_sys::console::log_1(&"[WebHandle] Attempting to initialize database...".into());
+        
+        if let Some(mut wrap_app) = self.runner.app_mut::<WrapApp>() {
+            web_sys::console::log_1(&"[WebHandle] Found WrapApp, getting WASM app...".into());
+            
+            // Get mutable reference to the WASM app
+            let result = wrap_app.state.demo.init().await;
+            
+            match &result {
+                Ok(()) => {
+                    web_sys::console::log_1(&"[WebHandle] Database initialization successful!".into());
+                },
+                Err(e) => {
+                    web_sys::console::log_1(&format!("[WebHandle] Database initialization failed: {:?}", e).into());
+                }
+            }
+            
+            result
+        } else {
+            let error_msg = "[WebHandle] Could not find WrapApp instance";
+            web_sys::console::log_1(&error_msg.into());
+            Err(wasm_bindgen::JsValue::from_str(error_msg))
+        }
+    }
 
     /// The JavaScript can check whether or not your app has crashed:
     #[wasm_bindgen]
@@ -79,25 +106,10 @@ impl WebHandle {
     }
 }
 
-#[cfg(feature = "glow")]
-use eframe::glow;
 
 #[cfg(target_arch = "wasm32")]
 use core::any::Any;
 
-#[cfg(target_arch = "wasm32")]
-#[derive(Default)]
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
-pub struct DemoApp {
-    demo_windows: crate::gui::DemoWindows,
-}
-
-#[cfg(target_arch = "wasm32")]
-impl eframe::App for DemoApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.demo_windows.ui(ctx);
-    }
-}
 
 #[cfg(target_arch = "wasm32")]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -161,9 +173,9 @@ enum Command {
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct State {
-    demo: DemoApp,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    demo: crate::wasm::WasmBingtrayApp,
     selected_anchor: Anchor,
-    backend_panel: crate::gui::gui_windows::DemoWindows,
     #[cfg_attr(feature = "serde", serde(skip))]
     dropped_files: Vec<egui::DroppedFile>,
 }
@@ -198,9 +210,9 @@ impl WrapApp {
     pub fn apps_iter_mut(
         &mut self,
     ) -> impl Iterator<Item = (&'static str, Anchor, &mut dyn eframe::App)> {
-        let mut vec = vec![
+        let vec = vec![
             (
-                "✨ Demos",
+                "🌐 Bingtray",
                 Anchor::Demo,
                 &mut self.state.demo as &mut dyn eframe::App,
             ),
@@ -246,12 +258,6 @@ impl eframe::App for WrapApp {
                 });
             });
 
-        self.state.backend_panel.ui(ctx);
-
-        if !crate::gui::is_mobile(ctx) {
-            // cmd = self.backend_panel(ctx, frame);
-        }
-
         self.show_selected_app(ctx, frame);
 
         self.ui_file_drag_and_drop(ctx);
@@ -287,7 +293,7 @@ impl WrapApp {
         }
     }
 
-    fn bar_contents(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, cmd: &mut Command) {
+    fn bar_contents(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame, _cmd: &mut Command) {
         egui::widgets::global_theme_preference_switch(ui);
 
         ui.separator();

@@ -32,6 +32,7 @@ The application creates configuration files in:
 - Linux: `~/.config/bingtray/`
 - MAC OSX: `/Users/{Username}/Library/Application Support/bingtray`
 - Windows: `C:\Users\{Username}\Appdata\Roaming\bingtray`
+- WASM: sqlite3, opfs
 
 ### Directory structure:
 - `unprocessed/`: Downloaded wallpapers waiting to be used
