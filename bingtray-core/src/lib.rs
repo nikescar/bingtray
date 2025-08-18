@@ -1616,6 +1616,271 @@ pub fn get_historical_page_info(config: &Config) -> Result<(usize, usize)> {
     Ok((current_page, total_pages))
 }
 
+/// Load cached images with pagination, filtered by historical metadata and ordered by date descending
+pub fn load_cached_images_paginated(config: &Config, page: usize) -> Result<Vec<BingImage>> {
+    use std::fs;
+    use log::{info, error};
+    
+    info!("Loading cached images from: {}", config.cached_dir.display());
+    info!("Page requested: {}", page);
+    
+    // Load historical metadata to filter against
+    let (_, historical_images) = load_historical_metadata(config)?;
+    info!("Loaded {} historical images for filtering", historical_images.len());
+    let historical_titles: std::collections::HashSet<String> = historical_images
+        .iter()
+        .map(|img| {
+            // Extract title from URL (similar to how it's done elsewhere in the code)
+            if let Some(title_start) = img.url.rfind("OHR.") {
+                if let Some(title_end) = img.url.rfind("_") {
+                    if title_start < title_end {
+                        let title = img.url[title_start..title_end].to_string();
+                        info!("Extracted historical title from URL: {} -> {}", img.url, title);
+                        return title;
+                    }
+                }
+            }
+            // Fallback: use the copyright as title
+            info!("Using copyright as fallback title: {}", img.copyright);
+            img.copyright.clone()
+        })
+        .collect();
+        
+    info!("Historical titles available for matching: {:?}", historical_titles.iter().take(5).collect::<Vec<_>>());
+    
+    // Create cached directory if it doesn't exist
+    if !config.cached_dir.exists() {
+        info!("Cached directory doesn't exist, creating: {}", config.cached_dir.display());
+        if let Err(e) = fs::create_dir_all(&config.cached_dir) {
+            error!("Failed to create cached directory: {}", e);
+            return Err(e.into());
+        }
+    }
+    
+    // Read cached directory and get file info
+    let mut cached_files = Vec::new();
+    info!("Reading cached directory: {}", config.cached_dir.display());
+    let mut total_files = 0;
+    let mut jpg_files = 0;
+    let mut matched_files = 0;
+        
+    for entry in fs::read_dir(&config.cached_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        total_files += 1;
+        
+        if path.is_file() {
+            if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                // Include both full images and thumbnails
+                if filename.ends_with(".jpg") {
+                    jpg_files += 1;
+                    // Extract title from filename (remove .jpg extension and _thumb suffix if present)
+                    let title = filename.replace(".jpg", "").replace("_thumb", "");
+                    
+                    info!("Checking cached file: {} (title: {})", filename, title);
+                    
+                    // For now, let's include ALL cached images (remove historical filtering temporarily)
+                    // TODO: Re-enable historical metadata filtering once basic loading works
+                    matched_files += 1;
+                    if let Ok(metadata) = path.metadata() {
+                        if let Ok(modified) = metadata.modified() {
+                            cached_files.push((path.clone(), title, modified));
+                            info!("  ✓ Added cached file: {}", filename);
+                        }
+                    }
+                    
+                    // Original historical filtering code (commented out for testing):
+                    /*
+                    let mut found_match = false;
+                    for h_title in &historical_titles {
+                        if h_title.contains(&title) || title.contains(h_title) {
+                            info!("  ✓ Matched with historical title: {}", h_title);
+                            found_match = true;
+                            break;
+                        }
+                    }
+                    
+                    if found_match {
+                        matched_files += 1;
+                        if let Ok(metadata) = path.metadata() {
+                            if let Ok(modified) = metadata.modified() {
+                                cached_files.push((path, title, modified));
+                            }
+                        }
+                    } else {
+                        info!("  ✗ No match found in historical metadata");
+                    }
+                    */
+                }
+            }
+        }
+    }
+    
+    info!("Directory scan complete: {} total files, {} jpg files, {} matched files", total_files, jpg_files, matched_files);
+    
+    // Sort by modification time descending (most recent first)
+    cached_files.sort_by(|a, b| b.2.cmp(&a.2));
+    info!("Sorted {} cached files by modification time", cached_files.len());
+    
+    // Implement pagination (8 images per page)
+    let start_idx = page * 8;
+    let end_idx = std::cmp::min(start_idx + 8, cached_files.len());
+    
+    info!("Pagination: page {}, start_idx {}, end_idx {}, total files {}", page, start_idx, end_idx, cached_files.len());
+    
+    if start_idx >= cached_files.len() {
+        info!("Start index {} exceeds available files {}, returning empty", start_idx, cached_files.len());
+        return Ok(Vec::new());
+    }
+    
+    // Convert to BingImage format
+    let mut result = Vec::new();
+    for (path, title, _) in cached_files.iter().skip(start_idx).take(8) {
+        // Find corresponding historical image for metadata
+        let historical_img = historical_images.iter().find(|h_img| {
+            if let Some(h_title_start) = h_img.url.rfind("OHR.") {
+                if let Some(h_title_end) = h_img.url.rfind("_") {
+                    if h_title_start < h_title_end {
+                        let h_title = &h_img.url[h_title_start..h_title_end];
+                        return h_title.contains(title) || title.contains(h_title);
+                    }
+                }
+            }
+            h_img.copyright.contains(title) || title.contains(&h_img.copyright)
+        });
+        
+        let bing_image = BingImage {
+            title: format!("OHR.{}", title),
+            url: historical_img.map(|h| h.url.clone()).unwrap_or_else(|| format!("file://{}", path.display())),
+            copyright: historical_img.map(|h| Some(h.copyright.clone())).unwrap_or(Some("Cached Image".to_string())),
+            copyrightlink: Some("#".to_string()),
+        };
+        
+        result.push(bing_image);
+    }
+    
+    Ok(result)
+}
 
+/// Find the Bing URL for a cached image from historical metadata
+pub fn find_bing_url_for_cached_image(config: &Config, title: &str) -> Option<String> {
+    if let Ok((_, historical_images)) = load_historical_metadata(config) {
+        for historical_img in historical_images {
+            // Extract title from historical image URL
+            if let Some(title_start) = historical_img.url.rfind("OHR.") {
+                if let Some(title_end) = historical_img.url.rfind("_") {
+                    if title_start < title_end {
+                        let h_title = &historical_img.url[title_start..title_end];
+                        if title.contains(h_title) || h_title.contains(&title.replace("OHR.", "")) {
+                            return Some(historical_img.url);
+                        }
+                    }
+                }
+            }
+            
+            // Also try matching by copyright
+            if historical_img.copyright.contains(&title.replace("OHR.", "")) || 
+               title.replace("OHR.", "").contains(&historical_img.copyright) {
+                return Some(historical_img.url);
+            }
+        }
+    }
+    None
+}
+
+/// Load historical images directly from metadata for UI display with pagination, sorted by cached file modification time
+pub fn load_historical_images_paginated(config: &Config, page: usize) -> Result<Vec<BingImage>> {
+    use std::collections::HashMap;
+    use std::time::SystemTime;
+    
+    info!("Loading historical images for UI display - page: {}", page);
+    
+    // Load historical metadata
+    let (_, historical_images) = load_historical_metadata(config)?;
+    info!("Loaded {} historical images from metadata", historical_images.len());
+    
+    if historical_images.is_empty() {
+        info!("No historical images available, returning empty");
+        return Ok(Vec::new());
+    }
+    
+    // Create a map of historical images with their cached file modification times
+    let mut historical_with_mod_times = Vec::new();
+    
+    for historical_img in historical_images {
+        // Extract the filename that would be used in the cached directory
+        let display_name = historical_img.url
+            .split("th?id=")
+            .nth(1)
+            .and_then(|s| s.split('_').next())
+            .unwrap_or(&historical_img.title);
+        
+        let sanitized_name = sanitize_filename(display_name);
+        
+        // Check for both regular image and thumbnail in cached directory
+        let regular_path = config.cached_dir.join(format!("{}.jpg", sanitized_name));
+        let thumb_path = config.cached_dir.join(format!("{}_thumb.jpg", sanitized_name));
+        
+        let mut modification_time = SystemTime::UNIX_EPOCH; // Default fallback time
+        
+        // Use the most recent modification time between regular and thumbnail
+        if regular_path.exists() {
+            if let Ok(metadata) = regular_path.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    modification_time = modified;
+                }
+            }
+        }
+        
+        if thumb_path.exists() {
+            if let Ok(metadata) = thumb_path.metadata() {
+                if let Ok(modified) = metadata.modified() {
+                    // Use the later of the two modification times
+                    if modified > modification_time {
+                        modification_time = modified;
+                    }
+                }
+            }
+        }
+        
+        // If neither file exists in cached directory, use a very old timestamp so it appears last
+        if !regular_path.exists() && !thumb_path.exists() {
+            modification_time = SystemTime::UNIX_EPOCH;
+        }
+        
+        historical_with_mod_times.push((historical_img, modification_time));
+    }
+    
+    // Sort by modification time descending (most recent first)
+    historical_with_mod_times.sort_by(|a, b| b.1.cmp(&a.1));
+    info!("Sorted {} historical images by cached file modification time", historical_with_mod_times.len());
+    
+    // Implement pagination (8 images per page)
+    let start_idx = page * 8;
+    let end_idx = std::cmp::min(start_idx + 8, historical_with_mod_times.len());
+    
+    info!("Pagination: page {}, start_idx {}, end_idx {}, total images {}", page, start_idx, end_idx, historical_with_mod_times.len());
+    
+    if start_idx >= historical_with_mod_times.len() {
+        info!("Start index {} exceeds available images {}, returning empty", start_idx, historical_with_mod_times.len());
+        return Ok(Vec::new());
+    }
+    
+    // Convert HistoricalImage to BingImage format for UI
+    let mut result = Vec::new();
+    for (historical_img, _mod_time) in historical_with_mod_times.iter().skip(start_idx).take(8) {
+        let bing_image = BingImage {
+            url: historical_img.url.clone(),
+            title: historical_img.title.clone(),
+            copyright: Some(historical_img.copyright.clone()),
+            copyrightlink: Some(historical_img.copyrightlink.clone()),
+        };
+        
+        result.push(bing_image);
+    }
+    
+    info!("Returning {} historical images for UI display", result.len());
+    Ok(result)
+}
 
 

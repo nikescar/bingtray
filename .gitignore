@@ -131,7 +131,11 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+.idea
 .secrets
 .solidbase
-
+bingtray-core/tmp/
+web/bingtray_core.js
+web/bingtray_core_bg.wasm
+web/tmp/
 bingtray/tmp/

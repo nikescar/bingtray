@@ -1,9 +1,7 @@
 pub mod bingtray_app;
-pub mod gui_windows;
 
 pub use {
     bingtray_app::BingtrayApp,
-    gui_windows::DemoWindows,
 };
 
 pub trait View {

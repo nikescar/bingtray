@@ -12,7 +12,8 @@ mod bingtray_service;
 use bingtray_core::gui;
 
 // Export modules for external use
-pub use gui::{Demo, DemoWindows, View};
+pub use gui::{Demo, View};
+// Don't export BingtrayApp from gui to avoid name collision
 pub use android_wallpaper::{set_wallpaper_from_bytes, set_wallpaper_from_bytes_with_crop};
 pub use android_screensize::get_screen_size;
 pub use bingtray_service::AndroidBingtrayService;
@@ -65,20 +66,18 @@ fn android_main(app: AndroidApp) {
 }
 
 pub struct BingtrayApp {
-    demo_windows: gui::DemoWindows,
+    bingtray_app: gui::BingtrayApp,
 }
 
 impl Default for BingtrayApp {
     fn default() -> Self {
-        let mut demo_windows = gui::DemoWindows::default();
+        let mut bingtray_app = gui::BingtrayApp::default();
         
-        // Inject platform services
-        demo_windows.setup_services(
-            AndroidBingtrayService,
-            AndroidBingtrayService,
-        );
+        // Set up platform services using the proper methods
+        bingtray_app.set_wallpaper_setter(std::sync::Arc::new(AndroidBingtrayService));
+        bingtray_app.set_screen_size_provider(std::sync::Arc::new(AndroidBingtrayService));
         
-        Self { demo_windows }
+        Self { bingtray_app }
     }
 }
 
@@ -97,7 +96,9 @@ impl BingtrayApp {
 
 impl eframe::App for BingtrayApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.demo_windows.ui(ctx);
+        egui::CentralPanel::default().show(ctx, |ui| {
+            self.bingtray_app.ui(ui);
+        });
     }
 }
 
