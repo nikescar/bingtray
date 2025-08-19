@@ -6,9 +6,6 @@ use std::future::Future;
 // Module declarations
 pub mod core;
 
-#[cfg(not(target_arch = "wasm32"))]
-pub mod gui;
-
 pub mod wallpaper;
 pub mod web;
 
@@ -66,6 +63,7 @@ pub use core::exports::{
     need_more_images,
     save_market_codes,
     get_image_metadata,
+    load_historical_metadata,
     // Wallpaper functions
     set_wallpaper,
 };
@@ -77,6 +75,13 @@ pub use core::exports::{
     WallpaperSetter,
     ScreenSizeProvider,
     BingtrayApp,
+    BingtrayAppState,
+    BingtrayEguiApp,
+    EguiCarouselState,
+    Resource,
+    Demo,
+    View,
+    is_mobile,
     download_images_for_market,
     get_next_historical_page,
 };

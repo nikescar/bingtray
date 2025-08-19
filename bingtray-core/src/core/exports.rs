@@ -54,13 +54,29 @@ pub use crate::core::view::{
     center_rectangle_on_image,
 };
 
-// Re-export GUI components
-#[cfg(not(target_arch = "wasm32"))]
-pub use crate::gui::bingtray_app::{
+// Re-export new core components
+pub use crate::core::app::{
     WallpaperSetter,
     ScreenSizeProvider,
-    BingtrayApp,
+    BingtrayAppState,
     CarouselImage,
+};
+
+pub use crate::core::egui::{
+    BingtrayEguiApp,
+};
+
+pub use crate::core::egui_carousel::{
+    EguiCarouselState,
+    Resource,
+};
+
+// Re-export main app components
+pub use crate::core::app::{
+    BingtrayApp,
+    Demo,
+    View,
+    is_mobile,
 };
 
 #[cfg(not(target_arch = "wasm32"))]
