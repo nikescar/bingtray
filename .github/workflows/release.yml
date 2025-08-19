@@ -93,6 +93,17 @@ jobs:
           #   build-args: "--profile release-with-symbols"
 
     steps:
+      - name: Set Cargo.toml version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          # Extract the version number from the tag (e.g., remove 'v' prefix if present)
+          VERSION_NUMBER=${RELEASE_TAG##*v}
+          sed -i "s/0\.0\.0-git/${VERSION_NUMBER}/g" Cargo.toml
+          # If you also have a Cargo.lock, you might need to update it too
+          # sed -i "s/0\.0\.0-git/${VERSION_NUMBER}/g" Cargo.lock
+          
       - name: Linux, Build packages. set vars
         if: contains(matrix.platform.target, 'linux')
         run: | 
