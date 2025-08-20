@@ -1,89 +1,68 @@
 [package]
 name = "bingtray"
-build = "build.rs"
 version.workspace = true
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 
-[[bin]]
-name = "bingtray"
-path = "src/main.rs"
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["serde"]
+serde = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
-bingtray-core = { path = "../bingtray-core" }
+# Core(Desktop, Android, WASM))
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 anyhow = { workspace = true }
 chrono = { workspace = true }
 rand = { workspace = true }
+regex = { workspace = true }
 log = { workspace = true }
+tokio = { workspace = true }
+reqwest = { workspace = true }
+scraper = { workspace = true }
 
-tao = "0.33"
-image = "0.25"
-tray-icon = "0.18"
-directories = "5.0"
-wallpaper = "3.2.0"
-webbrowser = { version = "1.0.5", default-features = false }
+# GUI. All(Desktop. Android, WASM)
+egui = { workspace = true }
+eframe = { workspace = true, default-features = false }
+egui_extras = { workspace = true }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+wgpu = { workspace = true, default-features = false }
+ehttp = "0.5"
+poll-promise = "0.3"
+image = { version = "0.25", features = ["jpeg", "png"] }
 
-[target."cfg(target_os = \"windows\")".dependencies.windows-sys]
-version = "0.59"
-features = [
-  "Win32_UI_WindowsAndMessaging",
-  "Win32_Foundation",
-  "Win32_System_SystemServices",
-  "Win32_System_Console",
-  "Win32_Graphics_Gdi",
-  "Win32_UI_Shell",
-]
+# Wasm
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2.100"
+wasm-bindgen-futures = "0.4"
+web-sys = "0.3.73"
+js-sys = "0.3.77"
+tokio = { version = "1.0", features = ["sync", "macros", "io-util", "rt", "time"], default-features = false }
+eframe = { git = "https://github.com/emilk/egui", default-features = false, features = ["default_fonts", "glow"] }
+getrandom = { version = "0.2.16", features = ["js"] }
+wgpu = { workspace = true, features = ["webgpu"]}
 
-[target."cfg(target_os = \"linux\")".dependencies]
-libappindicator = "0.9"
-dirs = "6"
+sqlite-wasm-rs = { version = "0.4", default-features = false, features = ["precompiled"] }
 
-[target."cfg(target_os = \"linux\")".dev-dependencies]
-gtk = "0.18"
-
-[target."cfg(target_os = \"macos\")".dependencies]
-objc2 = "0.6"
-objc2-core-graphics = { version = "0.3", default-features = false, features = [
-  "std",
-  "CGDirectDisplay",
+# Desktop, Android
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+env_logger = { version = "0.10", default-features = false, features = [
+  "auto-color",
+  "humantime",
 ] }
-objc2-core-foundation = { version = "0.3", default-features = false, features = [
-  "std",
-  "CFCGTypes",
-  "CFRunLoop",
-] }
-objc2-foundation = { version = "0.3", default-features = false, features = [
-  "std",
-  "block2",
-  "objc2-core-foundation",
-  "NSArray",
-  "NSData",
-  "NSEnumerator",
-  "NSGeometry",
-  "NSString",
-  "NSThread",
-] }
-objc2-app-kit = { version = "0.3", default-features = false, features = [
-  "std",
-  "objc2-core-foundation",
-  "NSButton",
-  "NSCell",
-  "NSControl",
-  "NSEvent",
-  "NSImage",
-  "NSMenu",
-  "NSResponder",
-  "NSStatusBar",
-  "NSStatusBarButton",
-  "NSStatusItem",
-  "NSTrackingArea",
-  "NSView",
-  "NSWindow",
-] }
+mimalloc = "0.1"
+tokio = { version = "1.0", features = ["sync", "macros", "io-util", "rt", "rt-multi-thread", "time"], default-features = false }
+rfd = { version = "0.15.3", optional = true }
 
-[target."cfg(any(target_os = \"linux\", target_os = \"macos\"))".dependencies]
-png = "0.17"
+# Desktop
+[target.'cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))'.dependencies]
+egui-winit = { git = "https://github.com/emilk/egui", default-features = false, features = ["bytemuck", "links", "serde", "wayland", "x11"] }
+wgpu = { workspace = true, features = ["dx12","metal","vulkan","gles"] }
 
-[build-dependencies]
-winres = "0.1.12"
+# Android
+[target.'cfg(target_os = "android")'.dependencies]
+wgpu = { workspace = true, features = ["vulkan","gles"] }

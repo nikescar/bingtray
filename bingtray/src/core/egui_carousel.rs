@@ -195,6 +195,9 @@ impl EguiCarouselState {
     ) {
         ui.horizontal(|ui| {
             let mut should_load_more = false;
+
+            // #[cfg(target_os = "android")]
+            // ui.add_space(40.0);
             
             egui::ScrollArea::horizontal()
                 .max_height(150.0)

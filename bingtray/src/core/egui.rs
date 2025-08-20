@@ -256,7 +256,7 @@ impl BingtrayEguiApp {
 
 impl Demo for BingtrayEguiApp {
     fn name(&self) -> &'static str {
-        "🖼 Bingtray"
+        "Bingtray"
     }
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
@@ -279,22 +279,33 @@ impl View for BingtrayEguiApp {
         let ctx = ui.ctx().clone();
         self.update_promises(&ctx);
 
+        ui.horizontal(|ui| {
+            ui.label("Bingtray Wallpapers");
+            
+            if ui.button("About").clicked() {
+                let url_to_open = "https://bingtray.pages.dev";
+                let open_url = egui::OpenUrl {
+                    url: url_to_open.to_owned(),
+                    new_tab: true,
+                };
+                ctx.open_url(open_url);
+            }
+        });
+
         self.render_controls(ui);
 
-        ui.horizontal(|ui| {
-            ui.vertical(|ui| {
-                ui.set_width(200.0);
-                ui.heading("Image Carousel");
-                
-                self.carousel_state.render_carousel_images(ui, &mut self.app_state, &ctx);
-            });
+        ui.vertical(|ui| {
+            ui.set_width(200.0);
+            // ui.heading("Image Carousel");
+            
+            self.carousel_state.render_carousel_images(ui, &mut self.app_state, &ctx);
+        });
 
-            ui.separator();
+        ui.separator();
 
-            ui.vertical(|ui| {
-                ui.heading("Main Panel");
-                self.carousel_state.render_main_panel(ui, &mut self.app_state);
-            });
+        ui.vertical(|ui| {
+            // ui.heading("Main Panel");
+            self.carousel_state.render_main_panel(ui, &mut self.app_state);
         });
 
         // Auto-load more images if needed
@@ -306,17 +317,18 @@ impl View for BingtrayEguiApp {
 
 impl BingtrayEguiApp {
     pub fn ui(&mut self, ctx: &egui::Context) {
-        
+        let screen_size = ctx.screen_rect().size();
         let mut window = egui::Window::new(&self.title)
-            .collapsible(self.collapsible)
-            .resizable(self.resizable)
-            .title_bar(self.title_bar)
-            .constrain(self.constrain);
-
-        if self.anchored {
-            window = window.anchor(self.anchor, self.anchor_offset);
-        }
-
+            .default_width(screen_size.x as f32)
+            .default_height(screen_size.y as f32)
+            .id(egui::Id::new("bingtray_window"))
+            .resizable(false)
+            .constrain(false)
+            .collapsible(false)
+            .title_bar(false)
+            .hscroll(false);
+        // anchor the window
+        window = window.anchor(egui::Align2::RIGHT_TOP, egui::Vec2::ZERO);
         window.show(ctx, |ui| {
             View::ui(self, ui);
         });

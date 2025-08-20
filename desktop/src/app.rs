@@ -1,5 +1,5 @@
 use anyhow::Result;
-use bingtray_core::{
+use bingtray::{
     Config, load_market_codes, save_market_codes, get_old_market_codes,
     need_more_images, download_images_for_market, get_next_image, 
     move_to_keepfavorite, blacklist_image, sanitize_filename, get_image_metadata,
@@ -75,7 +75,7 @@ impl BingTrayApp {
             }
         } else {
             // No market codes available, try historical data
-            if let Ok(Some(historical_images)) = bingtray_core::get_next_historical_page(&self.config, false) {
+            if let Ok(Some(historical_images)) = bingtray::get_next_historical_page(&self.config, false) {
                 println!("Downloaded historical images");
                 
                 // Set the first historical image as wallpaper
@@ -248,7 +248,7 @@ impl BingTrayApp {
         }
         
         // Check if historical data is available when no market codes are available
-        if let Ok((current_page, total_pages)) = bingtray_core::get_historical_page_info(&self.config) {
+        if let Ok((current_page, total_pages)) = bingtray::get_historical_page_info(&self.config) {
             return current_page < total_pages;
         }
         
@@ -303,8 +303,8 @@ impl BingTrayApp {
 
     pub fn get_market_status(&self) -> (String, usize) {
         // Get market codes info
-        let market_codes = bingtray_core::load_market_codes(&self.config).unwrap_or_default();
-        let old_codes = bingtray_core::get_old_market_codes(&market_codes);
+        let market_codes = bingtray::load_market_codes(&self.config).unwrap_or_default();
+        let old_codes = bingtray::get_old_market_codes(&market_codes);
         let available_count = old_codes.len();
         
         // If no market codes available, show historical information
@@ -479,6 +479,6 @@ impl BingTrayApp {
     }
 
     pub fn open_cache_directory(&self) -> Result<()> {
-        bingtray_core::open_config_directory(&self.config)
+        bingtray::open_config_directory(&self.config)
     }
 }

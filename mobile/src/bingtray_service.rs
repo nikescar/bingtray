@@ -1,4 +1,4 @@
-use bingtray_core::{WallpaperSetter, ScreenSizeProvider};
+use bingtray::{WallpaperSetter, ScreenSizeProvider};
 use crate::android_wallpaper::set_wallpaper_from_bytes;
 use crate::android_screensize::get_screen_size;
 

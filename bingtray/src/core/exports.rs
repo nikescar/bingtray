@@ -1,4 +1,4 @@
-// Public API exports for bingtray-core
+// Public API exports for bingtray
 
 // Re-export core functionality
 pub use crate::core::storage::{

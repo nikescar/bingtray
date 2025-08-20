@@ -18,7 +18,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 log = { workspace = true }
-bingtray-core = { path = "../bingtray-core", features = ["serde"] }
+bingtray = { path = "../bingtray", features = ["serde"] }
 egui = { workspace = true }
 eframe = { workspace = true }
 egui_extras = { workspace = true }

@@ -10,7 +10,7 @@ mod android_screensize;
 mod bingtray_service;
 
 // Export modules for external use
-pub use bingtray_core::{Demo, View, BingtrayEguiApp};
+pub use bingtray::{Demo, View, BingtrayEguiApp};
 pub use android_wallpaper::{set_wallpaper_from_bytes, set_wallpaper_from_bytes_with_crop};
 pub use android_screensize::get_screen_size;
 pub use bingtray_service::AndroidBingtrayService;
@@ -63,12 +63,12 @@ fn android_main(app: AndroidApp) {
 }
 
 pub struct BingtrayApp {
-    bingtray_app: bingtray_core::BingtrayEguiApp,
+    bingtray_app: bingtray::BingtrayEguiApp,
 }
 
 impl Default for BingtrayApp {
     fn default() -> Self {
-        let bingtray_app = bingtray_core::BingtrayEguiApp::default();
+        let bingtray_app = bingtray::BingtrayEguiApp::default();
         
         Self { bingtray_app }
     }

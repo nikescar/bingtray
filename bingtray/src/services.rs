@@ -1,61 +1,74 @@
-use anyhow::{Result, Context};
-use bingtray_core::{FileSystemService, WallpaperService, ServiceProvider, ProjectDirectories};
-use directories::ProjectDirs;
+use anyhow::Result;
+use std::path::PathBuf;
 
-/// Concrete implementation of FileSystemService using the directories crate
-pub struct ConcreteFileSystemService;
+/// Service trait for file system operations
+pub trait FileSystemService {
+    /// Get project directories for the application
+    fn get_project_dirs(&self) -> Result<ProjectDirectories>;
+}
 
-impl FileSystemService for ConcreteFileSystemService {
+/// Service trait for wallpaper operations
+pub trait WallpaperService {
+    /// Set wallpaper from file path
+    fn set_wallpaper_from_path(&self, file_path: &str) -> Result<()>;
+}
+
+/// Project directories abstraction
+pub struct ProjectDirectories {
+    pub config_dir: PathBuf,
+}
+
+impl ProjectDirectories {
+    pub fn new(config_dir: PathBuf) -> Self {
+        Self { config_dir }
+    }
+    
+    pub fn config_dir(&self) -> &PathBuf {
+        &self.config_dir
+    }
+}
+
+/// Combined service provider for dependency injection
+pub trait ServiceProvider: FileSystemService + WallpaperService {}
+
+/// Default implementation that uses no-op or fallback behavior
+pub struct DefaultServiceProvider;
+
+impl FileSystemService for DefaultServiceProvider {
     fn get_project_dirs(&self) -> Result<ProjectDirectories> {
-        let proj_dirs = ProjectDirs::from("com", "bingtray", "bingtray")
-            .context("Failed to get project directories")?;
+        // Fallback implementation for cases where directories service is not available
+        #[cfg(target_os = "android")]
+        {
+            Ok(ProjectDirectories::new(PathBuf::from("/data/data/pe.nikescar.bingtray/files")))
+        }
         
-        Ok(ProjectDirectories::new(proj_dirs.config_dir().to_path_buf()))
-    }
-}
-
-/// Concrete implementation of WallpaperService using the wallpaper crate
-pub struct ConcreteWallpaperService;
-
-impl WallpaperService for ConcreteWallpaperService {
-    fn set_wallpaper_from_path(&self, file_path: &str) -> Result<()> {
-        wallpaper::set_from_path(file_path)
-            .map_err(|e| anyhow::anyhow!("Failed to set wallpaper: {}", e))?;
-        Ok(())
-    }
-}
-
-/// Combined service provider that uses the concrete implementations
-pub struct BingtrayServiceProvider {
-    filesystem_service: ConcreteFileSystemService,
-    wallpaper_service: ConcreteWallpaperService,
-}
-
-impl BingtrayServiceProvider {
-    pub fn new() -> Self {
-        Self {
-            filesystem_service: ConcreteFileSystemService,
-            wallpaper_service: ConcreteWallpaperService,
+        #[cfg(target_arch = "wasm32")]
+        {
+            Ok(ProjectDirectories::new(PathBuf::from("/tmp/bingtray")))
+        }
+        
+        #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+        {
+            // This should be overridden by the bingtray crate implementation
+            Err(anyhow::anyhow!("Project directories service not implemented"))
         }
     }
 }
 
-impl Default for BingtrayServiceProvider {
-    fn default() -> Self {
-        Self::new()
+impl WallpaperService for DefaultServiceProvider {
+    fn set_wallpaper_from_path(&self, _file_path: &str) -> Result<()> {
+        // Fallback implementation
+        #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+        {
+            Err(anyhow::anyhow!("Wallpaper setting not supported on this platform"))
+        }
+        
+        #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+        {
+            // This should be overridden by the bingtray crate implementation
+            Err(anyhow::anyhow!("Wallpaper service not implemented"))
+        }
     }
 }
 
-impl FileSystemService for BingtrayServiceProvider {
-    fn get_project_dirs(&self) -> Result<ProjectDirectories> {
-        self.filesystem_service.get_project_dirs()
-    }
-}
-
-impl WallpaperService for BingtrayServiceProvider {
-    fn set_wallpaper_from_path(&self, file_path: &str) -> Result<()> {
-        self.wallpaper_service.set_wallpaper_from_path(file_path)
-    }
-}
-
-impl ServiceProvider for BingtrayServiceProvider {}
+impl ServiceProvider for DefaultServiceProvider {}

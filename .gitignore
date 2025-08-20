@@ -135,6 +135,7 @@ Temporary Items
 .solidbase
 web/tmp/
 bingtray/tmp/
-bingtray-core/tmp/
-web/bingtray_core.js
-web/bingtray_core_bg.wasm
+desktop/tmp/
+mobile/tmp/
+web/bingtray.js
+web/bingtray_bg.wasm

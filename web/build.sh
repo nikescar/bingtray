@@ -11,7 +11,7 @@ if ! cargo install --list | grep -q 'wasm-bindgen-cli v0.2.100'; then
     cargo install --force --quiet wasm-bindgen-cli --version 0.2.100
 fi
 
-CRATE_NAME="bingtray-core"
+CRATE_NAME="bingtray"
 FEATURES="web_app"
 OPEN=false
 OPTIMIZE=false
@@ -20,7 +20,7 @@ BUILD_FLAGS=""
 WGPU=false
 WASM_OPT_FLAGS="-O2 --fast-math"
 
-OUT_FILE_NAME="bingtray_core"
+OUT_FILE_NAME="bingtray"
 
 if [[ "${WGPU}" == true ]]; then
   FEATURES="${FEATURES},wgpu"
@@ -43,7 +43,7 @@ echo "Building rust…"
     --lib \
     --target wasm32-unknown-unknown \
     --no-default-features \
-    --package bingtray-core
+    --package bingtray
     # --features ${FEATURES}
 )
 
@@ -56,9 +56,9 @@ TARGET_NAME="${OUT_FILE_NAME}.wasm"
 WASM_PATH="${TARGET}/wasm32-unknown-unknown/$BUILD/$TARGET_NAME"
 wasm-bindgen "${WASM_PATH}" --out-dir web --out-name ${OUT_FILE_NAME} --target web --no-typescript
 
-# Embed all JS files from snippets directory into bingtray_core.js
+# Embed all JS files from snippets directory into bingtray.js
 if [ -d "web/snippets" ]; then
-    echo "Embedding all JS files from snippets directory into bingtray_core.js…"
+    echo "Embedding all JS files from snippets directory into bingtray.js…"
     
     # First, remove import statements that reference snippets
     sed -i '/import.*snippets/d' "web/${OUT_FILE_NAME}.js"
@@ -100,7 +100,7 @@ if [[ "${OPTIMIZE}" = true ]]; then
 fi
 
 echo "Finished ${FINAL_WASM_PATH}"
-
+ls -alth web |grep wasm
 # if [[ "${OPEN}" == true ]]; then
 #   if [[ "$OSTYPE" == "linux-gnu"* ]]; then
 #     # Linux, ex: Fedora

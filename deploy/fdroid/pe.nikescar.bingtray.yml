@@ -26,7 +26,7 @@ Builds:
     # prebuild: echo 'started prebuild'
     scanignore:
       - mobile/Cargo.toml
-      - bingtray-core/Cargo.toml
+      - desktop/Cargo.toml
       - bingtray/Cargo.toml
       - Cargo.toml
     build:
