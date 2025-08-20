@@ -20,7 +20,6 @@ chrono = { version = "0.4", features = ["serde"] }
 js-sys = "0.3.77"
 rand = "0.8"
 regex = "1.10"
-webbrowser = { version = "1.0.5", default-features = false }
 
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 tokio = { version = "1.0", features = ["sync", "macros", "io-util", "rt", "time"], default-features = false }

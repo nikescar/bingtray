@@ -291,9 +291,12 @@ impl EguiCarouselState {
             ui.horizontal(|ui| {
                 ui.label(&main_image.copyright);
                 if ui.link(&main_image.copyright_link).clicked() {
-                    if let Err(e) = webbrowser::open(&main_image.copyright_link) {
-                        error!("Failed to open copyright link: {}", e);
-                    }
+                    let url = main_image.copyright_link;
+                    let open_url = egui::OpenUrl {
+                        url,
+                        new_tab: true,
+                    };
+                    ui.ctx().open_url(open_url);
                 }
             });
             

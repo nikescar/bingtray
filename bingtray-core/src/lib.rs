@@ -5,7 +5,7 @@ use std::future::Future;
 
 // Module declarations
 pub mod core;
-
+pub mod services;
 pub mod wallpaper;
 pub mod web;
 
@@ -66,6 +66,16 @@ pub use core::exports::{
     load_historical_metadata,
     // Wallpaper functions
     set_wallpaper,
+    set_wallpaper_with_service,
+};
+
+// Service trait exports
+pub use services::{
+    FileSystemService,
+    WallpaperService,
+    ServiceProvider,
+    ProjectDirectories,
+    DefaultServiceProvider,
 };
 
 // GUI-related exports only for non-WASM targets

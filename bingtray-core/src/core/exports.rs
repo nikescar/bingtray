@@ -85,8 +85,8 @@ pub use crate::core::storage::{
     download_thumbnail_image,
 };
 
-// Wallpaper functionality
-pub use crate::wallpaper::{set_wallpaper};
+// Wallpaper functionality - service-based
+pub use crate::wallpaper::{set_wallpaper, set_wallpaper_with_service};
 
 #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 pub use crate::wallpaper::get_desktop_environment;

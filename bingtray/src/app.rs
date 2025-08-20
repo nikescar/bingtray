@@ -1,27 +1,31 @@
 use anyhow::Result;
 use bingtray_core::{
     Config, load_market_codes, save_market_codes, get_old_market_codes,
-    need_more_images, download_images_for_market, get_next_image, set_wallpaper,
+    need_more_images, download_images_for_market, get_next_image, 
     move_to_keepfavorite, blacklist_image, sanitize_filename, get_image_metadata,
-    get_historical_page_info
+    get_historical_page_info, set_wallpaper_with_service
 };
 use chrono::Utc;
 use rand::seq::SliceRandom;
 use std::io::{self, Write};
 use std::path::PathBuf;
+use crate::services::BingtrayServiceProvider;
 
 pub struct BingTrayApp {
     config: Config,
     current_image: Option<PathBuf>,
+    service_provider: BingtrayServiceProvider,
 }
 
 impl BingTrayApp {
     pub fn new() -> Result<Self> {
-        let config = Config::new()?;
+        let service_provider = BingtrayServiceProvider::new();
+        let config = Config::new_with_service(&service_provider)?;
         
         Ok(Self {
             config,
             current_image: None,
+            service_provider,
         })
     }
     
@@ -63,7 +67,7 @@ impl BingTrayApp {
             self.download_new_images(&mut market_codes)?;
             
             if let Some(image_path) = get_next_image(&self.config)? {
-                if set_wallpaper(&image_path)? {
+                if set_wallpaper_with_service(&image_path, &self.service_provider)? {
                     self.current_image = Some(image_path.clone());
                     println!("Set wallpaper: {}", image_path.display());
                     return Ok(true);
@@ -86,7 +90,7 @@ impl BingTrayApp {
                     let filepath = self.config.unprocessed_dir.join(format!("{}.jpg", sanitized_name));
                     
                     if filepath.exists() {
-                        if set_wallpaper(&filepath)? {
+                        if set_wallpaper_with_service(&filepath, &self.service_provider)? {
                             self.current_image = Some(filepath.clone());
                             println!("Set historical wallpaper: {}", filepath.display());
                             return Ok(true);
@@ -100,7 +104,7 @@ impl BingTrayApp {
         if !need_more_images(&self.config).unwrap_or(true) {
             // There are unprocessed images, use them
             if let Some(image_path) = get_next_image(&self.config)? {
-                if set_wallpaper(&image_path)? {
+                if set_wallpaper_with_service(&image_path, &self.service_provider)? {
                     self.current_image = Some(image_path.clone());
                     println!("Set wallpaper: {}", image_path.display());
                     return Ok(true);
@@ -144,7 +148,7 @@ impl BingTrayApp {
             if !need_more_images(&self.config).unwrap_or(true) {
                 // There are still unprocessed images, set the next one
                 if let Some(next_image_path) = get_next_image(&self.config)? {
-                    if set_wallpaper(&next_image_path)? {
+                    if set_wallpaper_with_service(&next_image_path, &self.service_provider)? {
                         self.current_image = Some(next_image_path.clone());
                         println!("Set next wallpaper: {}", next_image_path.display());
                     }
@@ -168,7 +172,7 @@ impl BingTrayApp {
             if !need_more_images(&self.config).unwrap_or(true) {
                 // There are still unprocessed images, set the next one
                 if let Some(next_image_path) = get_next_image(&self.config)? {
-                    if set_wallpaper(&next_image_path)? {
+                    if set_wallpaper_with_service(&next_image_path, &self.service_provider)? {
                         self.current_image = Some(next_image_path.clone());
                         println!("Set next wallpaper: {}", next_image_path.display());
                     }
@@ -209,7 +213,7 @@ impl BingTrayApp {
         let index = now % images.len();
         let selected_image = &images[index];
         
-        if set_wallpaper(selected_image)? {
+        if set_wallpaper_with_service(selected_image, &self.service_provider)? {
             self.current_image = Some(selected_image.clone());
             println!("Set kept wallpaper: {}", selected_image.display());
             return Ok(true);

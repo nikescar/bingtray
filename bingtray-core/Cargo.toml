@@ -24,7 +24,6 @@ log = { workspace = true }
 tokio = { workspace = true }
 reqwest = { workspace = true }
 scraper = { workspace = true }
-webbrowser = { workspace = true }
 
 # GUI. All(Desktop. Android, WASM)
 egui = { workspace = true }
@@ -50,8 +49,6 @@ sqlite-wasm-rs = { version = "0.4", default-features = false, features = ["preco
 
 # Desktop
 [target.'cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))'.dependencies]
-# directories = { workspace = true }
-# wallpaper = { workspace = true }
 egui-winit = { version = "0.31.1" }
 
 # Desktop, Android

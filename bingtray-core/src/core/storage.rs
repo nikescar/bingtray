@@ -2,7 +2,7 @@ use anyhow::{Result, Context};
 use std::fs;
 use std::path::{Path, PathBuf};
 #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
-use directories::ProjectDirs;
+use crate::services::{FileSystemService, DefaultServiceProvider};
 #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use std::process::Command;
 
@@ -25,6 +25,10 @@ pub struct Config {
 
 impl Config {
     pub fn new() -> Result<Self> {
+        Self::new_with_service(&DefaultServiceProvider)
+    }
+    
+    pub fn new_with_service<S: FileSystemService>(service: &S) -> Result<Self> {
         #[cfg(target_os = "android")]
         {
             // Android-specific paths
@@ -167,10 +171,10 @@ impl Config {
         
         #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
         {
-            let proj_dirs = ProjectDirs::from("com", "bingtray", "bingtray")
+            let proj_dirs = service.get_project_dirs()
                 .context("Failed to get project directories")?;
             
-            let config_dir = proj_dirs.config_dir().to_path_buf();
+            let config_dir = proj_dirs.config_dir().clone();
             let unprocessed_dir = config_dir.join("unprocessed");
             let keepfavorite_dir = config_dir.join("keepfavorite");
             let cached_dir = config_dir.join("cached");

@@ -2,6 +2,8 @@ use anyhow::Result;
 use std::path::Path;
 #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use std::process::Command;
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+use crate::services::{WallpaperService, DefaultServiceProvider};
 
 #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 pub fn get_desktop_environment() -> String {
@@ -37,6 +39,10 @@ pub fn get_desktop_environment() -> String {
 }
 
 pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
+    set_wallpaper_with_service(file_path, &DefaultServiceProvider)
+}
+
+pub fn set_wallpaper_with_service<S: WallpaperService>(file_path: &Path, service: &S) -> Result<bool> {
     let file_loc = file_path.to_string_lossy();
     
     // Android-specific wallpaper setting
@@ -57,10 +63,10 @@ pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
         }
     }
     
-    // Use wallpaper crate for cross-platform wallpaper setting (non-Android, non-WASM)
+    // Use wallpaper service for cross-platform wallpaper setting (non-Android, non-WASM)
     #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
     {
-        match wallpaper::set_from_path(&file_loc) {
+        match service.set_wallpaper_from_path(&file_loc) {
             Ok(_) => {
                 println!("Wallpaper set successfully to: {}", file_loc);
                 Ok(true)
@@ -68,7 +74,7 @@ pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
             Err(e) => {
                 eprintln!("Failed to set wallpaper: {}", e);
                 
-                // Fallback to platform-specific methods for Linux if wallpaper crate fails
+                // Fallback to platform-specific methods for Linux if wallpaper service fails
                 return set_wallpaper_linux_fallback(file_path);
             }
         }
