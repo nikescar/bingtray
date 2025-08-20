@@ -1,8 +1,7 @@
 use anyhow::{Result, Context};
 use std::fs;
 use std::path::{Path, PathBuf};
-#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
-use crate::services::{FileSystemService, DefaultServiceProvider};
+use crate::{FileSystemService, DefaultServiceProvider};
 #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use std::process::Command;
 

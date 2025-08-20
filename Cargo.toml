@@ -35,8 +35,7 @@ eframe = { git = "https://github.com/emilk/egui", default-features = false, feat
     "wgpu",
 ] }
 egui_extras = { git = "https://github.com/emilk/egui", default-features = false, features = ["image", "svg", "default", "all_loaders"] }
-wgpu = { version = "25.0.0" }
-# getrandom = { version = "0.2.16" }
+wgpu = { version = "25.0.0", default-features = false }
 
 [profile.release]
 lto = true # "fat"

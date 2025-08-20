@@ -321,6 +321,7 @@ pub fn load_historical_metadata(config: &Config) -> Result<(usize, Vec<Historica
         lines[0].parse::<usize>().unwrap_or(0)
     };
     
+    #[allow(unused_mut)]
     let mut historical_images = Vec::new();
     for line in lines.iter().skip(1) {
         if !line.trim().is_empty() {

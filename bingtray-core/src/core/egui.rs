@@ -126,18 +126,17 @@ impl BingtrayEguiApp {
 
         let market_code_clone = market_code.clone();
         
-        let promise = Promise::spawn_thread("bing_images", move || {
-            match get_bing_images(&market_code_clone) {
-                Ok(images) => {
-                    info!("Successfully fetched {} images for market code: {}", images.len(), market_code_clone);
-                    Ok(images)
-                }
-                Err(e) => {
-                    error!("Failed to fetch images for market code {}: {}", market_code_clone, e);
-                    Err(format!("Failed to fetch images: {}", e))
-                }
+        let result = match get_bing_images(&market_code_clone) {
+            Ok(images) => {
+                info!("Successfully fetched {} images for market code: {}", images.len(), market_code_clone);
+                Ok(images)
             }
-        });
+            Err(e) => {
+                error!("Failed to fetch images for market code {}: {}", market_code_clone, e);
+                Err(format!("Failed to fetch images: {}", e))
+            }
+        };
+        let promise = Promise::from_ready(result);
 
         self.app_state.bing_api_promise = Some(promise);
         self.app_state.update_market_code_timestamp(&market_code);
