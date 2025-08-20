@@ -48,7 +48,6 @@ pub use core::exports::{
     BingImage,
     BingResponse,
     HistoricalImage,
-    open_config_directory,
     get_old_market_codes,
     load_market_codes,
     get_historical_page_info,
@@ -77,6 +76,10 @@ pub use services::{
     ProjectDirectories,
     DefaultServiceProvider,
 };
+
+// Conditional exports
+#[cfg(not(target_os = "android"))]
+pub use core::exports::open_config_directory;
 
 // GUI-related exports only for non-WASM targets
 #[cfg(not(target_arch = "wasm32"))]

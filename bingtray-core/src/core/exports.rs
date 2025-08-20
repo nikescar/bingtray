@@ -3,13 +3,15 @@
 // Re-export core functionality
 pub use crate::core::storage::{
     Config,
-    open_config_directory,
     sanitize_filename,
     get_next_image,
     move_to_keepfavorite,
     blacklist_image,
     need_more_images,
 };
+
+#[cfg(not(target_os = "android"))]
+pub use crate::core::storage::open_config_directory;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use crate::core::storage::{

@@ -1,7 +1,11 @@
-use anyhow::{Result, Context};
+use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 use crate::{FileSystemService, DefaultServiceProvider};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::core::request::get_market_codes;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::core::database::save_market_codes;
 #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use std::process::Command;
 
@@ -27,7 +31,7 @@ impl Config {
         Self::new_with_service(&DefaultServiceProvider)
     }
     
-    pub fn new_with_service<S: FileSystemService>(service: &S) -> Result<Self> {
+    pub fn new_with_service<S: FileSystemService>(#[allow(unused_variables)] service: &S) -> Result<Self> {
         #[cfg(target_os = "android")]
         {
             // Android-specific paths
@@ -171,7 +175,7 @@ impl Config {
         #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
         {
             let proj_dirs = service.get_project_dirs()
-                .context("Failed to get project directories")?;
+                .map_err(|e| anyhow::anyhow!("Failed to get project directories: {}", e))?;
             
             let config_dir = proj_dirs.config_dir().clone();
             let unprocessed_dir = config_dir.join("unprocessed");

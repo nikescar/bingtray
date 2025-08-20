@@ -138,6 +138,9 @@ cargo ndk -t x86 -o app/src/main/jniLibs/ build --release --lib
 cargo ndk -t x86_64 -o app/src/main/jniLibs/ build --release --lib
 ANDROID_SPLIT_BUILD=1 gradle build
 
+ls -althR app/src/main/jniLibs/
+ls -alth app/build/outputs/apk/release/
+
 # adb commands
 # adb devices
 # adb install app/bulid/outputs/apk/release/app-release.apk

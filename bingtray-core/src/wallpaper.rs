@@ -41,7 +41,8 @@ pub fn set_wallpaper(file_path: &Path) -> Result<bool> {
     set_wallpaper_with_service(file_path, &DefaultServiceProvider)
 }
 
-pub fn set_wallpaper_with_service<S: WallpaperService>(file_path: &Path, service: &S) -> Result<bool> {
+pub fn set_wallpaper_with_service<S: WallpaperService>(file_path: &Path, #[allow(unused_variables)] service: &S) -> Result<bool> {
+    #[allow(unused_variables)]
     let file_loc = file_path.to_string_lossy();
     
     // Android-specific wallpaper setting
