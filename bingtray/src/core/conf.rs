@@ -2,19 +2,13 @@ use anyhow::{Context, Result};
 use chrono::{Utc, NaiveDate, Duration};
 use std::collections::HashMap;
 use std::fs;
-#[cfg(feature = "serde")]
-use serde_json;
-#[cfg(not(target_arch = "wasm32"))]
 use log::{info, error};
 
 use crate::core::storage::Config;
 use crate::core::request::{BingImage, HistoricalImage};
-#[cfg(not(target_arch = "wasm32"))]
 use crate::core::request::get_market_codes;
-#[cfg(not(target_arch = "wasm32"))]
 use crate::run_async;
 
-#[cfg(not(target_arch = "wasm32"))]
 pub fn load_market_codes(config: &Config) -> Result<HashMap<String, i64>> {
     info!("load_market_codes: Checking if marketcodes file exists: {:?}", config.marketcodes_file);
     if !config.marketcodes_file.exists() {
@@ -50,7 +44,6 @@ pub fn load_market_codes(config: &Config) -> Result<HashMap<String, i64>> {
     Ok(market_map)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 pub fn save_market_codes(config: &Config, market_codes: &HashMap<String, i64>) -> Result<()> {
     info!("save_market_codes: Saving {} market codes to {:?}", market_codes.len(), config.marketcodes_file);
     let mut content = String::new();
@@ -69,7 +62,6 @@ pub fn save_market_codes(config: &Config, market_codes: &HashMap<String, i64>) -
     }
 }
 
-#[cfg(target_arch = "wasm32")]
 pub fn save_market_codes(_config: &Config, _market_codes: &HashMap<String, i64>) -> Result<()> {
     // In WASM, market codes are saved via SqliteDb in the wasm module
     Ok(())
@@ -159,7 +151,6 @@ pub fn get_old_market_codes(market_codes: &HashMap<String, i64>) -> Vec<String> 
 }
 
 /// Download and parse historical data from GitHub repository
-#[cfg(not(target_arch = "wasm32"))]
 pub fn download_historical_data(config: &Config, _starting_index: usize) -> Result<Vec<HistoricalImage>> {
     // Check if historical metadata conf exists, if so, load and return first 8 images
     if config.historical_metadata_file.exists() {
@@ -343,7 +334,6 @@ pub fn load_historical_metadata(config: &Config) -> Result<(usize, Vec<Historica
 }
 
 /// Get next historical page data
-#[cfg(not(target_arch = "wasm32"))]
 pub fn get_next_historical_page(config: &Config, thumb_mode: bool) -> Result<Option<Vec<HistoricalImage>>> {
     use crate::core::storage::{download_image, download_thumbnail_image, sanitize_filename};
     
@@ -454,39 +444,4 @@ pub fn get_historical_page_info(config: &Config) -> Result<(usize, usize)> {
     let total_pages = existing_images.len() / 8 + if existing_images.len() % 8 > 0 { 1 } else { 0 };
     
     Ok((current_page, total_pages))
-}
-
-// WASM functions for SQLite and HTTP operations
-#[cfg(target_arch = "wasm32")]
-pub fn load_market_codes(_config: &Config) -> Result<HashMap<String, i64>> {
-    // In WASM, market codes are loaded via SqliteDb in the wasm module
-    // This function is kept for compatibility but should use wasm::SqliteDb
-    Ok(HashMap::new())
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn download_images_for_market(_config: &Config, _market_code: &str, _thumb_mode: bool) -> Result<(usize, Vec<BingImage>)> {
-    // In WASM, images are downloaded via HttpClient in the wasm module
-    // This function is kept for compatibility but should use wasm::HttpClient
-    Ok((0, Vec::new()))
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn download_historical_data(_config: &Config, _starting_index: usize) -> Result<Vec<HistoricalImage>> {
-    // In WASM, use HttpClient::download_historical_data instead
-    Ok(Vec::new())
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn download_image(_image: &BingImage, _target_dir: &std::path::Path, _config: &Config) -> Result<std::path::PathBuf> {
-    // In WASM, images are not downloaded to filesystem but handled via HttpClient::download_image_bytes
-    use std::path::PathBuf;
-    Ok(PathBuf::from("/tmp/placeholder.jpg"))
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn download_thumbnail_image(_image: &BingImage, _config: &Config) -> Result<std::path::PathBuf> {
-    // In WASM, thumbnails are not downloaded to filesystem but handled via HttpClient::download_thumbnail_bytes
-    use std::path::PathBuf;
-    Ok(PathBuf::from("/tmp/placeholder_thumb.jpg"))
 }

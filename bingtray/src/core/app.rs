@@ -13,7 +13,7 @@ pub trait View {
 }
 
 pub fn is_mobile(ctx: &egui::Context) -> bool {
-    ctx.input(|i| i.screen_rect().width() < 768.0)
+    ctx.input(|i| i.screen_rect().width() < 1081.0)
 }
 
 pub trait Demo {
@@ -394,7 +394,7 @@ impl BingtrayApp {
 
 impl Demo for BingtrayApp {
     fn name(&self) -> &'static str {
-        "🖼 Bingtray"
+        "Bingtray"
     }
 
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {

@@ -2,17 +2,18 @@ use anyhow::Result;
 use std::fs;
 use std::path::{Path, PathBuf};
 use crate::{FileSystemService, DefaultServiceProvider};
+
 #[cfg(not(target_arch = "wasm32"))]
 use crate::core::request::get_market_codes;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::core::database::save_market_codes;
-#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
-use std::process::Command;
-
 #[cfg(not(target_arch = "wasm32"))]
 use crate::core::request::BingImage;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::core::database::is_blacklisted;
+
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+use std::process::Command;
 
 #[derive(Debug, Clone)]
 pub struct Config {

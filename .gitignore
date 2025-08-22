@@ -131,6 +131,7 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
+.vscode
 .secrets
 .solidbase
 web/tmp/
