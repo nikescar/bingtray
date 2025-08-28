@@ -42,7 +42,7 @@ $ base64 release.keystore > release-key-keystore_base64_encoded.txt
 # KEY_ALIAS={crate_name}-release-key
 ```
 
-### Upload signing key on google play
+### Upload signing key on Google Playstore
 
 To upload java singing keystore to google play. You need download upload-encryption key from store.
 
@@ -58,7 +58,20 @@ upload created ```release-signing-play-generated.zip``` file.
 
 ### Submit app to Amazon Appstore
 
+1. submit app
+2. get app id, appstore client id, appstore client secret
+3. test github workflow
+
 https://developer.amazon.com/docs/app-submission/submitting-apps-to-amazon-appstore.html
+https://developer.amazon.com/docs/app-submission-api/auth.html
+
+client-id: ${{secrets.AMAZON_APPSTORE_CLIENT_ID}}
+client-secret: ${{secrets.AMAZON_APPSTORE_CLIENT_SECRET}}
+app-id: ${{ secrets.AMAZON_APPSTORE_APP_ID }}
+
+AMAZON_APPSTORE_CLIENT_ID=amzn1.application-oa2-client.*********************
+AMAZON_APPSTORE_CLIENT_SECRET=amzn1.oa2-cs.v1.******************
+AMAZON_APPSTORE_APP_ID=amzn1.devportal.mobileapp.0d33f4326f6348218eba1b026204a38f
 
 ### Publish to Snap
 
