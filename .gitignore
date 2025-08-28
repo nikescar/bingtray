@@ -139,3 +139,8 @@ web/bingtray_core.js
 web/bingtray_core_bg.wasm
 web/tmp/
 bingtray/tmp/
+
+prime/
+stage/
+parts/
+*.snap

@@ -1,0 +1,48 @@
+name: bingtray
+version: 0.0.6
+summary: cross-platform bing daily image wallpaper downloader.
+description: |
+  Select Wallpaper from Bing Images of the Day.
+  Open source, cross-platform, written in Rust.
+
+base: core20
+confinement: strict
+
+architectures:
+  - build-on: amd64
+  - build-on: arm64
+  - build-on: armhf
+
+apps:
+  bingtray:
+    command: bin/bingtray
+    plugs:
+      - home
+      - network
+
+parts:
+  bingtray:
+    source: .
+    plugin: rust
+    build-packages:
+      - libssl-dev
+      - pkg-config
+      - gettext
+      - libclang-dev
+      - on arm64,armhf,ppc64el,s390x:
+        - lld
+    override-build: |
+      # buildinng process already finished in the build step of github actions
+      # so just copy the binary to the snap install directory
+
+      # Set version from git
+      snapcraftctl set-version $(git describe --tags --always 2>/dev/null || echo "0.0.6")
+      
+      # Build for the target architecture
+      if [ "$SNAPCRAFT_TARGET_ARCH" != "amd64" ]; then
+        # cargo build --workspace --release --target $RUST_TARGET
+        install -Dm755 target/$RUST_TARGET/release/bingtray $SNAPCRAFT_PART_INSTALL/bin/bingtray
+      else
+        # cargo build --workspace --release
+        install -Dm755 target/release/bingtray $SNAPCRAFT_PART_INSTALL/bin/bingtray
+      fi

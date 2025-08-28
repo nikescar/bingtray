@@ -56,13 +56,28 @@ $ java -jar pepk.jar --keystore=release.keystore --alias=release --output=releas
 ```
 upload created ```release-signing-play-generated.zip``` file.
 
+### Submit app to Google Playstore
+1. register google play console
+2. internal testing and pass 14 days with published testing
+3. add credentials to github repository secrets
+4. run github workflow
+
 ### Submit app to Amazon Appstore
+1. register 
 
 https://developer.amazon.com/docs/app-submission/submitting-apps-to-amazon-appstore.html
+
+
 
 ### Publish to Snap
 
 https://documentation.ubuntu.com/snapcraft/stable/how-to/publishing/publish-a-snap/
+
+```bash
+$ snap export
+$ export SNAPCRAFT_STORE_CREDENTIALS="your_credentials_here"
+```
+
 
 ### Publish to Flathub
 

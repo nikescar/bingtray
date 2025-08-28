@@ -106,19 +106,19 @@ jobs:
         run: |
           sudo apt install android-libunwind android-libunwind-dev libunwind-dev musl-tools llvm-14 clang llvm
 
-      - name: Checkout Git repo
+      - name: All, Checkout Git repo
         uses: actions/checkout@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
       
-      - name: Install Rust nightly
+      - name: All, Install Rust nightly
         uses: dtolnay/rust-toolchain@nightly
         with:
           targets: ${{ matrix.platform.target }}
           components: rustfmt, clippy
 
-      - name: Install package for Android
+      - name: Android, Install package for Android
         if: contains(matrix.platform.target, 'android')
         run: | 
           cargo install cross --git https://github.com/cross-rs/cross
@@ -150,13 +150,14 @@ jobs:
           inAppUpdatePriority: 2
           debugSymbols: mobile/app/build/intermediates/merged_native_libs/release/mergeReleaseNativeLibs/out/lib
       
-      - name: Upload to the Amazon AppStore
+      - name: Android, Upload to the Amazon AppStore
+        if: "(contains(matrix.platform.name, 'Android APK arm64'))"
         uses: ALJAZEERAPLUS/amazon-appstore-action@v1
         with:
           client-id: ${{secrets.AMAZON_APPSTORE_CLIENT_ID}}
           client-secret: ${{secrets.AMAZON_APPSTORE_CLIENT_SECRET}}
           app-id: ${{ secrets.AMAZON_APPSTORE_APP_ID }}
-          apk-file: mobile/app/build/outputs/bundle/release/app-release.aab
+          apk-file: app/build/outputs/apk/release/app-release.apk
 
       - name: Non Android, Native bingtray Build ${{ matrix.platform.name }} binary
         if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64')
@@ -164,8 +165,8 @@ jobs:
         with:
           command: build
           args: ${{ matrix.platform.build-args }} --package bingtray
-      
-      - name: Store artifact bingtray
+
+      - name: All except Android, Store artifact bingtray
         if: (!contains(matrix.platform.name, 'Android APK arm64'))
         uses: actions/upload-artifact@v4
         with:
@@ -174,7 +175,21 @@ jobs:
           path: target/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingtray*
           retention-days: 1
       
-      - name: Store artifact Android release arm64 apk
+      - name: All except Android, Build snap packages
+        if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64')
+        uses: snapcore/action-build@v1
+        id: build
+      
+      - name: All except Android, Publish snap to store
+        if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64')
+        uses: snapcore/action-publish@v1
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_LOGIN }}
+        with:
+          snap: ${{ steps.build.outputs.snap }}
+          release: edge
+
+      - name: Android, Store artifact Android release arm64 apk
         if: (contains(matrix.platform.name, 'Android APK arm64'))
         uses: actions/upload-artifact@v4
         with:
