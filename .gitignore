@@ -144,3 +144,4 @@ prime/
 stage/
 parts/
 *.snap
+.vscode/

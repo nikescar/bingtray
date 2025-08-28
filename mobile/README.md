@@ -63,22 +63,39 @@ upload created ```release-signing-play-generated.zip``` file.
 4. run github workflow
 
 ### Submit app to Amazon Appstore
-1. register 
+1. register developer and app and be approved
+2. add credentials to github repository secrets
+3. run github workflow
 
 https://developer.amazon.com/docs/app-submission/submitting-apps-to-amazon-appstore.html
-
-
+https://developer.amazon.com/apps-and-games/console/apps/list.html#/
 
 ### Publish to Snap
-
+1. register developer and get export credentials
+2. add credentials to github repository secrets
+3. run github workflow
 https://documentation.ubuntu.com/snapcraft/stable/how-to/publishing/publish-a-snap/
 
 ```bash
-$ snap export
+$ snap login
+$ snapcraft register $APPNAME
+$ snapcraft export-login tmp/snap-export.log
 $ export SNAPCRAFT_STORE_CREDENTIALS="your_credentials_here"
+$ cargo build --release
+$ snapcraft pack --destructive-mode
+$ snapcraft upload --release=stable bingtray_0.0.6_amd64.snap
 ```
 
+### Submit app to Fdroid
+1. add metadata to fdroid datarepo
+https://gitlab.com/fdroid/fdroiddata
 
 ### Publish to Flathub
 
 https://docs.flathub.org/docs/for-app-authors/submission
+
+
+### Publish to Huawei
+
+https://docs.nhncloud.com/en/Mobile%20Service/IAP/en/console-huawei-guide/
+
