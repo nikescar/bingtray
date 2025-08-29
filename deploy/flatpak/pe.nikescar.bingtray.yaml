@@ -41,7 +41,7 @@ modules:
       env:
         CARGO_HOME: /run/build/bingtray/cargo
     build-commands:
-      - cargo build --release --bin bingtray
+      - cargo build --package bingtray --release
       - install -Dm755 target/release/bingtray -t /app/bin/
       - install -Dm644 bingtray/resources/logo.png /app/share/icons/hicolor/256x256/apps/pe.nikescar.bingtray.png
       - install -Dm644 pe.nikescar.bingtray.desktop /app/share/applications/pe.nikescar.bingtray.desktop
@@ -50,6 +50,8 @@ modules:
       - type: git
         url: https://github.com/nikescar/bingtray.git
         tag: v0.0.6
+      # - type: dir
+      #   path: /home/builder/bingtray-source
       - type: file
         path: pe.nikescar.bingtray.desktop
       - type: file

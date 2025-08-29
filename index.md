@@ -23,4 +23,4 @@ hero:
 [Latest Release](https://github.com/nikescar/bingtray/releases)<br/>
 
 
-mdx-sitegen-solidbase is made with [solidbase](https://solidbase.dev/) and based on [solidbase-docs](https://github.com/kobaltedev/solidbase/tree/main/docs)
+made with [solidbase](https://solidbase.dev/) and based on [solidbase-docs](https://github.com/kobaltedev/solidbase/tree/main/docs)

@@ -1,0 +1,109 @@
+require 'yaml'
+require 'pathname'
+require 'fileutils'
+
+configfile = {
+  'boot_timeout' => 600,
+  'cachedir' => File.join(ENV['HOME'], '.cache', 'fdroidserver'),
+  'cpus' => 1,
+  'debian_mirror' => 'https://deb.debian.org/debian/',
+  'hwvirtex' => 'on',
+  'memory' => 2048,
+  'vm_provider' => 'virtualbox',
+}
+
+srvpath = Pathname.new(File.dirname(__FILE__)).realpath
+configpath = File.join(srvpath, "/Vagrantfile.yaml")
+if File.exist? configpath
+  c = YAML.load_file(configpath)
+  if c and not c.empty?
+    c.each do |k,v|
+      configfile[k] = v
+    end
+  end
+else
+  puts "Copying example file to #{configpath}"
+  FileUtils.cp('../examples/Vagrantfile.yaml', configpath)
+end
+
+Vagrant.configure("2") do |config|
+
+  if Vagrant.has_plugin?("vagrant-cachier")
+    config.cache.scope = :box
+    config.cache.auto_detect = false
+    config.cache.enable :apt
+    config.cache.enable :chef
+  end
+
+  config.vm.box = "debian/bookworm64"
+
+  if not configfile.has_key? "vm_provider" or configfile["vm_provider"] == "virtualbox"
+    # default to VirtualBox if not set
+    config.vm.provider "virtualbox" do |v|
+      v.customize ["modifyvm", :id, "--memory", configfile['memory']]
+      v.customize ["modifyvm", :id, "--cpus", configfile['cpus']]
+      v.customize ["modifyvm", :id, "--hwvirtex", configfile['hwvirtex']]
+    end
+    synced_folder_type = 'virtualbox'
+  elsif configfile["vm_provider"] == "libvirt"
+    # use KVM/QEMU if this is running in KVM/QEMU
+    config.vm.provider :libvirt do |libvirt|
+      libvirt.driver = configfile["hwvirtex"] == "on" ? "kvm" : "qemu"
+      libvirt.host = "localhost"
+      libvirt.uri = "qemu:///system"
+      libvirt.cpus = configfile["cpus"]
+      libvirt.memory = configfile["memory"]
+      # Debian Vagrant image is only 20G, so allocate more
+      libvirt.machine_virtual_size = 1024
+      if configfile.has_key? "libvirt_disk_bus"
+        libvirt.disk_bus = configfile["libvirt_disk_bus"]
+      end
+      if configfile.has_key? "libvirt_nic_model_type"
+        libvirt.nic_model_type = configfile["libvirt_nic_model_type"]
+      end
+    end
+    if configfile.has_key? "synced_folder_type"
+      synced_folder_type = configfile["synced_folder_type"]
+    else
+      synced_folder_type = '9p'
+    end
+    config.vm.synced_folder './', '/vagrant', type: synced_folder_type,
+                            SharedFoldersEnableSymlinksCreate: false
+  else
+    abort("No supported VM Provider found, set vm_provider in Vagrantfile.yaml!")
+  end
+
+  config.vm.boot_timeout = configfile['boot_timeout']
+
+  if configfile.has_key? "aptproxy"
+    config.vm.provision :shell, path: "provision-apt-proxy",
+      args: [configfile["aptproxy"]]
+  end
+
+  config.vm.synced_folder configfile["cachedir"], '/vagrant/cache',
+                          create: true, type: synced_folder_type
+
+  # Make sure dir exists to mount to, since buildserver/ is
+  # automatically mounted as /vagrant in the guest VM. This is more
+  # necessary with 9p synced folders
+  Dir.mkdir('cache') unless File.exist?('cache')
+
+  # Root partition needs to be resized to the new allocated space
+  config.vm.provision "shell", inline: <<-SHELL
+    growpart -v -u auto /dev/vda 1
+    resize2fs /dev/vda1
+  SHELL
+
+  config.vm.provision "shell", name: "setup-env-vars", path: "setup-env-vars",
+    args: ["/opt/android-sdk"]
+  config.vm.provision "shell", name: "apt-get-install", path: "provision-apt-get-install",
+    args: [configfile['debian_mirror']]
+  config.vm.provision "shell", name: "android-sdk", path: "provision-android-sdk"
+  config.vm.provision "shell", name: "android-ndk", path: "provision-android-ndk",
+    args: ["/opt/android-sdk/ndk"]
+  config.vm.provision "shell", name: "gradle", path: "provision-gradle"
+  config.vm.provision "shell", name: "disable-analytics", path: "provision-disable-analytics"
+  config.vm.provision "shell", name: "buildserverid", path: "provision-buildserverid",
+    args: [`git rev-parse HEAD`]
+
+end
