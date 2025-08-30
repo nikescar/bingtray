@@ -79,7 +79,7 @@ android {
                 enable true
                 reset()
                 include 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64' // Specify desired ABIs
-            universalApk false // Set to true to also build a universal APK
+            universalApk true // Set to true to also build a universal APK
             }
         }
     }

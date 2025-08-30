@@ -30,7 +30,7 @@
         </activity>
         
         <service
-            android:name=".WallpaperService"
+            android:name=".BingtrayWallpaperService"
             android:foregroundServiceType="specialUse"
             android:exported="false">
             <property 
