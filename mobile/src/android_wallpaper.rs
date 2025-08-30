@@ -134,15 +134,15 @@ pub fn set_wallpaper_from_bytes_with_crop(
     }
 
     // Gracefully finish the Android application
-    let native_activity = ctx.context() as *mut ndk_sys::ANativeActivity;
-    if !native_activity.is_null() {
-        log::info!("Finishing native activity");
-        unsafe {
-            ndk_sys::ANativeActivity_finish(native_activity);
-        }
-    } else {
-        log::warn!("Native activity pointer is null");
-    }
+    // let native_activity = ctx.context() as *mut ndk_sys::ANativeActivity;
+    // if !native_activity.is_null() {
+    //     log::info!("Finishing native activity");
+    //     unsafe {
+    //         ndk_sys::ANativeActivity_finish(native_activity);
+    //     }
+    // } else {
+    //     log::warn!("Native activity pointer is null");
+    // }
 
     Ok(true)
 }
