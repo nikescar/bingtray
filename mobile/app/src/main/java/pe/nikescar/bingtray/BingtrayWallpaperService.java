@@ -10,7 +10,9 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Build;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.util.Log;
 
 import java.io.ByteArrayInputStream;
@@ -24,10 +26,14 @@ public class BingtrayWallpaperService extends Service {
     
     public static final String EXTRA_IMAGE_DATA = "image_data";
     
+    private Handler mainHandler;
+    private Runnable timeoutRunnable;
+    
     @Override
     public void onCreate() {
         super.onCreate();
         Log.i(TAG, "WallpaperService created");
+        mainHandler = new Handler(Looper.getMainLooper());
         createNotificationChannel();
     }
     
@@ -38,6 +44,14 @@ public class BingtrayWallpaperService extends Service {
         // Start foreground service immediately
         Notification notification = createNotification("Setting wallpaper...");
         startForeground(NOTIFICATION_ID, notification);
+        
+        // Set up safety timeout (30 seconds max)
+        timeoutRunnable = () -> {
+            Log.w(TAG, "Wallpaper service timeout - stopping service");
+            updateNotification("Operation timed out");
+            stopSelf();
+        };
+        mainHandler.postDelayed(timeoutRunnable, 30000);
         
         // Get image data from intent
         final byte[] imageData;
@@ -58,35 +72,31 @@ public class BingtrayWallpaperService extends Service {
                     // Update notification to success
                     updateNotification("Wallpaper set successfully!");
                     
-                    // Stop service after short delay to show success message
-                    new Thread(() -> {
-                        try {
-                            Thread.sleep(2000); // Show success for 2 seconds
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
+                    // Cancel timeout and stop service after longer delay to allow app configuration change
+                    mainHandler.removeCallbacks(timeoutRunnable);
+                    mainHandler.postDelayed(() -> {
+                        Log.i(TAG, "Stopping wallpaper service after successful operation");
                         stopSelf();
-                    }).start();
+                    }, 3000); // Increased delay to 3 seconds to allow main app to handle config changes
                     
                 } catch (Exception e) {
                     Log.e(TAG, "Failed to set wallpaper in service", e);
                     updateNotification("Failed to set wallpaper");
                     
-                    // Stop service after showing error
-                    new Thread(() -> {
-                        try {
-                            Thread.sleep(3000); // Show error for 3 seconds
-                        } catch (InterruptedException ex) {
-                            Thread.currentThread().interrupt();
-                        }
+                    // Cancel timeout and stop service after showing error on main thread
+                    mainHandler.removeCallbacks(timeoutRunnable);
+                    mainHandler.postDelayed(() -> {
+                        Log.i(TAG, "Stopping wallpaper service after error");
                         stopSelf();
-                    }).start();
+                    }, 2500); // Show error for 2.5 seconds
                 }
             }).start();
         } else {
             Log.e(TAG, "No image data provided");
             updateNotification("No image data provided");
-            stopSelf();
+            // Cancel timeout and stop service immediately for invalid data, but on main thread
+            mainHandler.removeCallbacks(timeoutRunnable);
+            mainHandler.post(() -> stopSelf());
         }
         
         return START_NOT_STICKY;
@@ -95,6 +105,12 @@ public class BingtrayWallpaperService extends Service {
     @Override
     public void onDestroy() {
         super.onDestroy();
+        
+        // Clean up timeout callback if it's still pending
+        if (mainHandler != null && timeoutRunnable != null) {
+            mainHandler.removeCallbacks(timeoutRunnable);
+        }
+        
         Log.i(TAG, "WallpaperService destroyed");
     }
     
