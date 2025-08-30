@@ -995,7 +995,10 @@ impl View for BingtrayApp {
                     // Always update the screen ratio when image display changes, even if rectangle isn't reset
                     let (actual_screen_width, actual_screen_height) = self.get_actual_screen_size();
                     let actual_screen_ratio = actual_screen_width / actual_screen_height;
-                    if (actual_screen_ratio - self.screen_ratio).abs() > 0.01 {
+                    // Increased tolerance to prevent constant updates from small variations
+                    if (actual_screen_ratio - self.screen_ratio).abs() > 0.05 {
+                        log::debug!("Screen ratio changed from {:.3} to {:.3} - updating corners", 
+                                   self.screen_ratio, actual_screen_ratio);
                         self.screen_ratio = actual_screen_ratio;
                         self.update_square_corners();
                     }
@@ -1877,9 +1880,9 @@ impl BingtrayApp {
         // Immediately update screen ratio with actual screen size
         let (screen_width, screen_height) = self.get_actual_screen_size();
         let new_screen_ratio = screen_width / screen_height;
-        if (new_screen_ratio - self.screen_ratio).abs() > 0.01 {
-            info!("Screen size provider set - updating ratio from {:.3} to {:.3} ({}x{})", 
-                  self.screen_ratio, new_screen_ratio, screen_width, screen_height);
+        if (new_screen_ratio - self.screen_ratio).abs() > 0.05 {
+            log::debug!("Screen size provider set - updating ratio from {:.3} to {:.3} ({}x{})", 
+                       self.screen_ratio, new_screen_ratio, screen_width, screen_height);
             self.screen_ratio = new_screen_ratio;
             self.update_square_corners();
         }
@@ -1915,8 +1918,9 @@ impl BingtrayApp {
     fn update_square_corners(&mut self) {
         // Get actual screen dimensions for rectangle calculation
         let (screen_width, screen_height) = self.get_actual_screen_size();
-        info!("Updating square corners with screen: {}x{}, center: {:?}, factor: {}", 
-              screen_width, screen_height, self.square_center, self.square_size_factor);
+        // Reduced logging to prevent UI freezing from excessive log output
+        log::debug!("Updating square corners with screen: {}x{}, center: {:?}, factor: {}", 
+                   screen_width, screen_height, self.square_center, self.square_size_factor);
         
         // Ensure screen ratio is valid
         if self.screen_ratio <= 0.0 {
@@ -1959,9 +1963,9 @@ impl BingtrayApp {
             16.0 / 9.0 // Fallback ratio
         };
         
-        if (new_screen_ratio - self.screen_ratio).abs() > 0.01 {
-            info!("Updating screen ratio from {:.3} to {:.3} ({}x{})", 
-                  self.screen_ratio, new_screen_ratio, screen_width, screen_height);
+        if (new_screen_ratio - self.screen_ratio).abs() > 0.05 {
+            log::debug!("Updating screen ratio from {:.3} to {:.3} ({}x{})", 
+                       self.screen_ratio, new_screen_ratio, screen_width, screen_height);
             self.screen_ratio = new_screen_ratio;
             self.update_square_corners();
         }

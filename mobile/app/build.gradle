@@ -57,14 +57,10 @@ android {
     }
 
     buildTypes {
-        // debug {
-        //     minifyEnabled false
-        //     signingConfig signingConfigs.debug
-        //     //packagingOptions {
-        //     //    doNotStrip '**/*.so'
-        //     //}
-        //     //debuggable true
-        // }
+        debug {
+            minifyEnabled false
+            debuggable true
+        }
         
         release {
             minifyEnabled false
@@ -93,10 +89,19 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
     
+    // Explicitly configure source sets
+    sourceSets {
+        main {
+            java.srcDirs = ['src/main/java']
+        }
+    }
+    
     namespace 'pe.nikescar.bingtray'
 }
 
 dependencies {
-
+    // Android core dependencies for Java compilation
+    implementation 'androidx.core:core:1.8.0'
+    implementation 'androidx.appcompat:appcompat:1.5.0'
 }
 
