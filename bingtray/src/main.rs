@@ -1,8 +1,12 @@
-//! Bingtray demo app
+// main entrypoint for debugging egui app
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
 
 use eframe::{NativeOptions, egui};
+use egui_material3::{
+    MaterialDataTable, MaterialButton,
+    theme::{setup_google_fonts, setup_local_fonts, setup_local_theme, load_fonts, load_themes, MaterialThemeFile, MaterialThemeContext, ThemeMode, ContrastLevel, update_global_theme},
+};
 use bingtray::BingtrayApp;
 
 #[global_allocator]
@@ -46,6 +50,14 @@ fn main() -> Result<(), eframe::Error> {
         native_options,
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
+
+            setup_google_fonts(Some("Nanum Gothic"));
+            setup_local_fonts(Some("resources/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf"));
+            setup_local_theme(Some("resources/material-theme2.json"));
+
+            load_fonts(&cc.egui_ctx);
+            load_themes();
+            
             Ok(Box::new(BingtrayApp::default()))
         }),
     )

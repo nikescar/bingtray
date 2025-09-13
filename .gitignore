@@ -140,3 +140,8 @@ desktop/tmp/
 mobile/tmp/
 web/bingtray.js
 web/bingtray_bg.wasm
+
+
+.idea
+parts/
+crates/

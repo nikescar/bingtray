@@ -1,3 +1,5 @@
+// wasm entry point and web app integration
+
 #![allow(clippy::mem_forget)] // False positives from #[wasm_bindgen] macro
 
 #[cfg(target_arch = "wasm32")]

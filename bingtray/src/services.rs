@@ -1,3 +1,4 @@
+// Service traits and default implementations for dependency injection
 use anyhow::Result;
 use std::path::PathBuf;
 
