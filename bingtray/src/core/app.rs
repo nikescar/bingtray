@@ -9,6 +9,7 @@ use std::sync::Arc;
 use poll_promise::Promise;
 
 use crate::core::conf::Conf;
+use crate::core::sqlite::Sqlite;
 
 pub trait WallpaperSetter: Send + Sync {
     fn set_wallpaper_from_bytes(&self, image_bytes: &[u8]) -> std::io::Result<bool>;
@@ -49,6 +50,9 @@ impl App {
     pub fn new() -> Result<Self> {
         let conf = Conf::new()?;
 
+        info!("Using SQLite database at: {:?}", conf.sqlite_file);
+        let sqlite = Sqlite::new(conf.sqlite_file.to_str().unwrap());
+
         Ok(Self {
             is_dark_theme: false,
             window_title: "BingTray".to_string(),
@@ -58,8 +62,6 @@ impl App {
             wallpaper_path: None,
             conf,
         })
-
-
     }
     
     

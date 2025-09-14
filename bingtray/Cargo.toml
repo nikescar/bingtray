@@ -25,6 +25,7 @@ directories = "5.0"
 tokio = { workspace = true }
 reqwest = { workspace = true }
 scraper = { workspace = true }
+webbrowser = { version = "1.0.5", default-features = false }
 
 # GUI. All(Desktop. Android, WASM)
 egui = { workspace = true }
@@ -46,7 +47,7 @@ wasm-bindgen-futures = "0.4"
 web-sys = "0.3.73"
 js-sys = "0.3.77"
 tokio = { version = "1.0", features = ["sync", "macros", "io-util", "rt", "time"], default-features = false }
-eframe = { git = "https://github.com/emilk/egui", default-features = false, features = ["default_fonts", "glow"] }
+eframe = { workspace = true, default-features = false, features = ["default_fonts", "glow"] }
 getrandom = { version = "0.2.16", features = ["js"] }
 wgpu = { workspace = true, features = ["webgpu"]}
 
@@ -70,3 +71,7 @@ wgpu = { workspace = true, features = ["dx12","metal","vulkan","gles"] }
 # Android
 [target.'cfg(target_os = "android")'.dependencies]
 wgpu = { workspace = true, features = ["vulkan","gles"] }
+
+[dev-dependencies]
+ureq = { version = "2.9", features = ["json"] }
+egui-file-dialog = "0.11.0"

@@ -40,7 +40,7 @@ fn main() -> Result<(), eframe::Error> {
     
     let native_options = NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([1080.0, 2340.0])
+            .with_inner_size([800.0, 1200.0])
             .with_drag_and_drop(true),
         ..Default::default()
     };
@@ -51,11 +51,12 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(|cc| {
             egui_extras::install_image_loaders(&cc.egui_ctx);
 
-            setup_google_fonts(Some("Nanum Gothic"));
+            // setup_google_fonts(Some("Nanum Gothic"));
             setup_local_fonts(Some("resources/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf"));
-            setup_local_theme(Some("resources/material-theme2.json"));
+            setup_local_fonts(Some("resources/NanumGothic-Regular.ttf"));
+            setup_local_theme(Some("resources/material-theme4.json"));
 
-            // load_fonts(&cc.egui_ctx); // Commented out due to egui version mismatch
+            load_fonts(&cc.egui_ctx);
             load_themes();
             
             Ok(Box::new(Gui::default()))

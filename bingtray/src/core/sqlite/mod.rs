@@ -1,4 +1,5 @@
 use diesel::prelude::*;
+use log::info;
 use std::error::Error;
 
 pub mod model;
@@ -17,14 +18,34 @@ pub struct Sqlite {
 
 impl Sqlite {
     pub fn new(db_path: &str) -> Result<Self, Box<dyn Error>> {
-        let connection = Self::establish_connection(db_path)?;
+        let mut connection = Self::establish_connection(db_path)?;
 
-        // let conn = &mut self.connection;
-        // setup_data(conn)?;
+        info!("Using SQLite database at: {:?}", db_path);
 
-        // one_to_n_relations(conn)?;
-        // joins(conn)?;
-        // m_to_n_relations(conn)?;
+        // create metadata and market tables if not exists. create with diesel
+        diesel::sql_query(
+            "CREATE TABLE IF NOT EXISTS metadata (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                blacklisted BOOLEAN NOT NULL,
+                title TEXT NOT NULL,
+                author TEXT NOT NULL,
+                description TEXT NOT NULL,
+                copyright TEXT NOT NULL,
+                copyright_link TEXT NOT NULL,
+                thumbnail_url TEXT NOT NULL,
+                full_url TEXT NOT NULL
+            )",
+        )
+        .execute(&mut connection)?;
+
+        diesel::sql_query(
+            "CREATE TABLE IF NOT EXISTS market (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                mkcode TEXT NOT NULL,
+                lastvisit TEXT NOT NULL
+            )",
+        )
+        .execute(&mut connection)?;
 
         Ok(Sqlite { connection })
     }
@@ -36,193 +57,100 @@ impl Sqlite {
         Ok(connection)
     }
 
-    fn new_author(&mut self, name: &str) -> DbResult<Author> {
-        diesel::insert_into(authors::table)
-            .values(authors::name.eq(name))
-            .execute(&mut self.connection)?;
-
-        // Get the last inserted author
-        let author = authors::table
-            .order(authors::id.desc())
-            .first(&mut self.connection)?;
-        Ok(author)
-    }
-
-    fn new_book(&mut self, title: &str) -> DbResult<Book> {
-        diesel::insert_into(books::table)
-            .values(books::title.eq(title))
-            .execute(&mut self.connection)?;
-
-        // Get the last inserted book
-        let book = books::table
-            .order(books::id.desc())
-            .first(&mut self.connection)?;
-        Ok(book)
-    }
-
-    fn new_books_author(
+    // new metadata entry, title should be unique, check before insert
+    pub fn new_metadata_entry(
         &mut self,
-        book_id: i32,
-        author_id: i32,
-    ) -> DbResult<BookAuthor> {
-        diesel::insert_into(books_authors::table)
+        blacklisted: bool,
+        title: &str,
+        author: &str,
+        description: &str,
+        copyright: &str,
+        copyright_link: &str,
+        thumbnail_url: &str,
+        full_url: &str,
+    ) -> DbResult<Metadata> {
+        // Check if title already exists
+        let existing = metadata::table
+            .filter(metadata::title.eq(title))
+            .first::<Metadata>(&mut self.connection)
+            .optional()?;
+        
+        if existing.is_some() {
+            return Err("Title already exists".into());
+        }
+
+        diesel::insert_into(metadata::table)
             .values((
-                books_authors::book_id.eq(book_id),
-                books_authors::author_id.eq(author_id),
+            metadata::blacklisted.eq(blacklisted),
+            metadata::title.eq(title),
+            metadata::author.eq(author),
+            metadata::description.eq(description),
+            metadata::copyright.eq(copyright),
+            metadata::copyright_link.eq(copyright_link),
+            metadata::thumbnail_url.eq(thumbnail_url),
+            metadata::full_url.eq(full_url),
             ))
             .execute(&mut self.connection)?;
 
-        // Get the inserted book_author
-        let book_author = books_authors::table
-            .filter(books_authors::book_id.eq(book_id))
-            .filter(books_authors::author_id.eq(author_id))
+        // Get the last inserted metadata
+        let metadata = metadata::table
+            .order(metadata::id.desc())
             .first(&mut self.connection)?;
-        Ok(book_author)
+        Ok(metadata)
     }
 
-    fn new_page(
-        &mut self,
-        page_number: i32,
-        content: &str,
-        book_id: i32,
-    ) -> DbResult<Page> {
-        diesel::insert_into(pages::table)
+    // new market entry
+    pub fn new_market_entry(&mut self, mkcode: &str, lastvisit: &str) -> DbResult<Market> {
+        diesel::insert_into(market::table)
             .values((
-                pages::page_number.eq(page_number),
-                pages::content.eq(content),
-                pages::book_id.eq(book_id),
+                market::mkcode.eq(mkcode),
+                market::lastvisit.eq(lastvisit),
             ))
             .execute(&mut self.connection)?;
 
-        // Get the last inserted page
-        let page = pages::table
-            .order(pages::id.desc())
+        // Get the last inserted market
+        let market = market::table
+            .order(market::id.desc())
             .first(&mut self.connection)?;
-        Ok(page)
+        Ok(market)
     }
 
-    fn joins(&mut self) -> DbResult<()> {
-        let page_with_book = pages::table
-            .inner_join(books::table)
-            .filter(books::title.eq("Momo"))
-            .select((Page::as_select(), Book::as_select()))
-            .load::<(Page, Book)>(&mut self.connection)?;
-
-        println!("Page-Book pairs: {page_with_book:?}");
-
-        let book_without_pages = books::table
-            .left_join(pages::table)
-            .select((Book::as_select(), Option::<Page>::as_select()))
-            .load::<(Book, Option<Page>)>(&mut self.connection)?;
-
-        println!("Book-Page pairs (including empty books): {book_without_pages:?}");
-        Ok(())
+    // set blacklisted status by title
+    pub fn set_blacklisted_status(&mut self, title: &str, blacklisted: bool) -> DbResult<usize> {
+        let rows_updated = diesel::update(metadata::table.filter(metadata::title.eq(title)))
+            .set(metadata::blacklisted.eq(blacklisted))
+            .execute(&mut self.connection)?;
+        Ok(rows_updated)
     }
 
-    fn one_to_n_relations(&mut self) -> DbResult<()> {
-        let momo = books::table
-            .filter(books::title.eq("Momo"))
-            .select(Book::as_select())
-            .get_result(&mut self.connection)?;
-
-        // get pages for the book "Momo"
-        let pages = Page::belonging_to(&momo)
-            .select(Page::as_select())
-            .load(&mut self.connection)?;
-
-        println!("Pages for \"Momo\": \n {pages:?}\n");
-
-        let all_books = books::table.select(Book::as_select()).load(&mut self.connection)?;
-
-        // get all pages for all books
-        let pages = Page::belonging_to(&all_books)
-            .select(Page::as_select())
-            .load(&mut self.connection)?;
-
-        // group the pages per book
-        let pages_per_book = pages
-            .grouped_by(&all_books)
-            .into_iter()
-            .zip(all_books)
-            .map(|(pages, book)| (book, pages))
-            .collect::<Vec<(Book, Vec<Page>)>>();
-
-        println!("Pages per book: \n {pages_per_book:?}\n");
-
-        Ok(())
+    // get all metadata entries
+    pub fn get_all_metadata(&mut self) -> DbResult<Vec<Metadata>> {
+        let results = metadata::table.load::<Metadata>(&mut self.connection)?;
+        Ok(results) 
     }
 
-    fn m_to_n_relations(&mut self) -> DbResult<()> {
-        let astrid_lindgren = authors::table
-            .filter(authors::name.eq("Astrid Lindgren"))
-            .select(Author::as_select())
-            .get_result(&mut self.connection)?;
-
-        // get all of Astrid Lindgren's books
-        let books = BookAuthor::belonging_to(&astrid_lindgren)
-            .inner_join(books::table)
-            .select(Book::as_select())
-            .load(&mut self.connection)?;
-        println!("Asgrid Lindgren books: {books:?}");
-
-        let collaboration = books::table
-            .filter(books::title.eq("Pippi and Momo"))
-            .select(Book::as_select())
-            .get_result(&mut self.connection)?;
-
-        // get authors for the collaboration
-        let authors = BookAuthor::belonging_to(&collaboration)
-            .inner_join(authors::table)
-            .select(Author::as_select())
-            .load(&mut self.connection)?;
-        println!("Authors for \"Pipi and Momo\": {authors:?}");
-
-        // get a list of authors with all their books
-        let all_authors = authors::table.select(Author::as_select()).load(&mut self.connection)?;
-
-        let books = BookAuthor::belonging_to(&authors)
-            .inner_join(books::table)
-            .select((BookAuthor::as_select(), Book::as_select()))
-            .load(&mut self.connection)?;
-
-        let books_per_author: Vec<(Author, Vec<Book>)> = books
-            .grouped_by(&all_authors)
-            .into_iter()
-            .zip(authors)
-            .map(|(b, author)| (author, b.into_iter().map(|(_, book)| book).collect()))
-            .collect();
-
-        println!("All authors including their books: {books_per_author:?}");
-
-        Ok(())
+    // get all market entries
+    pub fn get_all_market(&mut self) -> DbResult<Vec<Market>> {
+        let results = market::table.load::<Market>(&mut self.connection)?;
+        Ok(results)
     }
 
-    fn setup_data(&mut self) -> DbResult<()> {
-        // create a book
-        let momo = self.new_book("Momo")?;
-
-        // a page in that book
-        self.new_page(1, "In alten, alten Zeiten ...", momo.id)?;
-        // a second page
-        self.new_page(2, "den prachtvollen Theatern...", momo.id)?;
-
-        // create an author
-        let michael_ende = self.new_author("Michael Ende")?;
-
-        // let's add the author to the already created book
-        self.new_books_author(momo.id, michael_ende.id)?;
-
-        // create a second author
-        let astrid_lindgren = self.new_author("Astrid Lindgren")?;
-        let pippi = self.new_book("Pippi Långstrump")?;
-        self.new_books_author(pippi.id, astrid_lindgren.id)?;
-
-        // now that both have a single book, let's add a third book, an imaginary collaboration
-        let collaboration = self.new_book("Pippi and Momo")?;
-        self.new_books_author(collaboration.id, astrid_lindgren.id)?;
-        self.new_books_author(collaboration.id, michael_ende.id)?;
-
-        Ok(())
+    // find metadata by title
+    pub fn find_metadata_by_title(&mut self, title: &str) -> DbResult<Option<Metadata>> {
+        let result = metadata::table
+            .filter(metadata::title.eq(title))
+            .first::<Metadata>(&mut self.connection)
+            .optional()?;
+        Ok(result)
     }
+
+    // find market by mkcode
+    pub fn find_market_by_mkcode(&mut self, mkcode: &str) -> DbResult<Option<Market>> {
+        let result = market::table
+            .filter(market::mkcode.eq(mkcode))
+            .first::<Market>(&mut self.connection)
+            .optional()?;
+        Ok(result)
+    }
+    
 }
-

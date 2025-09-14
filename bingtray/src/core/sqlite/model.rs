@@ -1,37 +1,28 @@
 use diesel::prelude::*;
 
-use crate::core::sqlite::schema::{authors, books, books_authors, pages};
+use crate::core::sqlite::schema::{metadata, market};
+
+// https://github.com/diesel-rs/diesel/tree/master/examples/sqlite/relations
+#[derive(Queryable, Selectable, Identifiable, PartialEq, Debug, Clone)]
+#[diesel(table_name = metadata)]
+pub struct Metadata {
+    pub id: i32,
+    pub blacklisted: bool,
+    pub title: String,
+    pub author: String,
+    pub description: String,
+    pub copyright: String,
+    pub copyright_link: String,
+    pub thumbnail_url: String,
+    pub full_url: String,
+}
+
 
 #[derive(Queryable, Selectable, Identifiable, PartialEq, Debug, Clone)]
-#[diesel(table_name = authors)]
-pub struct Author {
+#[diesel(table_name = market)]
+pub struct Market {
     pub id: i32,
-    pub name: String,
+    pub mkcode: String,
+    pub lastvisit: String,
 }
 
-#[derive(Identifiable, Selectable, Queryable, Associations, Debug, Clone)]
-#[diesel(belongs_to(Book))]
-#[diesel(belongs_to(Author))]
-#[diesel(table_name = books_authors)]
-#[diesel(primary_key(book_id, author_id))]
-pub struct BookAuthor {
-    pub book_id: i32,
-    pub author_id: i32,
-}
-
-#[derive(Queryable, Identifiable, Selectable, Debug, PartialEq, Clone)]
-#[diesel(table_name = books)]
-pub struct Book {
-    pub id: i32,
-    pub title: String,
-}
-
-#[derive(Queryable, Selectable, Identifiable, Associations, Debug, PartialEq)]
-#[diesel(belongs_to(Book))]
-#[diesel(table_name = pages)]
-pub struct Page {
-    pub id: i32,
-    pub page_number: i32,
-    pub content: String,
-    pub book_id: i32,
-}

@@ -1,37 +1,25 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
-    authors (id) {
+    metadata (id) {
         id -> Integer,
-        name -> Text,
-    }
-}
-
-diesel::table! {
-    books (id) {
-        id -> Integer,
+        blacklisted -> Bool,
         title -> Text,
+        author -> Text,
+        description -> Text,
+        copyright -> Text,
+        copyright_link -> Text,
+        thumbnail_url -> Text,
+        full_url -> Text,
     }
 }
 
 diesel::table! {
-    books_authors (book_id, author_id) {
-        book_id -> Integer,
-        author_id -> Integer,
-    }
-}
-
-diesel::table! {
-    pages (id) {
+    market (id) {
         id -> Integer,
-        page_number -> Integer,
-        content -> Text,
-        book_id -> Integer,
+        mkcode -> Text,
+        lastvisit -> Text,
     }
 }
 
-diesel::joinable!(books_authors -> authors (author_id));
-diesel::joinable!(books_authors -> books (book_id));
-diesel::joinable!(pages -> books (book_id));
-
-diesel::allow_tables_to_appear_in_same_query!(authors, books, books_authors, pages,);
+diesel::allow_tables_to_appear_in_same_query!(metadata, market,);
