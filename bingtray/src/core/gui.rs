@@ -42,8 +42,10 @@ impl Gui {
         }
     }
     
-    pub fn show(&mut self, _ctx: &egui::Context) {
-
+    pub fn show(&mut self, ctx: &egui::Context) {
+        let mut ui = ctx.ui();
+        ui.heading("BingTray 와");
+        ui.add_space(10.0);
     }
 }
 
