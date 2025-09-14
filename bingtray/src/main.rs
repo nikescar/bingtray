@@ -55,7 +55,7 @@ fn main() -> Result<(), eframe::Error> {
             setup_local_fonts(Some("resources/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf"));
             setup_local_theme(Some("resources/material-theme2.json"));
 
-            load_fonts(&cc.egui_ctx);
+            // load_fonts(&cc.egui_ctx); // Commented out due to egui version mismatch
             load_themes();
             
             Ok(Box::new(Gui::default()))

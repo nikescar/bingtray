@@ -38,15 +38,23 @@ impl Gui {
             slider_value: 0.5,
             checkbox_state: false,
             wallpaper_path: None,
-
-            app: App::new(),
-        };
-
-        // make instance of app
-        self
+            app: App::new().unwrap(),
+        }
     }
     
-    pub fn show(&mut self, ctx: &egui::Context) {
-        
+    pub fn show(&mut self, _ctx: &egui::Context) {
+
+    }
+}
+
+impl Default for Gui {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl eframe::App for Gui {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.show(ctx);
     }
 }

@@ -1,6 +1,6 @@
 use diesel::prelude::*;
 
-use crate::schema::{authors, books, books_authors, pages};
+use crate::core::sqlite::schema::{authors, books, books_authors, pages};
 
 #[derive(Queryable, Selectable, Identifiable, PartialEq, Debug, Clone)]
 #[diesel(table_name = authors)]

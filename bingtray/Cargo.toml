@@ -21,6 +21,7 @@ chrono = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 log = { workspace = true }
+directories = "5.0"
 tokio = { workspace = true }
 reqwest = { workspace = true }
 scraper = { workspace = true }

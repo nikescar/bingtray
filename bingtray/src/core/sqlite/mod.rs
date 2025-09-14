@@ -37,18 +37,26 @@ impl Sqlite {
     }
 
     fn new_author(&mut self, name: &str) -> DbResult<Author> {
-        let author = diesel::insert_into(authors::table)
+        diesel::insert_into(authors::table)
             .values(authors::name.eq(name))
-            .returning(Author::as_returning())
-            .get_result(&mut self.connection)?;
+            .execute(&mut self.connection)?;
+
+        // Get the last inserted author
+        let author = authors::table
+            .order(authors::id.desc())
+            .first(&mut self.connection)?;
         Ok(author)
     }
 
     fn new_book(&mut self, title: &str) -> DbResult<Book> {
-        let book = diesel::insert_into(books::table)
+        diesel::insert_into(books::table)
             .values(books::title.eq(title))
-            .returning(Book::as_returning())
-            .get_result(&mut self.connection)?;
+            .execute(&mut self.connection)?;
+
+        // Get the last inserted book
+        let book = books::table
+            .order(books::id.desc())
+            .first(&mut self.connection)?;
         Ok(book)
     }
 
@@ -57,13 +65,18 @@ impl Sqlite {
         book_id: i32,
         author_id: i32,
     ) -> DbResult<BookAuthor> {
-        let book_author = diesel::insert_into(books_authors::table)
+        diesel::insert_into(books_authors::table)
             .values((
                 books_authors::book_id.eq(book_id),
                 books_authors::author_id.eq(author_id),
             ))
-            .returning(BookAuthor::as_returning())
-            .get_result(&mut self.connection)?;
+            .execute(&mut self.connection)?;
+
+        // Get the inserted book_author
+        let book_author = books_authors::table
+            .filter(books_authors::book_id.eq(book_id))
+            .filter(books_authors::author_id.eq(author_id))
+            .first(&mut self.connection)?;
         Ok(book_author)
     }
 
@@ -73,14 +86,18 @@ impl Sqlite {
         content: &str,
         book_id: i32,
     ) -> DbResult<Page> {
-        let page = diesel::insert_into(pages::table)
+        diesel::insert_into(pages::table)
             .values((
                 pages::page_number.eq(page_number),
                 pages::content.eq(content),
                 pages::book_id.eq(book_id),
             ))
-            .returning(Page::as_returning())
-            .get_result(&mut self.connection)?;
+            .execute(&mut self.connection)?;
+
+        // Get the last inserted page
+        let page = pages::table
+            .order(pages::id.desc())
+            .first(&mut self.connection)?;
         Ok(page)
     }
 
@@ -180,30 +197,30 @@ impl Sqlite {
         Ok(())
     }
 
-    fn setup_data(conn: &mut SqliteConnection) -> DbResult<()> {
+    fn setup_data(&mut self) -> DbResult<()> {
         // create a book
-        let momo = new_book(conn, "Momo")?;
+        let momo = self.new_book("Momo")?;
 
         // a page in that book
-        new_page(conn, 1, "In alten, alten Zeiten ...", momo.id)?;
+        self.new_page(1, "In alten, alten Zeiten ...", momo.id)?;
         // a second page
-        new_page(conn, 2, "den prachtvollen Theatern...", momo.id)?;
+        self.new_page(2, "den prachtvollen Theatern...", momo.id)?;
 
         // create an author
-        let michael_ende = new_author(conn, "Michael Ende")?;
+        let michael_ende = self.new_author("Michael Ende")?;
 
         // let's add the author to the already created book
-        new_books_author(conn, momo.id, michael_ende.id)?;
+        self.new_books_author(momo.id, michael_ende.id)?;
 
         // create a second author
-        let astrid_lindgren = new_author(conn, "Astrid Lindgren")?;
-        let pippi = new_book(conn, "Pippi Långstrump")?;
-        new_books_author(conn, pippi.id, astrid_lindgren.id)?;
+        let astrid_lindgren = self.new_author("Astrid Lindgren")?;
+        let pippi = self.new_book("Pippi Långstrump")?;
+        self.new_books_author(pippi.id, astrid_lindgren.id)?;
 
         // now that both have a single book, let's add a third book, an imaginary collaboration
-        let collaboration = new_book(conn, "Pippi and Momo")?;
-        new_books_author(conn, collaboration.id, astrid_lindgren.id)?;
-        new_books_author(conn, collaboration.id, michael_ende.id)?;
+        let collaboration = self.new_book("Pippi and Momo")?;
+        self.new_books_author(collaboration.id, astrid_lindgren.id)?;
+        self.new_books_author(collaboration.id, michael_ende.id)?;
 
         Ok(())
     }
