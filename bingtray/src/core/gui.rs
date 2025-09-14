@@ -1,5 +1,3 @@
-// gui - egui
-
 use eframe::egui::{self, Color32};
 use egui_material3::{
     MaterialButton, MaterialCheckbox, MaterialSlider, MaterialSwitch,
@@ -39,6 +37,10 @@ pub struct Gui {
 // main -> gui -> app -> core
 impl Gui {
     pub fn new() -> Self {
+
+
+
+
         Self {
             is_dark_theme: false,
             window_title: "BingTray".to_string(),
