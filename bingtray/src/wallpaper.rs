@@ -4,7 +4,7 @@ use anyhow::Result;
 use std::path::Path;
 #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 use std::process::Command;
-use crate::{WallpaperService, DefaultServiceProvider};
+use crate::services::{WallpaperService, DefaultServiceProvider};
 
 #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
 pub fn get_desktop_environment() -> String {

@@ -28,7 +28,6 @@ pub struct CarouselImage {
     pub image_bytes: Option<Vec<u8>>,
 }
 
-
 pub struct Gui {
     // UI state
     is_dark_theme: bool,
@@ -56,14 +55,15 @@ impl App {
             slider_value: 0.5,
             checkbox_state: false,
             wallpaper_path: None,
-        }
+
+            conf: Conf::new()?,
+        };
 
         // initialize config
-        
-
+        self.conf = Conf::new()?;
 
         // initialize database
-
+        
 
 
         self

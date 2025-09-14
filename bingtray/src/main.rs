@@ -7,7 +7,7 @@ use egui_material3::{
     MaterialDataTable, MaterialButton,
     theme::{setup_google_fonts, setup_local_fonts, setup_local_theme, load_fonts, load_themes, MaterialThemeFile, MaterialThemeContext, ThemeMode, ContrastLevel, update_global_theme},
 };
-use bingtray::BingtrayApp;
+use bingtray::core::gui::Gui;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc; // Much faster allocator, can give 20% speedups
@@ -58,7 +58,7 @@ fn main() -> Result<(), eframe::Error> {
             load_fonts(&cc.egui_ctx);
             load_themes();
             
-            Ok(Box::new(BingtrayApp::default()))
+            Ok(Box::new(Gui::default()))
         }),
     )
 }

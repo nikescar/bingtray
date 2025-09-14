@@ -88,4 +88,5 @@ After starting the application, you'll see a tray icon with the following option
 * chrome web store https://github.com/marketplace/actions/chrome-extension-upload-action
 * firefox addon https://github.com/marketplace/actions/firefox-addon-action
 * include libs on linux packaging(gir1.2-ayatanaappindicator3-0.1  libayatana-appindicator3-1 libxdo-dev/keyboard mouse).
+* 
 </details>

@@ -6,8 +6,8 @@ use egui_material3::{
     theme::{setup_local_fonts, setup_local_theme, load_fonts, load_themes, update_window_background}
 };
 
-use crate::App;
-use crate::{BingImage, Config, load_market_codes, get_old_market_codes, load_historical_metadata, get_image_metadata};
+use crate::core::app::App;
+// Remove unused imports for now - add back when needed with correct module paths
 
 pub struct Gui {
     // UI state
@@ -38,11 +38,11 @@ impl Gui {
             slider_value: 0.5,
             checkbox_state: false,
             wallpaper_path: None,
-        }
+
+            app: App::new(),
+        };
 
         // make instance of app
-        self.app = App::new();
-
         self
     }
     
