@@ -23,6 +23,6 @@ pub struct Metadata {
 pub struct Market {
     pub id: i32,
     pub mkcode: String,
-    pub lastvisit: String,
+    pub lastvisit: i64,
 }
 

@@ -59,10 +59,8 @@ impl App {
         // Create request queue for HTTP requests
         let request_queue = RequestQueue::global();
 
-        // For now, we'll create a simple initialization without external API calls
-        // These can be moved to separate initialization methods that are called later
-
-        Ok(Self {
+        // call initialize_data to check and populate initial data
+        let mut app = Self {
             is_dark_theme: false,
             window_title: "BingTray".to_string(),
             switch_state: false,
@@ -71,37 +69,98 @@ impl App {
             wallpaper_path: None,
             conf,
             sqlite,
-            request_queue,
-        })
+            request_queue: Arc::clone(&request_queue),
+        };
+        
+        app.initialize_data().await?;
+
+        Ok(app)
     }
 
     pub async fn initialize_data(&mut self) -> Result<()> {
         // Check if we have market codes
-        let markets = self.sqlite.get_all_market()
-            .map_err(|e| anyhow::anyhow!("Failed to get market codes: {}", e))?;
-        if markets.is_empty() {
-            warn!("No market codes found. You may want to fetch them from Bing API later.");
+        let market_count = self.sqlite.get_market_count()
+            .map_err(|e| anyhow::anyhow!("Failed to get market count: {}", e))?;
+        if market_count == 0 {
+            info!("No market codes found. Fetching from Bing API...");
+            self.fetch_market_codes().await?;
+            info!("Fetched and stored market codes.");
         }
 
         // Check metadata
-        let metadata = self.sqlite.get_all_metadata()
-            .map_err(|e| anyhow::anyhow!("Failed to get metadata: {}", e))?;
-        if metadata.is_empty() {
-            warn!("No metadata found. You may want to fetch images from Bing API later.");
+        // let metadata_count = self.sqlite.get_metadata_count()
+        //     .map_err(|e| anyhow::anyhow!("Failed to get metadata count: {}", e))?;
+        // if metadata_count == 0 {
+        //     warn!("No metadata found. Fetching images for default market 'en-US'...");
+        //     self.fetch_images_for_market("en-US").await?;
+        //     info!("Fetched and stored metadata for market 'en-US'.");
+        // }
+
+        // call fetch_images_for_market for all market which lastvisit is older than 7 days
+        let markets = self.sqlite.get_all_market()
+            .map_err(|e| anyhow::anyhow!("Failed to get all markets: {}", e))?;
+        let seven_days_ago = chrono::Utc::now().timestamp() - 7 * 24 * 60 * 60;
+        for market in markets {
+            if market.lastvisit < seven_days_ago {
+            info!("Market {} last visited more than 7 days ago. Fetching images...", market.mkcode);
+            self.fetch_images_for_market(&market.mkcode).await?;
+            info!("Fetched and stored metadata for market {}.", market.mkcode);
+            
+            // Wait 3 seconds before next request
+            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+            }
         }
+
+
 
         Ok(())
     }
 
     pub async fn fetch_market_codes(&mut self) -> Result<()> {
-        // TODO: Re-enable when BingWPClient is fixed for native compilation
-        warn!("fetch_market_codes is currently disabled - BingWPClient needs WASM/native compatibility");
+        let bing_client = BingWPClient::new(Arc::clone(&self.request_queue));
+        let market_codes = bing_client.get_market_codes()
+            .map_err(|e| anyhow::anyhow!("Failed to fetch market codes: {}", e))?;
+
+        // Insert market codes into database
+        for code in market_codes {
+            if self.sqlite.find_market_by_mkcode(&code)
+                .map_err(|e| anyhow::anyhow!("Failed to check market code: {}", e))?.is_none() {
+                self.sqlite.new_market_entry(&code, 0)
+                    .map_err(|e| anyhow::anyhow!("Failed to insert market code: {}", e))?;
+            }
+        }
+
         Ok(())
     }
 
     pub async fn fetch_images_for_market(&mut self, market_code: &str) -> Result<()> {
-        // TODO: Re-enable when BingWPClient is fixed for native compilation
-        warn!("fetch_images_for_market({}) is currently disabled - BingWPClient needs WASM/native compatibility", market_code);
+        let bing_client = BingWPClient::new(Arc::clone(&self.request_queue));
+        let images = bing_client.get_bing_images(market_code)
+            .map_err(|e| anyhow::anyhow!("Failed to fetch images: {}", e))?;
+
+        // Insert images into database
+        for image in images {
+            if self.sqlite.find_metadata_by_title(&image.title)
+                .map_err(|e| anyhow::anyhow!("Failed to check metadata: {}", e))?.is_none() {
+                self.sqlite.new_metadata_entry(
+                    false,
+                    &image.title,
+                    "",
+                    &image.copyright,
+                    &image.copyright,
+                    &image.copyrightlink,
+                    &image.url,
+                    &image.url,
+                ).map_err(|e| anyhow::anyhow!("Failed to insert metadata: {}", e))?;
+
+                
+            }
+            // set lastvisit to current unix timestamp
+            let current_timestamp = chrono::Utc::now().timestamp();
+            self.sqlite.update_market_lastvisit(market_code, current_timestamp)
+                    .map_err(|e| anyhow::anyhow!("Failed to update market lastvisit: {}", e))?;
+        }
+
         Ok(())
     }
     

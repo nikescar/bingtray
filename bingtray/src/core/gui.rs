@@ -37,10 +37,6 @@ pub struct Gui {
 // main -> gui -> app -> core
 impl Gui {
     pub fn new() -> Self {
-
-
-
-
         Self {
             is_dark_theme: false,
             window_title: "BingTray".to_string(),
@@ -229,6 +225,24 @@ impl Default for Gui {
 
 impl eframe::App for Gui {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Lazy initialization of App
+        if self.app.is_none() {
+            match std::thread::spawn(|| {
+                tokio::runtime::Runtime::new().unwrap().block_on(App::new())
+            }).join() {
+                Ok(Ok(app)) => {
+                    self.app = Some(app);
+                    log::info!("App initialized successfully");
+                }
+                Ok(Err(e)) => {
+                    log::error!("Failed to initialize App: {}", e);
+                }
+                Err(_) => {
+                    log::error!("App initialization thread panicked");
+                }
+            }
+        }
+
         self.show(ctx);
     }
 }

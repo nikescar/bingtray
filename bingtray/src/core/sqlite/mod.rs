@@ -42,7 +42,7 @@ impl Sqlite {
             "CREATE TABLE IF NOT EXISTS market (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 mkcode TEXT NOT NULL,
-                lastvisit TEXT NOT NULL
+                lastvisit LONG NOT NULL
             )",
         )
         .execute(&mut connection)?;
@@ -100,7 +100,7 @@ impl Sqlite {
     }
 
     // new market entry
-    pub fn new_market_entry(&mut self, mkcode: &str, lastvisit: &str) -> DbResult<Market> {
+    pub fn new_market_entry(&mut self, mkcode: &str, lastvisit: i64) -> DbResult<Market> {
         diesel::insert_into(market::table)
             .values((
                 market::mkcode.eq(mkcode),
@@ -129,10 +129,22 @@ impl Sqlite {
         Ok(results) 
     }
 
+    // get total row count of metadata
+    pub fn get_metadata_count(&mut self) -> DbResult<i64> {
+        let count: i64 = metadata::table.count().get_result(&mut self.connection)?;
+        Ok(count)
+    }
+
     // get all market entries
     pub fn get_all_market(&mut self) -> DbResult<Vec<Market>> {
         let results = market::table.load::<Market>(&mut self.connection)?;
         Ok(results)
+    }
+
+    // get total row count of market
+    pub fn get_market_count(&mut self) -> DbResult<i64> {
+        let count: i64 = market::table.count().get_result(&mut self.connection)?;
+        Ok(count)
     }
 
     // find metadata by title
@@ -152,5 +164,12 @@ impl Sqlite {
             .optional()?;
         Ok(result)
     }
-    
+
+    // set lastvisit by market id
+    pub fn update_market_lastvisit(&mut self, mkcode: &str, lastvisit: i64) -> DbResult<usize> {
+        let rows_updated = diesel::update(market::table.filter(market::mkcode.eq(mkcode)))
+            .set(market::lastvisit.eq(lastvisit))
+            .execute(&mut self.connection)?;
+        Ok(rows_updated)    
+    }
 }

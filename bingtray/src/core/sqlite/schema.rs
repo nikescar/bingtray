@@ -18,7 +18,7 @@ diesel::table! {
     market (id) {
         id -> Integer,
         mkcode -> Text,
-        lastvisit -> Text,
+        lastvisit -> BigInt,
     }
 }
 
