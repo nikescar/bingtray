@@ -1,7 +1,5 @@
 use std::sync::Arc;
-use web_sys::{Request as WebRequest, RequestInit, RequestMode, Response, Headers};
-use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::JsFuture;
+use ureq;
 
 use super::request::{RequestQueue, RequestContext};
 use super::httpclient::HttpClient;
@@ -51,31 +49,32 @@ impl BingWPClient {
     }
 
     // Helper method to execute a request and get the response
-    async fn execute_request(&self, request_context: RequestContext) -> Result<Response, JsValue> {
-        let opts = RequestInit::new();
-        opts.set_method(&request_context.method);
-        opts.set_mode(RequestMode::Cors);
-        
-        let headers = Headers::new()?;
+    fn execute_request(&self, request_context: RequestContext) -> Result<ureq::Response, Box<dyn std::error::Error>> {
+        let mut request = match request_context.method.as_str() {
+            "GET" => ureq::get(&request_context.url),
+            "POST" => ureq::post(&request_context.url),
+            "PUT" => ureq::put(&request_context.url),
+            "DELETE" => ureq::delete(&request_context.url),
+            _ => return Err("Unsupported HTTP method".into()),
+        };
+
+        // Add headers
         for (key, value) in &request_context.headers {
-            headers.set(key, value)?;
-        }
-        opts.set_headers(&headers);
-
-        if let Some(body) = &request_context.body {
-            opts.set_body(&JsValue::from_str(body));
+            request = request.set(&key, &value);
         }
 
-        let request = WebRequest::new_with_str_and_init(&request_context.url, &opts)?;
-        let window = web_sys::window().unwrap();
-        let resp_value = JsFuture::from(window.fetch_with_request(&request)).await?;
-        let resp: Response = resp_value.dyn_into()?;
-        
-        Ok(resp)
+        // Execute request
+        let response = if let Some(body) = &request_context.body {
+            request.send_string(body)?
+        } else {
+            request.call()?
+        };
+
+        Ok(response)
     }
 
     // Direct execution methods that bypass the queue for immediate results
-    pub async fn get_market_codes(&self) -> Result<Vec<String>, JsValue> {
+    pub fn get_market_codes(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let url = "https://learn.microsoft.com/en-us/bing/search-apis/bing-web-search/reference/market-codes";
         
         // Build the request context
@@ -87,16 +86,14 @@ impl BingWPClient {
         .with_header("Accept-Language".to_string(), "en-US,en;q=0.9".to_string());
         
         // Execute request directly
-        let resp = self.execute_request(request_context).await?;
-        
-        let text = JsFuture::from(resp.text()?).await?;
-        let html = text.as_string().unwrap_or_default();
+        let resp = self.execute_request(request_context)?;
+        let html = resp.into_string()?;
         
         let market_codes = Self::parse_market_codes_from_html(&html)?;
         Ok(market_codes)
     }
 
-    pub async fn get_bing_images(&self, market_code: &str) -> Result<Vec<BingImage>, JsValue> {
+    pub fn get_bing_images(&self, market_code: &str) -> Result<Vec<BingImage>, Box<dyn std::error::Error>> {
         let url = format!("https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=8&mkt={}", market_code);
         
         // Build the request context
@@ -110,25 +107,22 @@ impl BingWPClient {
         .with_header("Referer".to_string(), "https://www.bing.com/".to_string());
         
         // Execute request directly
-        let resp = self.execute_request(request_context).await?;
-        
-        let text = JsFuture::from(resp.text()?).await?;
-        let _json_str = text.as_string().unwrap_or_default();
+        let resp = self.execute_request(request_context)?;
+        let json_str = resp.into_string()?;
         
         #[cfg(feature = "serde")]
         {
-            let bing_response: BingResponse = serde_json::from_str(&_json_str)
-                .map_err(|e| JsValue::from_str(&format!("JSON parse error: {}", e)))?;
+            let bing_response: BingResponse = serde_json::from_str(&json_str)?;
             Ok(bing_response.images)
         }
         
         #[cfg(not(feature = "serde"))]
         {
-            Err(JsValue::from_str("Serde feature required for JSON parsing"))
+            Err("Serde feature required for JSON parsing".into())
         }
     }
 
-    pub async fn download_historical_data(&self) -> Result<Vec<HistoricalImage>, JsValue> {
+    pub fn download_historical_data(&self) -> Result<Vec<HistoricalImage>, Box<dyn std::error::Error>> {
         let url = "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
         
         // Build the request context
@@ -138,16 +132,14 @@ impl BingWPClient {
         ).with_header("User-Agent".to_string(), "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/111.0 Firefox/117.0".to_string());
         
         // Execute request directly
-        let resp = self.execute_request(request_context).await?;
-        
-        let text = JsFuture::from(resp.text()?).await?;
-        let content = text.as_string().unwrap_or_default();
+        let resp = self.execute_request(request_context)?;
+        let content = resp.into_string()?;
         
         let historical_images = Self::parse_historical_data(&content)?;
         Ok(historical_images)
     }
 
-    pub async fn download_image_bytes(&self, url: &str) -> Result<Vec<u8>, JsValue> {
+    pub fn download_image_bytes(&self, url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let full_url = if url.starts_with("http") {
             url.to_string()
         } else {
@@ -163,17 +155,15 @@ impl BingWPClient {
         .with_header("Referer".to_string(), "https://www.bing.com/".to_string());
         
         // Execute request directly
-        let resp = self.execute_request(request_context).await?;
+        let resp = self.execute_request(request_context)?;
         
-        let array_buffer = JsFuture::from(resp.array_buffer()?).await?;
-        let uint8_array = js_sys::Uint8Array::new(&array_buffer);
-        let mut bytes = vec![0; uint8_array.length() as usize];
-        uint8_array.copy_to(&mut bytes);
+        let mut bytes = Vec::new();
+        std::io::copy(&mut resp.into_reader(), &mut bytes)?;
         
         Ok(bytes)
     }
 
-    pub async fn download_thumbnail_bytes(&self, url: &str) -> Result<Vec<u8>, JsValue> {
+    pub fn download_thumbnail_bytes(&self, url: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let base_url = if url.starts_with("http") {
             url.to_string()
         } else {
@@ -186,10 +176,10 @@ impl BingWPClient {
             format!("{}?w=320&h=240", base_url)
         };
         
-        self.download_image_bytes(&thumbnail_url).await
+        self.download_image_bytes(&thumbnail_url)
     }
 
-    fn parse_market_codes_from_html(html: &str) -> Result<Vec<String>, JsValue> {
+    fn parse_market_codes_from_html(html: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
         let mut market_codes = Vec::new();
         
         // Simple HTML parsing for market codes
@@ -223,7 +213,7 @@ impl BingWPClient {
         Ok(market_codes)
     }
 
-    fn parse_historical_data(content: &str) -> Result<Vec<HistoricalImage>, JsValue> {
+    fn parse_historical_data(content: &str) -> Result<Vec<HistoricalImage>, Box<dyn std::error::Error>> {
         let mut historical_images = Vec::new();
         
         for line in content.lines() {
@@ -235,7 +225,7 @@ impl BingWPClient {
         Ok(historical_images)
     }
 
-    fn parse_historical_line(line: &str) -> Result<Option<HistoricalImage>, JsValue> {
+    fn parse_historical_line(line: &str) -> Result<Option<HistoricalImage>, Box<dyn std::error::Error>> {
         if !line.contains(" | [") || !line.contains("](") {
             return Ok(None);
         }
@@ -287,11 +277,9 @@ impl BingWPClient {
                             "EN-US0000000000".to_string()
                         };
                         
-                        // For WASM compatibility, we'll use a simple date parser
-                        // instead of chrono since chrono may not work well in WASM
                         let date_parts: Vec<&str> = date_str.split('-').collect();
                         if date_parts.len() != 3 {
-                            return Err(JsValue::from_str(&format!("Invalid date format: {}", date_str)));
+                            return Err(format!("Invalid date format: {}", date_str).into());
                         }
                         
                         let startdate = format!("{}{:0>2}{:0>2}", date_parts[0], date_parts[1], date_parts[2]);

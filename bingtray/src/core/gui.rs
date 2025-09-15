@@ -29,7 +29,7 @@ pub struct Gui {
     wallpaper_path: Option<String>,
 
     // App instance
-    app: App,
+    app: Option<App>,
 }
 
 // desktop tray,cli,gui -> app -> core
@@ -48,7 +48,7 @@ impl Gui {
             slider_value: 0.5,
             checkbox_state: false,
             wallpaper_path: None,
-            app: App::new().unwrap(),
+            app: None,
         }
     }
 

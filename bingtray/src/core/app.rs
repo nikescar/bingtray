@@ -2,14 +2,13 @@
 // Core application state and traits for Bingtray
 
 use anyhow::Result;
-use log::{info, warn, error};
-use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH};
+use log::{info, warn};
 use std::sync::Arc;
-use poll_promise::Promise;
 
 use crate::core::conf::Conf;
 use crate::core::sqlite::Sqlite;
+use crate::core::bingwpclient::BingWPClient;
+use crate::core::request::RequestQueue;
 
 pub trait WallpaperSetter: Send + Sync {
     fn set_wallpaper_from_bytes(&self, image_bytes: &[u8]) -> std::io::Result<bool>;
@@ -44,45 +43,24 @@ pub struct App {
 
     // conf, sqlite instance
     conf: Conf,
+    sqlite: Sqlite,
+    request_queue: Arc<RequestQueue>,
 }
 
 impl App {
-    pub fn new() -> Result<Self> {
+    pub async fn new() -> Result<Self> {
         let conf = Conf::new()?;
 
         // create sqlite table if not exists
         info!("Using SQLite database at: {:?}", conf.sqlite_file);
-        let sqlite = Sqlite::new(conf.sqlite_file.to_str().unwrap());
+        let sqlite = Sqlite::new(conf.sqlite_file.to_str().unwrap())
+            .map_err(|e| anyhow::anyhow!("Failed to create SQLite connection: {}", e))?;
 
-        // download market codes if marketcodes sqlite table is empty
-        if sqlite.get_market_codes().await?.is_empty() {
-            let market_codes = BingWPClient::new(Arc::clone(&self.http_client)).get_market_codes().await?;
-            sqlite.insert_market_codes(&market_codes).await?;
-        }
+        // Create request queue for HTTP requests
+        let request_queue = RequestQueue::global();
 
-        // get default market images list from 43 markets, 8 images each on weekly basis
-        let default_market = conf.default_market.clone();
-        let images = sqlite.get_images_by_market(&default_market, 8).await?;
-        if images.is_empty() {
-            warn!("No images found for default market: {}. Fetching from Bing API...", default_market);
-            let images = BingWPClient::new(Arc::clone(&self.http_client)).get_images_by_market(&default_market, 8).await?;
-            if images.is_empty() {
-                error!("Failed to fetch images for default market: {}", default_market);
-            } else {
-                sqlite.insert_metadata_entries(&images).await?;
-            }
-        }
-
-        // get historical metadata if hs_HS marketcode is not exists in market table
-        if !sqlite.market_code_exists("hs_HS").await? {
-            warn!("Historical market code 'hs_HS' not found in market table. Fetching historical metadata...");
-            let historical_images = BingWPClient::new(Arc::clone(&self.http_client)).get_historical_metadata(30).await?;
-            if historical_images.is_empty() {
-                error!("Failed to fetch historical metadata.");
-            } else {
-                sqlite.insert_metadata_entries(&historical_images).await?;
-            }
-        }
+        // For now, we'll create a simple initialization without external API calls
+        // These can be moved to separate initialization methods that are called later
 
         Ok(Self {
             is_dark_theme: false,
@@ -92,7 +70,39 @@ impl App {
             checkbox_state: false,
             wallpaper_path: None,
             conf,
+            sqlite,
+            request_queue,
         })
+    }
+
+    pub async fn initialize_data(&mut self) -> Result<()> {
+        // Check if we have market codes
+        let markets = self.sqlite.get_all_market()
+            .map_err(|e| anyhow::anyhow!("Failed to get market codes: {}", e))?;
+        if markets.is_empty() {
+            warn!("No market codes found. You may want to fetch them from Bing API later.");
+        }
+
+        // Check metadata
+        let metadata = self.sqlite.get_all_metadata()
+            .map_err(|e| anyhow::anyhow!("Failed to get metadata: {}", e))?;
+        if metadata.is_empty() {
+            warn!("No metadata found. You may want to fetch images from Bing API later.");
+        }
+
+        Ok(())
+    }
+
+    pub async fn fetch_market_codes(&mut self) -> Result<()> {
+        // TODO: Re-enable when BingWPClient is fixed for native compilation
+        warn!("fetch_market_codes is currently disabled - BingWPClient needs WASM/native compatibility");
+        Ok(())
+    }
+
+    pub async fn fetch_images_for_market(&mut self, market_code: &str) -> Result<()> {
+        // TODO: Re-enable when BingWPClient is fixed for native compilation
+        warn!("fetch_images_for_market({}) is currently disabled - BingWPClient needs WASM/native compatibility", market_code);
+        Ok(())
     }
     
     
