@@ -133,16 +133,16 @@ impl Gui {
         let mut dynamic_images = Vec::new();
         
         // Load images from app if available
-        if let Some(app) = &self.app {
+        if let Some(app) = &mut self.app {
             if let Some(runtime) = &self.runtime {
             // Get current page of images from metadata
-            match runtime.block_on(app.get_wallpaper_metadata_page(0, 8)) {
+            match app.get_wallpaper_metadata_page(0, 8) {
                 Ok(metadata_list) => {
                 for (i, metadata) in metadata_list.iter().enumerate() {
                     dynamic_images.push(DynamicImageItem {
                     _id: i,
-                    label: metadata.title.clone().unwrap_or_else(|| format!("Photo {:03}", i + 1)),
-                    image_source: metadata.url.clone(),
+                    label: metadata.title.clone(),
+                    image_source: metadata.full_url.clone(),
                     });
                 }
                 }
