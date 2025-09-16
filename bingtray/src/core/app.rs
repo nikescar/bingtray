@@ -161,7 +161,7 @@ impl App {
         // Check if we need to fetch images for market en-US (only if last visit is more than 7 days ago)
         let current_timestamp = chrono::Utc::now().timestamp();
         let seven_days_ago = current_timestamp - (7 * 24 * 60 * 60); // 7 days in seconds
-        
+
         let should_fetch = match sqlite.find_market_by_mkcode("en-US")
             .map_err(|e| anyhow::anyhow!("Failed to check market: {}", e))? {
             Some(market) => market.lastvisit < seven_days_ago,
@@ -176,56 +176,66 @@ impl App {
 
             // Insert images into database
             for image in images {
-            if sqlite.find_metadata_by_title(&image.title)
-                .map_err(|e| anyhow::anyhow!("Failed to check metadata: {}", e))?.is_none() {
-
-                let parts: Vec<&str> = image.urlbase.split('_').collect();
-                let display_name = if !parts.is_empty() { parts[0].trim_start_matches("/th?id=").to_string() } else { image.urlbase.clone() };    
-                
-                sqlite.new_metadata_entry(
-                false,
-                &image.fullstartdate,
-                display_name.as_str(),
-                &image.title,
-                &{
-                    // Parse author from copyright like "© Oscar Dominguez/TANDEM Stills + Motion"
-                    let copyright = &image.copyright;
-                    if let Some(start) = copyright.find('©') {
-                        let after_copyright = &copyright[start + '©'.len_utf8()..];
-                        if let Some(end) = after_copyright.find('/') {
-                            after_copyright[..end].trim()
-                        } else {
-                            // If no '/' found, take everything after '©'
-                            after_copyright.trim()
-                        }
+                // generate thumbnail_url from image.url to put "w=320&h=240" at the end of the url if the url doesn't already have w= or h=
+                let thumbnail_url = if image.url.contains("w=") || image.url.contains("h=") {
+                    image.url.clone()
+                } else {
+                    if image.url.contains('?') {
+                        format!("{}&w=320&h=240", image.url)
                     } else {
-                        // If no '©' found, use empty string
-                        ""
+                        format!("{}?w=320&h=240", image.url)
                     }
-                },
-                &image.copyright,
-                &{
-                    // Extract text between parentheses at the end
-                    let copyright = &image.copyright;
-                    if let Some(start) = copyright.rfind('(') {
-                        if let Some(end) = copyright.rfind(')') {
-                            if end > start {
-                                &copyright[start + 1..end]
+                };
+                if sqlite.find_metadata_by_title(&image.title)
+                    .map_err(|e| anyhow::anyhow!("Failed to check metadata: {}", e))?.is_none() {
+
+                    let parts: Vec<&str> = image.urlbase.split('_').collect();
+                    let display_name = if !parts.is_empty() { parts[0].trim_start_matches("/th?id=").to_string() } else { image.urlbase.clone() };
+
+                    sqlite.new_metadata_entry(
+                    false,
+                    &image.fullstartdate,
+                    display_name.as_str(),
+                    &image.title,
+                    &{
+                        // Parse author from copyright like "© Oscar Dominguez/TANDEM Stills + Motion"
+                        let copyright = &image.copyright;
+                        if let Some(start) = copyright.find('©') {
+                            let after_copyright = &copyright[start + '©'.len_utf8()..];
+                            if let Some(end) = after_copyright.find('/') {
+                                after_copyright[..end].trim()
+                            } else {
+                                // If no '/' found, take everything after '©'
+                                after_copyright.trim()
+                            }
+                        } else {
+                            // If no '©' found, use empty string
+                            ""
+                        }
+                    },
+                    &image.copyright,
+                    &{
+                        // Extract text between parentheses at the end
+                        let copyright = &image.copyright;
+                        if let Some(start) = copyright.rfind('(') {
+                            if let Some(end) = copyright.rfind(')') {
+                                if end > start {
+                                    &copyright[start + 1..end]
+                                } else {
+                                    &image.copyright
+                                }
                             } else {
                                 &image.copyright
                             }
                         } else {
                             &image.copyright
                         }
-                    } else {
-                        &image.copyright
-                    }
-                },
-                &image.copyrightlink,
-                &image.url,
-                &image.url,
-                ).map_err(|e| anyhow::anyhow!("Failed to insert metadata: {}", e))?;
-            }
+                    },
+                    &image.copyrightlink,
+                    &thumbnail_url,
+                    &image.url,
+                    ).map_err(|e| anyhow::anyhow!("Failed to insert metadata: {}", e))?;
+                }
             }
 
             // Update lastvisit timestamp for "en-US" market
@@ -253,46 +263,55 @@ impl App {
             // static failure counter
             let mut failure_count = 0;
             for image in historical_data {
-            if sqlite.find_metadata_by_title(&image.title)
-            .map_err(|e| anyhow::anyhow!("Failed to check metadata: {}", e))?.is_none() {   
-                let parts: Vec<&str> = image.url.split('_').collect();
-                let display_name = if !parts.is_empty() { parts[0].trim_start_matches("/th?id=").to_string() } else { image.url.clone() };
-
-                if let Err(e) = sqlite.new_metadata_entry(
-                false,
-                &image.fullstartdate,
-                display_name.as_str(),
-                &image.title,
-                &{
-                    // Parse author from copyright like "© Oscar Dominguez/TANDEM Stills + Motion"
-                    let copyright = &image.copyright;
-                    if let Some(start) = copyright.find('©') {
-                        let after_copyright = &copyright[start + '©'.len_utf8()..];
-                        if let Some(end) = after_copyright.find('/') {
-                            after_copyright[..end].trim()
-                        } else {
-                            // If no '/' found, take everything after '©'
-                            after_copyright.trim()
-                        }
+                if sqlite.find_metadata_by_title(&image.title)
+                .map_err(|e| anyhow::anyhow!("Failed to check metadata: {}", e))?.is_none() {
+                    let parts: Vec<&str> = image.url.split('_').collect();
+                    let display_name = if !parts.is_empty() { parts[0].trim_start_matches("/th?id=").to_string() } else { image.url.clone() };
+                    let thumbnail_url = if image.url.contains("w=") || image.url.contains("h=") {
+                        image.url.clone()
                     } else {
-                        // If no '©' found, use empty string
-                        ""
+                        if image.url.contains('?') {
+                            format!("{}&w=320&h=240", image.url)
+                        } else {
+                            format!("{}?w=320&h=240", image.url)
+                        }
+                    };
+
+                    if let Err(_e) = sqlite.new_metadata_entry(
+                        false,
+                        &image.fullstartdate,
+                        display_name.as_str(),
+                        &image.title,
+                        &{
+                            // Parse author from copyright like "© Oscar Dominguez/TANDEM Stills + Motion"
+                            let copyright = &image.copyright;
+                            if let Some(start) = copyright.find('©') {
+                                let after_copyright = &copyright[start + '©'.len_utf8()..];
+                                if let Some(end) = after_copyright.find('/') {
+                                    after_copyright[..end].trim()
+                                } else {
+                                    // If no '/' found, take everything after '©'
+                                    after_copyright.trim()
+                                }
+                            } else {
+                                // If no '©' found, use empty string
+                                ""
+                            }
+                        },
+                        &format!("{}({})", image.title, image.copyright),
+                        &image.copyright,
+                        &image.copyrightlink,
+                        &thumbnail_url,
+                        &image.url,
+                        ) {
+                        failure_count += 1;
+                    } else {
+                        failure_count = 0; // reset on success
                     }
-                },
-                &format!("{}({})", image.title, image.copyright),
-                &image.copyright,
-                &image.copyrightlink,
-                &image.url,
-                &image.url,
-                ) {
-                failure_count += 1;
-                }else{
-                failure_count = 0; // reset on success
+                    if failure_count >= 10 {
+                        return Err(anyhow::anyhow!("Failed to insert metadata 10 times in a row, aborting."));
+                    }
                 }
-                if failure_count >= 10 {
-                return Err(anyhow::anyhow!("Failed to insert metadata 10 times in a row, aborting."));
-                }
-            }
             }
 
             //update lastvisit timestamp for "historical" market
@@ -312,6 +331,7 @@ impl App {
         let page_size_i64 = page_size as i64;
         let rows = self.sqlite.get_metadata_page(offset, page_size_i64)
             .map_err(|e| anyhow::anyhow!("Failed to get metadata page: {}", e))?;
+
         let images = rows.into_iter().map(|row| {
             CarouselImage {
                 title: row.title,
