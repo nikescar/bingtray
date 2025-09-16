@@ -308,8 +308,9 @@ impl App {
 
     // implement get_wallpaper_metadata_page to get a page of wallpaper metadata from sqlite
     pub fn get_wallpaper_metadata_page(&self, page: i32, page_size: i32) -> Result<Vec<CarouselImage>> {
-        let offset = page * page_size;
-        let rows = self.sqlite.get_metadata_page(offset, page_size)
+        let offset = (page * page_size) as i64;
+        let page_size_i64 = page_size as i64;
+        let rows = self.sqlite.get_metadata_page(offset, page_size_i64)
             .map_err(|e| anyhow::anyhow!("Failed to get metadata page: {}", e))?;
         let images = rows.into_iter().map(|row| {
             CarouselImage {
