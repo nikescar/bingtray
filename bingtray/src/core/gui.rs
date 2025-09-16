@@ -19,17 +19,20 @@ pub struct Gui {
     // UI state
     is_dark_theme: bool,
     window_title: String,
-    
+
     // Material3 components state
     switch_state: bool,
     slider_value: f32,
     checkbox_state: bool,
-    
+
     // Application data
     wallpaper_path: Option<String>,
 
     // App instance
     app: Option<App>,
+
+    // Tokio runtime for background tasks
+    runtime: Option<tokio::runtime::Runtime>,
 }
 
 // desktop tray,cli,gui -> app -> core
@@ -45,6 +48,7 @@ impl Gui {
             checkbox_state: false,
             wallpaper_path: None,
             app: None,
+            runtime: None,
         }
     }
 
@@ -127,18 +131,50 @@ impl Gui {
     
     pub fn show(&mut self, ctx: &egui::Context) {
         let mut dynamic_images = Vec::new();
-        for i in 1..=8 {
+        
+        // Load images from app if available
+        if let Some(app) = &self.app {
+            if let Some(runtime) = &self.runtime {
+            // Get current page of images from metadata
+            match runtime.block_on(app.get_wallpaper_metadata_page(0, 8)) {
+                Ok(metadata_list) => {
+                for (i, metadata) in metadata_list.iter().enumerate() {
+                    dynamic_images.push(DynamicImageItem {
+                    _id: i,
+                    label: metadata.title.clone().unwrap_or_else(|| format!("Photo {:03}", i + 1)),
+                    image_source: metadata.url.clone(),
+                    });
+                }
+                }
+                Err(e) => {
+                log::error!("Failed to load wallpaper metadata: {}", e);
+                // Fallback to dummy data
+                for i in 1..=8 {
+                    dynamic_images.push(DynamicImageItem {
+                    _id: i,
+                    label: format!("Photo {:03}", i),
+                    image_source: format!("photo{}.jpg", i),
+                    });
+                }
+                }
+            }
+            }
+        } else {
+            // Fallback when app is not initialized yet
+            for i in 1..=8 {
             dynamic_images.push(DynamicImageItem {
                 _id: i,
                 label: format!("Photo {:03}", i),
                 image_source: format!("photo{}.jpg", i),
             });
+            }
         }
         // Apply theme based on settings
         self.apply_theme(ctx);
 
         egui::CentralPanel::default().show(ctx, |ui| {
             let theme = self.get_theme();
+            // Top bar with title and buttons
             ui.horizontal(|ui| {
                 ui.heading("BingTray");
                 if ui.selectable_label(false, "About").clicked() {
@@ -180,8 +216,9 @@ impl Gui {
                     });
                 });
             });
-            
             ui.add_space(20.0);
+
+            // Main content
             ui.horizontal(|ui| {
                 if ui.add(MaterialButton::outlined("Fetch")).clicked() {
                     // self.add_image();
@@ -190,9 +227,9 @@ impl Gui {
                     // self.remove_image();
                 }
             });
-
             ui.add_space(10.0);
             
+            // Dynamic image list
             let mut interactive_list = image_list()
                 .id_salt("interactive_imagelist")
                 .columns(1)
@@ -225,20 +262,24 @@ impl Default for Gui {
 
 impl eframe::App for Gui {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Lazy initialization of App
+        // Lazy initialization of App and runtime
         if self.app.is_none() {
-            match std::thread::spawn(|| {
-                tokio::runtime::Runtime::new().unwrap().block_on(App::new())
-            }).join() {
-                Ok(Ok(app)) => {
-                    self.app = Some(app);
-                    log::info!("App initialized successfully");
+            // Create and store the runtime
+            match tokio::runtime::Runtime::new() {
+                Ok(runtime) => {
+                    match runtime.block_on(App::new()) {
+                        Ok(app) => {
+                            self.app = Some(app);
+                            self.runtime = Some(runtime);
+                            log::info!("App initialized successfully");
+                        }
+                        Err(e) => {
+                            log::error!("Failed to initialize App: {}", e);
+                        }
+                    }
                 }
-                Ok(Err(e)) => {
-                    log::error!("Failed to initialize App: {}", e);
-                }
-                Err(_) => {
-                    log::error!("App initialization thread panicked");
+                Err(e) => {
+                    log::error!("Failed to create tokio runtime: {}", e);
                 }
             }
         }

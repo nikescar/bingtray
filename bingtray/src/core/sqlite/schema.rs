@@ -4,6 +4,8 @@ diesel::table! {
     metadata (id) {
         id -> Integer,
         blacklisted -> Bool,
+        fullstartdate -> Text,
+        image_id -> Text,
         title -> Text,
         author -> Text,
         description -> Text,

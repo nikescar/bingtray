@@ -6,6 +6,9 @@ members = [
     "mobile",
 ]
 
+# run default `cargo run` to bingtray crate
+default-members = ["bingtray"]
+
 [workspace.package]
 edition = "2021"
 license = "MIT OR Apache-2.0"

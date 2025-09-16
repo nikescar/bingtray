@@ -19,6 +19,8 @@ pub struct BingImage {
     pub hsh: String,
     pub startdate: String,
     pub fullstartdate: String,
+    #[serde(default)]
+    pub imageid: Option<String>,
 }
 
 #[cfg(feature = "serde")]
@@ -34,6 +36,7 @@ pub struct HistoricalImage {
     pub copyright: String,
     pub copyrightlink: String,
     pub title: String,
+    pub imageid: String,
 }
 
 // BingWP Client using the HttpClient
@@ -299,6 +302,7 @@ impl BingWPClient {
                             copyright: copyright.to_string(),
                             copyrightlink,
                             title: title.to_string(),
+                            imageid: display_name.to_string(),
                         }));
                     }
                 }

@@ -8,6 +8,8 @@ use crate::core::sqlite::schema::{metadata, market};
 pub struct Metadata {
     pub id: i32,
     pub blacklisted: bool,
+    pub fullstartdate: String,
+    pub image_id: String,
     pub title: String,
     pub author: String,
     pub description: String,

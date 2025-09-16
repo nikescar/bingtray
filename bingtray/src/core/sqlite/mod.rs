@@ -27,6 +27,8 @@ impl Sqlite {
             "CREATE TABLE IF NOT EXISTS metadata (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 blacklisted BOOLEAN NOT NULL,
+                fullstartdate TEXT NOT NULL,
+                image_id TEXT NOT NULL,
                 title TEXT NOT NULL,
                 author TEXT NOT NULL,
                 description TEXT NOT NULL,
@@ -61,6 +63,8 @@ impl Sqlite {
     pub fn new_metadata_entry(
         &mut self,
         blacklisted: bool,
+        fullstartdate: &str,
+        image_id: &str,
         title: &str,
         author: &str,
         description: &str,
@@ -71,17 +75,19 @@ impl Sqlite {
     ) -> DbResult<Metadata> {
         // Check if title already exists
         let existing = metadata::table
-            .filter(metadata::title.eq(title))
+            .filter(metadata::image_id.eq(image_id))
             .first::<Metadata>(&mut self.connection)
             .optional()?;
         
         if existing.is_some() {
-            return Err("Title already exists".into());
+            return Err(format!("Image ID already exists for {}", image_id).into());
         }
 
         diesel::insert_into(metadata::table)
             .values((
             metadata::blacklisted.eq(blacklisted),
+            metadata::fullstartdate.eq(fullstartdate),
+            metadata::image_id.eq(image_id),
             metadata::title.eq(title),
             metadata::author.eq(author),
             metadata::description.eq(description),
@@ -138,6 +144,16 @@ impl Sqlite {
     // get all market entries
     pub fn get_all_market(&mut self) -> DbResult<Vec<Market>> {
         let results = market::table.load::<Market>(&mut self.connection)?;
+        Ok(results)
+    }
+
+    // get metadata by page
+    pub fn get_metadata_page(&mut self, page: i64, page_size: i64) -> DbResult<Vec<Metadata>> {
+        let results = metadata::table
+            .order(metadata::id.desc())
+            .limit(page_size)
+            .offset(page * page_size)
+            .load::<Metadata>(&mut self.connection)?;
         Ok(results)
     }
 
