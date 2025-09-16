@@ -25,6 +25,7 @@ pub struct CarouselImage {
     pub copyright: String,
     pub copyright_link: String,
     pub thumbnail_url: String,
+    pub thumbnail_path: Option<String>,
     pub full_url: String,
     pub image_bytes: Option<Vec<u8>>,
 }
@@ -193,47 +194,47 @@ impl App {
                     let display_name = if !parts.is_empty() { parts[0].trim_start_matches("/th?id=").to_string() } else { image.urlbase.clone() };
 
                     sqlite.new_metadata_entry(
-                    false,
-                    &image.fullstartdate,
-                    display_name.as_str(),
-                    &image.title,
-                    &{
-                        // Parse author from copyright like "© Oscar Dominguez/TANDEM Stills + Motion"
-                        let copyright = &image.copyright;
-                        if let Some(start) = copyright.find('©') {
-                            let after_copyright = &copyright[start + '©'.len_utf8()..];
-                            if let Some(end) = after_copyright.find('/') {
-                                after_copyright[..end].trim()
+                        false,
+                        &image.fullstartdate,
+                        display_name.as_str(),
+                        &image.title,
+                        &{
+                            // Parse author from copyright like "© Oscar Dominguez/TANDEM Stills + Motion"
+                            let copyright = &image.copyright;
+                            if let Some(start) = copyright.find('©') {
+                                let after_copyright = &copyright[start + '©'.len_utf8()..];
+                                if let Some(end) = after_copyright.find('/') {
+                                    after_copyright[..end].trim()
+                                } else {
+                                    // If no '/' found, take everything after '©'
+                                    after_copyright.trim()
+                                }
                             } else {
-                                // If no '/' found, take everything after '©'
-                                after_copyright.trim()
+                                // If no '©' found, use empty string
+                                ""
                             }
-                        } else {
-                            // If no '©' found, use empty string
-                            ""
-                        }
-                    },
-                    &image.copyright,
-                    &{
-                        // Extract text between parentheses at the end
-                        let copyright = &image.copyright;
-                        if let Some(start) = copyright.rfind('(') {
-                            if let Some(end) = copyright.rfind(')') {
-                                if end > start {
-                                    &copyright[start + 1..end]
+                        },
+                        &image.copyright,
+                        &{
+                            // Extract text between parentheses at the end
+                            let copyright = &image.copyright;
+                            if let Some(start) = copyright.rfind('(') {
+                                if let Some(end) = copyright.rfind(')') {
+                                    if end > start {
+                                        &copyright[start + 1..end]
+                                    } else {
+                                        &image.copyright
+                                    }
                                 } else {
                                     &image.copyright
                                 }
                             } else {
                                 &image.copyright
                             }
-                        } else {
-                            &image.copyright
-                        }
-                    },
-                    &image.copyrightlink,
-                    &thumbnail_url,
-                    &image.url,
+                        },
+                        &image.copyrightlink,
+                        &thumbnail_url,
+                        &image.url,
                     ).map_err(|e| anyhow::anyhow!("Failed to insert metadata: {}", e))?;
                 }
             }
@@ -331,13 +332,47 @@ impl App {
         let page_size_i64 = page_size as i64;
         let rows = self.sqlite.get_metadata_page(offset, page_size_i64)
             .map_err(|e| anyhow::anyhow!("Failed to get metadata page: {}", e))?;
-
+        
+        // Or load from a local file
+        // let local_image_path = "file:///path/to/local/image.jpg";
+        // let local_image = Image::new(ImageSource::Uri(local_image_path.into()));
+        // ui.add(local_image);
+        
+        let cache_dir = self.conf.cache_dir.to_str().unwrap();
         let images = rows.into_iter().map(|row| {
+            // save row.thumbnail_url image file to conf.cache_dir if not exists and set thumbnail_path to the local file path
+            let thumbnail_path = cache_dir.join(format!("{}.jpg", row.image_id));
+            if !thumbnail_path.exists() {
+                // download image from row.thumbnail_url and save to thumbnail_path
+                match ureq::get(&row.thumbnail_url).call() {
+                    Ok(response) => {
+                        if response.status() == 200 {
+                            let mut bytes = Vec::new();
+                            match response.into_reader().read_to_end(&mut bytes) {
+                                Ok(_) => {
+                                    if let Err(e) = std::fs::write(&thumbnail_path, &bytes) {
+                                        warn!("Failed to save thumbnail image to {:?}: {}", thumbnail_path, e);
+                                    }
+                                }
+                                Err(e) => {
+                                    warn!("Failed to read thumbnail image bytes from {}: {}", row.thumbnail_url, e);
+                                }
+                            }
+                        } else {
+                            warn!("Failed to download thumbnail image from {}: HTTP {}", row.thumbnail_url, response.status());
+                        }
+                    }
+                    Err(e) => {
+                        warn!("HTTP request failed for {}: {}", row.thumbnail_url, e);
+                    }
+                }
+            }
             CarouselImage {
                 title: row.title,
                 copyright: row.copyright,
                 copyright_link: row.copyright_link,
                 thumbnail_url: row.thumbnail_url,
+                thumbnail_path: thumbnail_path,
                 full_url: row.full_url,
                 image_bytes: None,
             }

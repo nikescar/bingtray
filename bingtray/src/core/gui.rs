@@ -5,6 +5,7 @@ use egui_material3::{
     theme::{setup_local_fonts, setup_local_theme, load_fonts, load_themes, update_window_background, get_global_theme, MaterialThemeFile, ThemeMode, ContrastLevel, MaterialThemeContext},
 };
 use webbrowser;
+use egui::Image;
 
 use crate::core::app::App;
 
@@ -140,9 +141,9 @@ impl Gui {
                 Ok(metadata_list) => {
                 for (i, metadata) in metadata_list.iter().enumerate() {
                     dynamic_images.push(DynamicImageItem {
-                    _id: i,
-                    label: metadata.title.clone(),
-                    image_source: metadata.full_url.clone(),
+                        _id: i,
+                        label: metadata.title.clone(),
+                        image_source: metadata.full_url.clone(),
                     });
                 }
                 }
@@ -151,9 +152,9 @@ impl Gui {
                 // Fallback to dummy data
                 for i in 1..=8 {
                     dynamic_images.push(DynamicImageItem {
-                    _id: i,
-                    label: format!("Photo {:03}", i),
-                    image_source: format!("photo{}.jpg", i),
+                        _id: i,
+                        label: format!("Photo {:03}", i),
+                        image_source: format!("photo{}.jpg", i),
                     });
                 }
                 }
