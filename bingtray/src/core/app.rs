@@ -334,18 +334,18 @@ impl App {
         let rows = self.sqlite.get_metadata_page(offset, page_size_i64)
             .map_err(|e| anyhow::anyhow!("Failed to get metadata page: {}", e))?;
         
-        // Or load from a local file
-        // let local_image_path = "file:///path/to/local/image.jpg";
-        // let local_image = Image::new(ImageSource::Uri(local_image_path.into()));
-        // ui.add(local_image);
-        
-        let cache_dir = &self.conf.cache_dir;
+        let cached_dir = &self.conf.cached_dir;
         let images = rows.into_iter().map(|row| {
             // save row.thumbnail_url image file to conf.cache_dir if not exists and set thumbnail_path to the local file path
-            let thumbnail_path = cache_dir.join(format!("{}.jpg", row.image_id));
+            let thumbnail_path = cached_dir.join(format!("{}_thumb.jpg", row.image_id));
             if !thumbnail_path.exists() {
-                // download image from row.thumbnail_url and save to thumbnail_path
-                match ureq::get(&row.thumbnail_url).call() {
+                // put "https://www.bing.com" on thumbnail_url if it doesn't start with https://
+                let full_url = if row.thumbnail_url.starts_with("http://") || row.thumbnail_url.starts_with("https://") {
+                    row.thumbnail_url.clone()
+                } else {
+                    format!("https://www.bing.com{}", row.thumbnail_url)
+                };
+                match ureq::get(&full_url).call() {
                     Ok(response) => {
                         if response.status() == 200 {
                             let mut bytes = Vec::new();

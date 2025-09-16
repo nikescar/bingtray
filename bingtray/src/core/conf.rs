@@ -56,6 +56,7 @@ impl Conf {
 
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
             {
+                // Desktop-specific paths
                 let proj_dirs = ProjectDirs::from("com", "bingtray", "bingtray")
                     .context("Failed to get project directories")?;
                 let config_dir = proj_dirs.config_dir().to_path_buf();
