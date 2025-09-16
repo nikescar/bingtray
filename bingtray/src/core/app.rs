@@ -5,6 +5,7 @@ use anyhow::Result;
 use log::{info, warn};
 use wgpu::wgc::instance::FailedLimit;
 use std::sync::Arc;
+use std::io::Read;
 
 use crate::core::conf::Conf;
 use crate::core::sqlite::Sqlite;
@@ -338,7 +339,7 @@ impl App {
         // let local_image = Image::new(ImageSource::Uri(local_image_path.into()));
         // ui.add(local_image);
         
-        let cache_dir = self.conf.cache_dir.to_str().unwrap();
+        let cache_dir = &self.conf.cache_dir;
         let images = rows.into_iter().map(|row| {
             // save row.thumbnail_url image file to conf.cache_dir if not exists and set thumbnail_path to the local file path
             let thumbnail_path = cache_dir.join(format!("{}.jpg", row.image_id));
@@ -372,7 +373,7 @@ impl App {
                 copyright: row.copyright,
                 copyright_link: row.copyright_link,
                 thumbnail_url: row.thumbnail_url,
-                thumbnail_path: thumbnail_path,
+                thumbnail_path: thumbnail_path.to_string_lossy().to_string().into(),
                 full_url: row.full_url,
                 image_bytes: None,
             }
