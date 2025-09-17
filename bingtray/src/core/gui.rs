@@ -91,41 +91,83 @@ impl Gui {
         let on_primary = theme.get_on_primary_color();
         let surface = theme.get_surface_color(visuals.dark_mode);
         let on_surface = theme.get_color_by_name("onSurface");
-        
+
+        // Convert material3 Color32 to egui Color32
+        let primary_egui = Color32::from_rgba_unmultiplied(
+            primary_color.r(),
+            primary_color.g(),
+            primary_color.b(),
+            primary_color.a(),
+        );
+
+        let on_primary_egui = Color32::from_rgba_unmultiplied(
+            on_primary.r(),
+            on_primary.g(),
+            on_primary.b(),
+            on_primary.a(),
+        );
+
+        let surface_egui = Color32::from_rgba_unmultiplied(
+            surface.r(),
+            surface.g(),
+            surface.b(),
+            surface.a(),
+        );
+
+        let on_surface_egui = Color32::from_rgba_unmultiplied(
+            on_surface.r(),
+            on_surface.g(),
+            on_surface.b(),
+            on_surface.a(),
+        );
+
         // Apply colors to visuals
-        visuals.selection.bg_fill = primary_color;
-        visuals.selection.stroke.color = primary_color;
-        visuals.hyperlink_color = primary_color;
+        visuals.selection.bg_fill = primary_egui;
+        visuals.selection.stroke.color = primary_egui;
+        visuals.hyperlink_color = primary_egui;
         
         // Button and widget colors
-        visuals.widgets.noninteractive.bg_fill = surface;
-        
+        visuals.widgets.noninteractive.bg_fill = surface_egui;
+
         visuals.widgets.inactive.bg_fill = Color32::from_rgba_unmultiplied(
             primary_color.r(),
             primary_color.g(),
             primary_color.b(),
             20,
         );
-        
+
         visuals.widgets.hovered.bg_fill = Color32::from_rgba_unmultiplied(
             primary_color.r(),
             primary_color.g(),
             primary_color.b(),
             40,
         );
-        
-        visuals.widgets.active.bg_fill = primary_color;
-        visuals.widgets.active.fg_stroke.color = on_primary;
-        
+
+        visuals.widgets.active.bg_fill = primary_egui;
+        visuals.widgets.active.fg_stroke.color = on_primary_egui;
+
         // Window background
-        visuals.window_fill = surface;
-        visuals.panel_fill = theme.get_color_by_name("surfaceContainer");
-        
+        visuals.window_fill = surface_egui;
+
+        let surface_container = theme.get_color_by_name("surfaceContainer");
+        visuals.panel_fill = Color32::from_rgba_unmultiplied(
+            surface_container.r(),
+            surface_container.g(),
+            surface_container.b(),
+            surface_container.a(),
+        );
+
         // Text colors
-        visuals.override_text_color = Some(on_surface);
-        
+        visuals.override_text_color = Some(on_surface_egui);
+
         // Apply surface colors
-        visuals.extreme_bg_color = theme.get_color_by_name("surfaceContainerLowest");
+        let surface_container_lowest = theme.get_color_by_name("surfaceContainerLowest");
+        visuals.extreme_bg_color = Color32::from_rgba_unmultiplied(
+            surface_container_lowest.r(),
+            surface_container_lowest.g(),
+            surface_container_lowest.b(),
+            surface_container_lowest.a(),
+        );
         
         ctx.set_visuals(visuals);
     }
@@ -136,38 +178,38 @@ impl Gui {
         // Load images from app if available
         if let Some(app) = &mut self.app {
             if let Some(runtime) = &self.runtime {
-            // Get current page of images from metadata
-            match app.get_wallpaper_metadata_page(0, 8) {
-                Ok(metadata_list) => {
-                for (i, metadata) in metadata_list.iter().enumerate() {
-                    dynamic_images.push(DynamicImageItem {
-                        _id: i,
-                        label: metadata.title.clone(),
-                        image_source: metadata.full_url.clone(),
-                    });
+                // Get current page of images from metadata
+                match app.get_wallpaper_metadata_page(0, 8) {
+                    Ok(metadata_list) => {
+                    for (i, metadata) in metadata_list.iter().enumerate() {
+                        dynamic_images.push(DynamicImageItem {
+                            _id: i,
+                            label: metadata.title.clone(),
+                            image_source: "https://www.bing.com".to_string() + &metadata.thumbnail_url,
+                        });
+                    }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to load wallpaper metadata: {}", e);
+                        // Fallback to dummy data
+                        for i in 1..=8 {
+                            dynamic_images.push(DynamicImageItem {
+                                _id: i,
+                                label: format!("Photo {:03}", i),
+                                image_source: "bingtray/resources/320x240.png".to_string(),
+                            });
+                        }
+                    }
                 }
-                }
-                Err(e) => {
-                log::error!("Failed to load wallpaper metadata: {}", e);
-                // Fallback to dummy data
-                for i in 1..=8 {
-                    dynamic_images.push(DynamicImageItem {
-                        _id: i,
-                        label: format!("Photo {:03}", i),
-                        image_source: format!("photo{}.jpg", i),
-                    });
-                }
-                }
-            }
             }
         } else {
             // Fallback when app is not initialized yet
             for i in 1..=8 {
-            dynamic_images.push(DynamicImageItem {
-                _id: i,
-                label: format!("Photo {:03}", i),
-                image_source: format!("photo{}.jpg", i),
-            });
+                dynamic_images.push(DynamicImageItem {
+                    _id: i,
+                    label: format!("Photo {:03}", i),
+                    image_source: "bingtray/resources/320x240.png".to_string(),
+                });
             }
         }
         // Apply theme based on settings
@@ -221,35 +263,29 @@ impl Gui {
 
             // Main content
             ui.horizontal(|ui| {
-                if ui.add(MaterialButton::outlined("Fetch")).clicked() {
+                let fetch_button = MaterialButton::outlined("Fetch");
+                if ui.add(fetch_button).clicked() {
                     // self.add_image();
                 }
-                if ui.add(MaterialButton::outlined("History")).clicked() {
+                let history_button = MaterialButton::outlined("History");
+                if ui.add(history_button).clicked() {
                     // self.remove_image();
                 }
             });
             ui.add_space(10.0);
             
             // Dynamic image list
-            let mut interactive_list = image_list()
-                .id_salt("interactive_imagelist")
-                .columns(1)
-                // .item_spacing(self.item_spacing)
-                .text_protected(true);
-                
-            // Add dynamic images from vector
-            for image in dynamic_images {
-                let label = image.label.clone();
-                let image_source = image.image_source.clone();
-                interactive_list = interactive_list.item_with_callback(
-                    label.clone(),
-                    image_source,
-                    move || println!("{} selected!", label)
-                );
-            }
+            let image_urls: Vec<String> = dynamic_images.iter()
+                .map(|img| img.image_source.clone())
+                .collect();
             
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.add(interactive_list);
+                ui.add(image_list()
+                    .id_salt("interactive_imagelist")
+                    .columns(1)
+                    .item_spacing(8.0)
+                    .items_from_urls(image_urls)
+                );
             });
         });
     }
