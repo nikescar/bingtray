@@ -34,6 +34,10 @@ pub struct Gui {
 
     // Tokio runtime for background tasks
     runtime: Option<tokio::runtime::Runtime>,
+
+    // Cached image data to prevent excessive reloading
+    cached_image_urls: Vec<String>,
+    images_loaded: bool,
 }
 
 // desktop tray,cli,gui -> app -> core
@@ -50,6 +54,8 @@ impl Gui {
             wallpaper_path: None,
             app: None,
             runtime: None,
+            cached_image_urls: Vec::new(),
+            images_loaded: false,
         }
     }
 
@@ -173,43 +179,34 @@ impl Gui {
     }
     
     pub fn show(&mut self, ctx: &egui::Context) {
-        let mut dynamic_images = Vec::new();
-        
-        // Load images from app if available
-        if let Some(app) = &mut self.app {
-            if let Some(runtime) = &self.runtime {
-                // Get current page of images from metadata
-                match app.get_wallpaper_metadata_page(0, 8) {
-                    Ok(metadata_list) => {
-                    for (i, metadata) in metadata_list.iter().enumerate() {
-                        dynamic_images.push(DynamicImageItem {
-                            _id: i,
-                            label: metadata.title.clone(),
-                            image_source: "https://www.bing.com".to_string() + &metadata.thumbnail_url,
-                        });
-                    }
-                    }
-                    Err(e) => {
-                        log::error!("Failed to load wallpaper metadata: {}", e);
-                        // Fallback to dummy data
-                        for i in 1..=8 {
-                            dynamic_images.push(DynamicImageItem {
-                                _id: i,
-                                label: format!("Photo {:03}", i),
-                                image_source: "bingtray/resources/320x240.png".to_string(),
-                            });
+        // Only load images once when app is available and images haven't been loaded yet
+        if !self.images_loaded {
+            if let Some(app) = &mut self.app {
+                if let Some(_runtime) = &self.runtime {
+                    // Get current page of images from metadata
+                    match app.get_wallpaper_metadata_page(0, 8) {
+                        Ok(metadata_list) => {
+                            self.cached_image_urls = metadata_list.iter()
+                                .map(|metadata| "https://www.bing.com".to_string() + &metadata.thumbnail_url)
+                                .collect();
+                            self.images_loaded = true;
+                        }
+                        Err(e) => {
+                            log::error!("Failed to load wallpaper metadata: {}", e);
+                            // Fallback to dummy data
+                            self.cached_image_urls = (1..=8)
+                                .map(|i| "bingtray/resources/320x240.png".to_string())
+                                .collect();
+                            self.images_loaded = true;
                         }
                     }
                 }
-            }
-        } else {
-            // Fallback when app is not initialized yet
-            for i in 1..=8 {
-                dynamic_images.push(DynamicImageItem {
-                    _id: i,
-                    label: format!("Photo {:03}", i),
-                    image_source: "bingtray/resources/320x240.png".to_string(),
-                });
+            } else {
+                // Fallback when app is not initialized yet
+                self.cached_image_urls = (1..=8)
+                    .map(|i| "bingtray/resources/320x240.png".to_string())
+                    .collect();
+                self.images_loaded = true;
             }
         }
         // Apply theme based on settings
@@ -262,30 +259,28 @@ impl Gui {
             ui.add_space(20.0);
 
             // Main content
-            ui.horizontal(|ui| {
-                let fetch_button = MaterialButton::outlined("Fetch");
-                if ui.add(fetch_button).clicked() {
-                    // self.add_image();
-                }
-                let history_button = MaterialButton::outlined("History");
-                if ui.add(history_button).clicked() {
-                    // self.remove_image();
-                }
-            });
+            // ui.horizontal(|ui| {
+            //     let fetch_button = MaterialButton::outlined("Fetch");
+            //     if ui.add(fetch_button).clicked() {
+            //         // self.add_image();
+            //     }
+            //     let history_button = MaterialButton::outlined("History");
+            //     if ui.add(history_button).clicked() {
+            //         // self.remove_image();
+            //     }
+            // });
             ui.add_space(10.0);
             
-            // Dynamic image list
-            let image_urls: Vec<String> = dynamic_images.iter()
-                .map(|img| img.image_source.clone())
-                .collect();
-            
+            // Dynamic image list - use cached URLs to prevent excessive reloading
             egui::ScrollArea::vertical().show(ui, |ui| {
-                ui.add(image_list()
-                    .id_salt("interactive_imagelist")
-                    .columns(1)
-                    .item_spacing(8.0)
-                    .items_from_urls(image_urls)
-                );
+                if !self.cached_image_urls.is_empty() {
+                    ui.add(image_list()
+                        .id_salt("interactive_imagelist")
+                        .columns(1)
+                        .item_spacing(8.0)
+                        .items_from_urls(self.cached_image_urls.clone())
+                    );
+                }
             });
         });
     }
