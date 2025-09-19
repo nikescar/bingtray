@@ -258,17 +258,17 @@ impl Gui {
             });
             ui.add_space(20.0);
 
-            // Main content
-            // ui.horizontal(|ui| {
-            //     let fetch_button = MaterialButton::outlined("Fetch");
-            //     if ui.add(fetch_button).clicked() {
-            //         // self.add_image();
-            //     }
-            //     let history_button = MaterialButton::outlined("History");
-            //     if ui.add(history_button).clicked() {
-            //         // self.remove_image();
-            //     }
-            // });
+            // Top Buttons
+            ui.horizontal(|ui| {
+                let fetch_button = MaterialButton::outlined("Fetch");
+                if ui.add(fetch_button).clicked() {
+                    // self.add_image();
+                }
+                let history_button = MaterialButton::outlined("History");
+                if ui.add(history_button).clicked() {
+                    // self.remove_image();
+                }
+            });
             ui.add_space(10.0);
             
             // Dynamic image list - use cached URLs to prevent excessive reloading
