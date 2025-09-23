@@ -1,11 +1,11 @@
 use eframe::egui::{self, Color32};
 use egui_material3::{
-    MaterialButton, MaterialCheckbox, MaterialSlider, MaterialSwitch,
+    MaterialButton,
     image_list,
-    theme::{setup_local_fonts, setup_local_theme, load_fonts, load_themes, update_window_background, get_global_theme, MaterialThemeFile, ThemeMode, ContrastLevel, MaterialThemeContext},
+    theme::{get_global_theme, ThemeMode, MaterialThemeContext},
 };
 use webbrowser;
-use egui::Image;
+use std::sync::mpsc;
 
 use crate::core::app::App;
 
@@ -38,6 +38,20 @@ pub struct Gui {
     // Cached image data to prevent excessive reloading
     cached_image_urls: Vec<String>,
     images_loaded: bool,
+
+    // Standard dialog state
+    standard_dialog_open: bool,
+    selected_image_url: Option<String>,
+    selected_image_title: String,
+    selected_image_bytes: Option<Vec<u8>>,
+
+    // Cropper state
+    square_corners: [egui::Pos2; 4],
+    square_center: egui::Pos2,
+    square_size_factor: f32,
+    screen_ratio: f32,
+    dragging_corner: Option<usize>,
+    image_display_rect: Option<egui::Rect>,
 }
 
 // desktop tray,cli,gui -> app -> core
@@ -56,6 +70,16 @@ impl Gui {
             runtime: None,
             cached_image_urls: Vec::new(),
             images_loaded: false,
+            standard_dialog_open: false,
+            selected_image_url: None,
+            selected_image_title: String::new(),
+            selected_image_bytes: None,
+            square_corners: [egui::pos2(0.0, 0.0); 4],
+            square_center: egui::pos2(0.0, 0.0),
+            square_size_factor: 0.5,
+            screen_ratio: 16.0 / 9.0,
+            dragging_corner: None,
+            image_display_rect: None,
         }
     }
 
@@ -177,6 +201,117 @@ impl Gui {
         
         ctx.set_visuals(visuals);
     }
+
+    fn initialize_rectangle_for_image(&mut self, image_rect: egui::Rect, screen_size: egui::Vec2) {
+        let image_width = image_rect.width();
+        let image_height = image_rect.height();
+        let screen_aspect_ratio = screen_size.x / screen_size.y;
+
+        self.screen_ratio = screen_aspect_ratio;
+
+        let display_scale_factor = 0.8;
+        let max_rect_width = screen_size.x * display_scale_factor;
+        let max_rect_height = screen_size.y * display_scale_factor;
+
+        let image_bigger_than_display = image_width > max_rect_width || image_height > max_rect_height;
+
+        let (rect_width, _rect_height) = if image_bigger_than_display {
+            let screen_ratio_width = max_rect_width.min(image_width);
+            let screen_ratio_height = screen_ratio_width / screen_aspect_ratio;
+
+            if screen_ratio_height > image_height {
+                let height = image_height.min(max_rect_height);
+                let width = height * screen_aspect_ratio;
+                (width, height)
+            } else {
+                (screen_ratio_width, screen_ratio_height)
+            }
+        } else {
+            let width_based_height = image_width / screen_aspect_ratio;
+            if width_based_height <= image_height {
+                (image_width, width_based_height)
+            } else {
+                let height_based_width = image_height * screen_aspect_ratio;
+                (height_based_width, image_height)
+            }
+        };
+
+        let center_x = image_width / 2.0;
+        let center_y = image_height / 2.0;
+
+        self.square_center = egui::pos2(center_x, center_y);
+        self.square_size_factor = rect_width / 800.0; // Use a fixed reference width
+
+        self.update_square_corners();
+    }
+
+    fn update_square_corners(&mut self) {
+        let half_width = (400.0 * self.square_size_factor) / 2.0; // Reference half-width
+        let half_height = half_width / self.screen_ratio;
+
+        self.square_corners[0] = egui::pos2(self.square_center.x - half_width, self.square_center.y - half_height); // top-left
+        self.square_corners[1] = egui::pos2(self.square_center.x + half_width, self.square_center.y - half_height); // top-right
+        self.square_corners[2] = egui::pos2(self.square_center.x + half_width, self.square_center.y + half_height); // bottom-right
+        self.square_corners[3] = egui::pos2(self.square_center.x - half_width, self.square_center.y + half_height); // bottom-left
+    }
+
+    fn render_square_shape(&mut self, ui: &mut egui::Ui, available_rect: egui::Rect) -> egui::Response {
+        let response = ui.allocate_rect(available_rect, egui::Sense::click_and_drag());
+
+        // Store corner data to avoid borrowing issues
+        let corners = self.square_corners;
+        let dragging_corner = self.dragging_corner;
+
+        // Draw the square selection
+        let corner_radius = 5.0;
+        let mut corner_responses = Vec::new();
+
+        for (i, corner) in corners.iter().enumerate() {
+            let corner_rect = egui::Rect::from_center_size(*corner, egui::Vec2::splat(corner_radius * 2.0));
+
+            let corner_color = if dragging_corner == Some(i) {
+                egui::Color32::RED
+            } else {
+                egui::Color32::BLUE
+            };
+
+            ui.painter().circle_filled(*corner, corner_radius, corner_color);
+
+            // Handle corner dragging
+            let corner_response = ui.allocate_rect(corner_rect, egui::Sense::click_and_drag());
+            corner_responses.push((i, corner_response));
+        }
+
+        // Process corner responses after the loop
+        for (i, corner_response) in corner_responses {
+            if corner_response.drag_started() {
+                self.dragging_corner = Some(i);
+            }
+            if corner_response.dragged() && self.dragging_corner == Some(i) {
+                self.square_corners[i] += corner_response.drag_delta();
+                self.update_center_from_corners();
+            }
+        }
+
+        if !response.dragged() && self.dragging_corner.is_some() {
+            self.dragging_corner = None;
+        }
+
+        // Draw lines connecting corners
+        for i in 0..4 {
+            let start = self.square_corners[i];
+            let end = self.square_corners[(i + 1) % 4];
+            ui.painter().line_segment([start, end], egui::Stroke::new(2.0, egui::Color32::BLUE));
+        }
+
+        response
+    }
+
+    fn update_center_from_corners(&mut self) {
+        let sum_x = self.square_corners.iter().map(|p| p.x).sum::<f32>();
+        let sum_y = self.square_corners.iter().map(|p| p.y).sum::<f32>();
+        self.square_center = egui::pos2(sum_x / 4.0, sum_y / 4.0);
+    }
     
     pub fn show(&mut self, ctx: &egui::Context) {
         // Only load images once when app is available and images haven't been loaded yet
@@ -195,7 +330,7 @@ impl Gui {
                             log::error!("Failed to load wallpaper metadata: {}", e);
                             // Fallback to dummy data
                             self.cached_image_urls = (1..=8)
-                                .map(|i| "bingtray/resources/320x240.png".to_string())
+                                .map(|_i| "bingtray/resources/320x240.png".to_string())
                                 .collect();
                             self.images_loaded = true;
                         }
@@ -204,7 +339,7 @@ impl Gui {
             } else {
                 // Fallback when app is not initialized yet
                 self.cached_image_urls = (1..=8)
-                    .map(|i| "bingtray/resources/320x240.png".to_string())
+                    .map(|_i| "bingtray/resources/320x240.png".to_string())
                     .collect();
                 self.images_loaded = true;
             }
@@ -274,14 +409,152 @@ impl Gui {
             // Dynamic image list - use cached URLs to prevent excessive reloading
             egui::ScrollArea::vertical().show(ui, |ui| {
                 if !self.cached_image_urls.is_empty() {
-                    ui.add(image_list()
-                        .id_salt("interactive_imagelist")
-                        .columns(1)
-                        .item_spacing(8.0)
-                        .items_from_urls(self.cached_image_urls.clone())
-                    );
+                    let mut image_list_builder = image_list()
+                        .id_salt("standard_imagelist")
+                        .columns(2)
+                        .item_spacing(10.0)
+                        .text_protected(true);
+
+                    // Use a channel to communicate from callbacks
+                    let (sender, receiver) = mpsc::channel::<(String, String)>();
+
+                    for (index, url) in self.cached_image_urls.iter().enumerate() {
+                        let title = format!("Image {}", index + 1);
+                        let url_clone = url.clone();
+                        let title_clone = title.clone();
+                        let sender_clone = sender.clone();
+
+                        image_list_builder = image_list_builder.item_with_callback(
+                            &title,
+                            url,
+                            move || {
+                                let _ = sender_clone.send((url_clone.clone(), title_clone.clone()));
+                            }
+                        );
+                    }
+
+                    ui.label("Recent Wallpapers:");
+                    ui.add(image_list_builder);
+
+                    // Check for any messages from callbacks
+                    if let Ok((selected_url, selected_title)) = receiver.try_recv() {
+                        self.selected_image_url = Some(selected_url);
+                        self.selected_image_title = selected_title;
+                        self.selected_image_bytes = None;
+                        self.standard_dialog_open = true;
+                    }
                 }
+                
+                ui.add_space(20.0);
+
+                // Standard categories list with click callbacks
+                // let _standard_list = image_list()
+                //     .id_salt("standard_imagelist")
+                //     .columns(3)
+                //     .item_spacing(8.0)
+                //     .text_protected(false);
+
+                // ui.label("Browse Categories:");
+                // ui.add_space(10.0);
+
+                // ui.horizontal_wrapped(|ui| {
+                //     let categories = [
+                //         ("Architecture", "resources/320x240.png"),
+                //         ("Nature", "resources/320x240.png"),
+                //         ("Abstract Art", "resources/320x240.png"),
+                //         ("Street Photo", "resources/320x240.png"),
+                //         ("Portrait", "resources/320x240.png"),
+                //         ("Landscape", "resources/320x240.png"),
+                //     ];
+
+                //     for (category, _image_path) in categories.iter() {
+                //         if ui.button(*category).clicked() {
+                //             self.selected_image_title = category.to_string();
+                //             self.selected_image_url = Some(format!("https://example.com/{}", category.to_lowercase()));
+                //             self.standard_dialog_open = true;
+                //         }
+                //     }
+                // });
             });
+
+            // Standard dialog implementation
+            if self.standard_dialog_open {
+                let dialog_title = self.selected_image_title.clone();
+                let selected_image_title = self.selected_image_title.clone();
+                let selected_image_url = self.selected_image_url.clone();
+
+                egui::Window::new(&dialog_title)
+                    .open(&mut self.standard_dialog_open)
+                    .resizable(true)
+                    .default_width(ctx.screen_rect().width())
+                    .default_height(ctx.screen_rect().height())
+                    .show(ctx, |ui| {
+                        ui.label(format!("Category: {}", selected_image_title));
+
+                        if let Some(url) = &selected_image_url {
+                            ui.label(format!("URL: {}", url));
+                        }
+
+                        ui.separator();
+
+                        // Image display area with cropper overlay
+                        ui.label("Select cropping area:");
+
+                        // Create a sample image or placeholder
+                        let available_width = ui.available_width().min(400.0);
+                        let target_height = available_width * 9.0 / 16.0; // 16:9 aspect ratio
+
+                        let image_rect = ui.allocate_response(
+                            egui::Vec2::new(available_width, target_height),
+                            egui::Sense::hover()
+                        );
+
+                        // Draw background image placeholder
+                        ui.painter().rect_filled(
+                            image_rect.rect,
+                            5.0,
+                            egui::Color32::from_rgb(100, 150, 200)
+                        );
+
+                        ui.separator();
+
+                        // Action buttons
+                        ui.horizontal(|ui| {
+                            if ui.button("Set this Wallpaper").clicked() {
+                                log::info!("Setting wallpaper for: {}", selected_image_title);
+                                if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
+                                    log::error!("Failed to open URL: {}", e);
+                                }
+                            }
+
+                            if ui.button("Set Cropped Wallpaper").clicked() {
+                                log::info!("Setting cropped wallpaper for: {}", selected_image_title);
+                                if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
+                                    log::error!("Failed to open URL: {}", e);
+                                }
+                            }
+
+                            if ui.button("More Info").clicked() {
+                                log::info!("More info clicked for: {}", selected_image_title);
+                                if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
+                                    log::error!("Failed to open URL: {}", e);
+                                }
+                            }
+                        });
+
+                        ui.separator();
+
+                        ui.horizontal(|ui| {
+                            if ui.button("OK").clicked() {
+                                log::info!("Standard dialog OK clicked!");
+                            }
+
+                            if ui.button("Close").clicked() {
+                                log::info!("Standard dialog Close clicked!");
+                            }
+                        });
+                    });
+            }
         });
     }
 }
