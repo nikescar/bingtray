@@ -7,7 +7,7 @@ use egui_material3::{
 use webbrowser;
 use std::sync::mpsc;
 
-use crate::core::app::App;
+use crate::core::app::{App, CarouselImage};
 
 #[derive(Clone)]
 struct DynamicImageItem {
@@ -38,6 +38,12 @@ pub struct Gui {
     // Cached image data to prevent excessive reloading
     carousel_image_lists: Vec<CarouselImage>,
     images_loaded: bool,
+    
+    // Infinite scroll state
+    current_page: i32,
+    page_size: i32,
+    loading_more: bool,
+    all_data_exhausted: bool,
 
     // Standard dialog state
     standard_dialog_open: bool,
@@ -70,6 +76,10 @@ impl Gui {
             runtime: None,
             carousel_image_lists: Vec::new(),
             images_loaded: false,
+            current_page: 0,
+            page_size: 20,
+            loading_more: false,
+            all_data_exhausted: false,
             standard_dialog_open: false,
             selected_image_url: None,
             selected_image_title: String::new(),
@@ -203,6 +213,7 @@ impl Gui {
     }
 
     pub fn show(&mut self, ctx: &egui::Context) {
+
         // Apply theme based on settings
         self.apply_theme(ctx);
 
@@ -244,7 +255,7 @@ impl Gui {
             ui.add_space(20.0);
 
             // Dynamic image list - use cached URLs to prevent excessive reloading
-            egui::ScrollArea::vertical().show(ui, |ui| {
+            let scroll_response = egui::ScrollArea::vertical().show(ui, |ui| {
                 if !self.carousel_image_lists.is_empty() {
                     let mut image_list_builder = image_list()
                         .id_salt("standard_imagelist")
@@ -255,17 +266,22 @@ impl Gui {
                     // Use a channel to communicate from callbacks
                     let (sender, receiver) = mpsc::channel::<(String, String)>();
 
-                    for (index, carousel_image) in self.carousel_image_lists.iter().enumerate() {
-                        let title = format!("Image {}", index + 1);
-                        let url_clone = carousel_image.url.clone();
+                    for carousel_image in self.carousel_image_lists.iter() {
+                        let title = &carousel_image.title;
+                        let thumbnail_url = if let Some(ref path) = carousel_image.thumbnail_path {
+                            path.clone()
+                        } else {
+                            carousel_image.thumbnail_url.clone()
+                        };
+                        let full_url_clone = carousel_image.full_url.clone();
                         let title_clone = title.clone();
                         let sender_clone = sender.clone();
 
                         image_list_builder = image_list_builder.item_with_callback(
-                            &title,
-                            url,
+                            title,
+                            &thumbnail_url,
                             move || {
-                                let _ = sender_clone.send((url_clone.clone(), title_clone.clone()));
+                                let _ = sender_clone.send((full_url_clone.clone(), title_clone.clone()));
                             }
                         );
                     }
@@ -285,6 +301,22 @@ impl Gui {
                 ui.add_space(20.0);
 
             });
+
+            // Check for infinite scroll trigger
+            if !self.all_data_exhausted && !self.loading_more && self.app.is_some() {
+                let scroll_pos = scroll_response.state.offset;
+                let content_height = scroll_response.content_size.y;
+                let viewport_height = scroll_response.inner_rect.height();
+                
+                // Trigger loading when scrolled to 90% of content
+                if viewport_height > 0.0 && content_height > viewport_height {
+                    let scroll_percentage = scroll_pos.y / (content_height - viewport_height);
+                    if scroll_percentage > 0.9 {
+                        log::info!("Infinite scroll triggered at {:.1}% - Loading more images", scroll_percentage * 100.0);
+                        self.load_more_images();
+                    }
+                }
+            }
 
             // Popup dialog implementation
             if self.standard_dialog_open {
@@ -398,6 +430,34 @@ impl eframe::App for Gui {
             }
         }
 
+        // Load initial images if not loaded and app is available
+        if !self.images_loaded && self.app.is_some() && !self.loading_more {
+            self.load_more_images();
+        }
+
         self.show(ctx);
+    }
+}
+
+impl Gui {
+    fn load_more_images(&mut self) {
+        if let Some(app) = &mut self.app {
+            self.loading_more = true;
+            match app.get_wallpaper_metadata_page(self.current_page, self.page_size) {
+                Ok(images) => {
+                    if images.is_empty() {
+                        self.all_data_exhausted = true;
+                    } else {
+                        self.carousel_image_lists.extend(images);
+                        self.current_page += 1;
+                    }
+                    self.images_loaded = true;
+                }
+                Err(e) => {
+                    log::error!("Failed to load wallpaper metadata: {}", e);
+                }
+            }
+            self.loading_more = false;
+        }
     }
 }
