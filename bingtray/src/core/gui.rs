@@ -36,7 +36,7 @@ pub struct Gui {
     runtime: Option<tokio::runtime::Runtime>,
 
     // Cached image data to prevent excessive reloading
-    cached_image_urls: Vec<String>,
+    carousel_image_lists: Vec<CarouselImage>,
     images_loaded: bool,
 
     // Standard dialog state
@@ -68,7 +68,7 @@ impl Gui {
             wallpaper_path: None,
             app: None,
             runtime: None,
-            cached_image_urls: Vec::new(),
+            carousel_image_lists: Vec::new(),
             images_loaded: false,
             standard_dialog_open: false,
             selected_image_url: None,
@@ -202,148 +202,7 @@ impl Gui {
         ctx.set_visuals(visuals);
     }
 
-    fn initialize_rectangle_for_image(&mut self, image_rect: egui::Rect, screen_size: egui::Vec2) {
-        let image_width = image_rect.width();
-        let image_height = image_rect.height();
-        let screen_aspect_ratio = screen_size.x / screen_size.y;
-
-        self.screen_ratio = screen_aspect_ratio;
-
-        let display_scale_factor = 0.8;
-        let max_rect_width = screen_size.x * display_scale_factor;
-        let max_rect_height = screen_size.y * display_scale_factor;
-
-        let image_bigger_than_display = image_width > max_rect_width || image_height > max_rect_height;
-
-        let (rect_width, _rect_height) = if image_bigger_than_display {
-            let screen_ratio_width = max_rect_width.min(image_width);
-            let screen_ratio_height = screen_ratio_width / screen_aspect_ratio;
-
-            if screen_ratio_height > image_height {
-                let height = image_height.min(max_rect_height);
-                let width = height * screen_aspect_ratio;
-                (width, height)
-            } else {
-                (screen_ratio_width, screen_ratio_height)
-            }
-        } else {
-            let width_based_height = image_width / screen_aspect_ratio;
-            if width_based_height <= image_height {
-                (image_width, width_based_height)
-            } else {
-                let height_based_width = image_height * screen_aspect_ratio;
-                (height_based_width, image_height)
-            }
-        };
-
-        let center_x = image_width / 2.0;
-        let center_y = image_height / 2.0;
-
-        self.square_center = egui::pos2(center_x, center_y);
-        self.square_size_factor = rect_width / 800.0; // Use a fixed reference width
-
-        self.update_square_corners();
-    }
-
-    fn update_square_corners(&mut self) {
-        let half_width = (400.0 * self.square_size_factor) / 2.0; // Reference half-width
-        let half_height = half_width / self.screen_ratio;
-
-        self.square_corners[0] = egui::pos2(self.square_center.x - half_width, self.square_center.y - half_height); // top-left
-        self.square_corners[1] = egui::pos2(self.square_center.x + half_width, self.square_center.y - half_height); // top-right
-        self.square_corners[2] = egui::pos2(self.square_center.x + half_width, self.square_center.y + half_height); // bottom-right
-        self.square_corners[3] = egui::pos2(self.square_center.x - half_width, self.square_center.y + half_height); // bottom-left
-    }
-
-    fn render_square_shape(&mut self, ui: &mut egui::Ui, available_rect: egui::Rect) -> egui::Response {
-        let response = ui.allocate_rect(available_rect, egui::Sense::click_and_drag());
-
-        // Store corner data to avoid borrowing issues
-        let corners = self.square_corners;
-        let dragging_corner = self.dragging_corner;
-
-        // Draw the square selection
-        let corner_radius = 5.0;
-        let mut corner_responses = Vec::new();
-
-        for (i, corner) in corners.iter().enumerate() {
-            let corner_rect = egui::Rect::from_center_size(*corner, egui::Vec2::splat(corner_radius * 2.0));
-
-            let corner_color = if dragging_corner == Some(i) {
-                egui::Color32::RED
-            } else {
-                egui::Color32::BLUE
-            };
-
-            ui.painter().circle_filled(*corner, corner_radius, corner_color);
-
-            // Handle corner dragging
-            let corner_response = ui.allocate_rect(corner_rect, egui::Sense::click_and_drag());
-            corner_responses.push((i, corner_response));
-        }
-
-        // Process corner responses after the loop
-        for (i, corner_response) in corner_responses {
-            if corner_response.drag_started() {
-                self.dragging_corner = Some(i);
-            }
-            if corner_response.dragged() && self.dragging_corner == Some(i) {
-                self.square_corners[i] += corner_response.drag_delta();
-                self.update_center_from_corners();
-            }
-        }
-
-        if !response.dragged() && self.dragging_corner.is_some() {
-            self.dragging_corner = None;
-        }
-
-        // Draw lines connecting corners
-        for i in 0..4 {
-            let start = self.square_corners[i];
-            let end = self.square_corners[(i + 1) % 4];
-            ui.painter().line_segment([start, end], egui::Stroke::new(2.0, egui::Color32::BLUE));
-        }
-
-        response
-    }
-
-    fn update_center_from_corners(&mut self) {
-        let sum_x = self.square_corners.iter().map(|p| p.x).sum::<f32>();
-        let sum_y = self.square_corners.iter().map(|p| p.y).sum::<f32>();
-        self.square_center = egui::pos2(sum_x / 4.0, sum_y / 4.0);
-    }
-    
     pub fn show(&mut self, ctx: &egui::Context) {
-        // Only load images once when app is available and images haven't been loaded yet
-        if !self.images_loaded {
-            if let Some(app) = &mut self.app {
-                if let Some(_runtime) = &self.runtime {
-                    // Get current page of images from metadata
-                    match app.get_wallpaper_metadata_page(0, 8) {
-                        Ok(metadata_list) => {
-                            self.cached_image_urls = metadata_list.iter()
-                                .map(|metadata| "https://www.bing.com".to_string() + &metadata.thumbnail_url)
-                                .collect();
-                            self.images_loaded = true;
-                        }
-                        Err(e) => {
-                            log::error!("Failed to load wallpaper metadata: {}", e);
-                            // Fallback to dummy data
-                            self.cached_image_urls = (1..=8)
-                                .map(|_i| "bingtray/resources/320x240.png".to_string())
-                                .collect();
-                            self.images_loaded = true;
-                        }
-                    }
-                }
-            } else {
-                // Fallback when app is not initialized yet
-                self.cached_image_urls = (1..=8)
-                    .map(|_i| "bingtray/resources/320x240.png".to_string())
-                    .collect();
-                self.images_loaded = true;
-            }
-        }
         // Apply theme based on settings
         self.apply_theme(ctx);
 
@@ -371,15 +230,6 @@ impl Gui {
                             });
                         }
                         
-                        // Auto mode button  
-                        let auto_selected = theme.theme_mode == ThemeMode::Auto;
-                        let auto_button = ui.selectable_label(auto_selected, "🌗 Auto");
-                        if auto_button.clicked() {
-                            self.update_theme(|theme| {
-                                theme.theme_mode = ThemeMode::Auto;
-                            });
-                        }
-                        
                         // Dark mode button
                         let dark_selected = theme.theme_mode == ThemeMode::Dark;
                         let dark_button = ui.selectable_label(dark_selected, "🌙 Dark");
@@ -393,22 +243,9 @@ impl Gui {
             });
             ui.add_space(20.0);
 
-            // Top Buttons
-            ui.horizontal(|ui| {
-                let fetch_button = MaterialButton::outlined("Fetch");
-                if ui.add(fetch_button).clicked() {
-                    // self.add_image();
-                }
-                let history_button = MaterialButton::outlined("History");
-                if ui.add(history_button).clicked() {
-                    // self.remove_image();
-                }
-            });
-            ui.add_space(10.0);
-            
             // Dynamic image list - use cached URLs to prevent excessive reloading
             egui::ScrollArea::vertical().show(ui, |ui| {
-                if !self.cached_image_urls.is_empty() {
+                if !self.carousel_image_lists.is_empty() {
                     let mut image_list_builder = image_list()
                         .id_salt("standard_imagelist")
                         .columns(2)
@@ -418,9 +255,9 @@ impl Gui {
                     // Use a channel to communicate from callbacks
                     let (sender, receiver) = mpsc::channel::<(String, String)>();
 
-                    for (index, url) in self.cached_image_urls.iter().enumerate() {
+                    for (index, carousel_image) in self.carousel_image_lists.iter().enumerate() {
                         let title = format!("Image {}", index + 1);
-                        let url_clone = url.clone();
+                        let url_clone = carousel_image.url.clone();
                         let title_clone = title.clone();
                         let sender_clone = sender.clone();
 
@@ -447,37 +284,9 @@ impl Gui {
                 
                 ui.add_space(20.0);
 
-                // Standard categories list with click callbacks
-                // let _standard_list = image_list()
-                //     .id_salt("standard_imagelist")
-                //     .columns(3)
-                //     .item_spacing(8.0)
-                //     .text_protected(false);
-
-                // ui.label("Browse Categories:");
-                // ui.add_space(10.0);
-
-                // ui.horizontal_wrapped(|ui| {
-                //     let categories = [
-                //         ("Architecture", "resources/320x240.png"),
-                //         ("Nature", "resources/320x240.png"),
-                //         ("Abstract Art", "resources/320x240.png"),
-                //         ("Street Photo", "resources/320x240.png"),
-                //         ("Portrait", "resources/320x240.png"),
-                //         ("Landscape", "resources/320x240.png"),
-                //     ];
-
-                //     for (category, _image_path) in categories.iter() {
-                //         if ui.button(*category).clicked() {
-                //             self.selected_image_title = category.to_string();
-                //             self.selected_image_url = Some(format!("https://example.com/{}", category.to_lowercase()));
-                //             self.standard_dialog_open = true;
-                //         }
-                //     }
-                // });
             });
 
-            // Standard dialog implementation
+            // Popup dialog implementation
             if self.standard_dialog_open {
                 let dialog_title = self.selected_image_title.clone();
                 let selected_image_title = self.selected_image_title.clone();
