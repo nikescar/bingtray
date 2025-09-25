@@ -3,7 +3,6 @@
 
 use anyhow::Result;
 use log::{info, warn};
-use wgpu::wgc::instance::FailedLimit;
 use std::sync::Arc;
 use std::io::Read;
 

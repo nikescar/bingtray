@@ -7,10 +7,6 @@ pub mod httpclient;
 pub mod request;
 pub mod bingwpclient;
 
-use crate::core::gui::Gui;
-use crate::core::conf::Conf;
-use crate::core::app::{App, WallpaperSetter, ScreenSizeProvider};
-use crate::core::sqlite::Sqlite;
 
 
 /// Something to view in the demo windows
