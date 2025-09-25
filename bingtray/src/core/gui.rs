@@ -1,12 +1,11 @@
-use eframe::egui::{self, Color32};
+use eframe::egui::{self, Color32, ScrollArea, Vec2};
 
 use crate::core::Demo;
+use crate::core::app::{App, CarouselImage};
 
 use egui_material3::{
     theme::{get_global_theme, ThemeMode, MaterialThemeContext},
 };
-
-use crate::core::app::{App};
 
 
 #[derive(Clone)]
@@ -24,10 +23,19 @@ pub struct Gui {
     // Cached image data to prevent excessive reloading
     carousel_image_lists: Vec<CarouselImage>,
     images_loaded: bool,
-    
+
     // scroll state
     current_page: i32,
     page_size: i32,
+
+    // Page caching for infinite scroll
+    previous_page_cache: Option<Vec<CarouselImage>>,
+    current_page_cache: Option<Vec<CarouselImage>>,
+    next_page_cache: Option<Vec<CarouselImage>>,
+
+    // Dialog state
+    dialog_open: bool,
+    dialog_image: Option<CarouselImage>,
 }
 
 impl Default for Gui {
@@ -36,10 +44,14 @@ impl Default for Gui {
             app: None,
             runtime: None,
 
-            carousel_image_lists: Vec::new(),
-            images_loaded: false,
             current_page: 0,
-            page_size: 8,
+
+            previous_page_cache: None,
+            current_page_cache: None,
+            next_page_cache: None,
+
+            dialog_open: false,
+            dialog_image: None,
         }
     }
 }
@@ -160,8 +172,83 @@ impl Gui {
             surface_container_lowest.b(),
             surface_container_lowest.a(),
         );
-        
+
         ctx.set_visuals(visuals);
+    }
+
+    fn load_images_if_needed(&mut self) {
+        if !self.images_loaded {
+            if let Some(ref mut app) = self.app {
+                if let Some(ref mut runtime) = self.runtime {
+                    match runtime.block_on(async {
+                        app.get_wallpaper_metadata_page(self.current_page, self.page_size)
+                    }) {
+                        Ok(images) => {
+                            self.carousel_image_lists = images;
+                            self.images_loaded = true;
+                            // Cache next page
+                            if let Ok(next_images) = runtime.block_on(async {
+                                app.get_wallpaper_metadata_page(self.current_page + 1, self.page_size)
+                            }) {
+                                self.next_page_cache = Some(next_images);
+                            }
+                        }
+                        Err(e) => {
+                            log::error!("Failed to load images: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn load_page(&mut self, page: i32) {
+        if let Some(ref mut app) = self.app {
+            if let Some(ref mut runtime) = self.runtime {
+                match runtime.block_on(async {
+                    app.get_wallpaper_metadata_page(page, self.page_size)
+                }) {
+                    Ok(images) => {
+                        self.carousel_image_lists = images;
+                        self.current_page = page;
+
+                        // Cache management for infinite scroll
+                        if page >= 3 {
+                            // Load page 4 data to next page cache and page 2 data to previous page cache
+                            if let Ok(page_4_images) = runtime.block_on(async {
+                                app.get_wallpaper_metadata_page(page + 1, self.page_size)
+                            }) {
+                                self.next_page_cache = Some(page_4_images);
+                            }
+
+                            if let Ok(page_2_images) = runtime.block_on(async {
+                                app.get_wallpaper_metadata_page(page - 1, self.page_size)
+                            }) {
+                                self.previous_page_cache = Some(page_2_images);
+                            }
+                        } else {
+                            // Normal caching
+                            if let Ok(next_images) = runtime.block_on(async {
+                                app.get_wallpaper_metadata_page(page + 1, self.page_size)
+                            }) {
+                                self.next_page_cache = Some(next_images);
+                            }
+
+                            if page > 0 {
+                                if let Ok(prev_images) = runtime.block_on(async {
+                                    app.get_wallpaper_metadata_page(page - 1, self.page_size)
+                                }) {
+                                    self.previous_page_cache = Some(prev_images);
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to load page {}: {}", page, e);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -191,23 +278,21 @@ impl crate::core::Demo for Gui {
 }
 
 impl crate::core::View for Gui {
-    
+
     fn ui(&mut self, ui: &mut egui::Ui) {
-        let Self {
-            app: _,
-            runtime: _,
-        } = self;
-        
+        // Load images if needed
+        self.load_images_if_needed();
         let theme = self.get_theme();
+
         // Top bar with title and buttons
         ui.horizontal(|ui| {
             ui.heading("BingTray");
             if ui.selectable_label(false, "About").clicked() {
                 let _ = webbrowser::open("https://bingtray.pages.dev");
-            } 
+            }
             if ui.selectable_label(false, "Exit").clicked() {
                 std::process::exit(0);
-            }   
+            }
 
             // right aligned theme mode selector
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -220,7 +305,7 @@ impl crate::core::View for Gui {
                             theme.theme_mode = ThemeMode::Light;
                         });
                     }
-                    
+
                     // Dark mode button
                     let dark_selected = theme.theme_mode == ThemeMode::Dark;
                     let dark_button = ui.selectable_label(dark_selected, "🌙 Dark");
@@ -234,42 +319,74 @@ impl crate::core::View for Gui {
         });
         ui.add_space(20.0);
 
-        // Dynamic image list - use cached URLs to prevent excessive reloading
+        // Image grid with infinite scroll
+        ui.label("Recent Wallpapers:");
+
+        // Show images from get_wallpaper_metadata_page in app.rs using image_list from egui_material3
+        // scroll down shows next page images, making infinite scroll. ie. when you reach 3 page, load page 4 data to next page variable and load page 2 data to previous page variable.
+        // scroll up shows previous page images, making infinite scroll.
         if !self.carousel_image_lists.is_empty() {
-            
-            let mut image_list_builder = image_list()
+            let mut image_list_builder = egui_material3::image_list()
                 .id_salt("standard_imagelist")
                 .columns(2)
-                .item_spacing(10.0)
-                .text_protected(true);
+                .item_spacing(10.0);
 
-            // Use a channel to communicate from callbacks
-            let (sender, receiver) = mpsc::channel::<(String, String)>();
+            for (index, image) in self.carousel_image_lists.iter().enumerate() {
+                let image_id = ui.make_persistent_id(format!("image_{}", index));
+                let label = format!("{} - {}", image.title, image.copyright);
+                let image_source = image.url.clone();
 
-            for carousel_image in self.carousel_image_lists.iter() {
-                let title = &carousel_image.title;
-                let thumbnail_url = if let Some(ref path) = carousel_image.thumbnail_path {
-                    path.clone()
-                } else {
-                    carousel_image.thumbnail_url.clone()
+                let dynamic_item = DynamicImageItem {
+                    _id: index,
+                    label: label.clone(),
+                    image_source: image_source.clone(),
                 };
-                let full_url_clone = carousel_image.full_url.clone();
-                let title_clone = title.clone();
-                let sender_clone = sender.clone();
 
-                image_list_builder = image_list_builder.item_with_callback(
-                    title,
-                    &thumbnail_url,
-                    move || {
-                        let _ = sender_clone.send((full_url_clone.clone(), title_clone.clone()));
-                    }
-                );
+                let button = egui::Button::new(label.clone())
+                    .min_size(Vec2::new(100.0, 100.0))
+                    .wrap(false);
+
+                let response = ui.add(button);
+
+                if response.clicked() {
+                    log::info!("Image clicked: {}", label);
+                    self.dialog_open = true;
+                    self.dialog_image = Some(image.clone());
+                }
+
+                image_list_builder = image_list_builder.add_item(image_id, response);
             }
 
-            ui.label("Recent Wallpapers:");
-            ui.add(image_list_builder);
+            let image_list = image_list_builder.build(ui);
 
+            ScrollArea::vertical()
+                .auto_shrink([false; 2])
+                .show(ui, |ui| {
+                    ui.add(image_list);
+                    
+                    // Infinite scroll logic
+                    if ui.input().scroll_delta.y < 0.0 {
+                        // Scrolling down
+                        if let Some(next_cache) = &self.next_page_cache {
+                            if !next_cache.is_empty() {
+                                self.load_page(self.current_page + 1);
+                            }
+                        }
+                    } else if ui.input().scroll_delta.y > 0.0 {
+                        // Scrolling up
+                        if self.current_page > 0 {
+                            if let Some(prev_cache) = &self.previous_page_cache {
+                                if !prev_cache.is_empty() {
+                                    self.load_page(self.current_page - 1);
+                                }
+                            }
+                        }
+                    }
+                });
+        } else {
+            ui.label("Loading images...");
         }
+
     }
 }
 
