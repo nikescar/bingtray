@@ -1,5 +1,4 @@
-use eframe::egui::{self};
-use egui::{UiKind, Vec2b};
+use eframe::egui::{self, Color32};
 
 use crate::core::Demo;
 
@@ -7,7 +6,7 @@ use egui_material3::{
     theme::{get_global_theme, ThemeMode, MaterialThemeContext},
 };
 
-use crate::core::app::{App, CarouselImage};
+use crate::core::app::{App};
 
 
 #[derive(Clone)]
@@ -21,6 +20,14 @@ pub struct Gui {
     // App-related fields
     app: Option<App>,
     runtime: Option<tokio::runtime::Runtime>,
+
+    // Cached image data to prevent excessive reloading
+    carousel_image_lists: Vec<CarouselImage>,
+    images_loaded: bool,
+    
+    // scroll state
+    current_page: i32,
+    page_size: i32,
 }
 
 impl Default for Gui {
@@ -28,15 +35,16 @@ impl Default for Gui {
         Self {
             app: None,
             runtime: None,
+
+            carousel_image_lists: Vec::new(),
+            images_loaded: false,
+            current_page: 0,
+            page_size: 8,
         }
     }
 }
 
-impl crate::core::Demo for Gui {
-    fn name(&self) -> &'static str {
-        "Bingtray"
-    }
-
+impl Gui {
     fn get_theme(&self) -> MaterialThemeContext {
         if let Ok(theme) = get_global_theme().lock() {
             theme.clone()
@@ -45,8 +53,8 @@ impl crate::core::Demo for Gui {
         }
     }
 
-    fn update_theme<F>(&self, update_fn: F) 
-    where 
+    fn update_theme<F>(&self, update_fn: F)
+    where
         F: FnOnce(&mut MaterialThemeContext)
     {
         if let Ok(mut theme) = get_global_theme().lock() {
@@ -54,7 +62,117 @@ impl crate::core::Demo for Gui {
         }
     }
 
+    fn apply_theme(&self, ctx: &egui::Context) {
+        let theme = self.get_theme();
+        
+        let mut visuals = match theme.theme_mode {
+            ThemeMode::Light => egui::Visuals::light(),
+            ThemeMode::Dark => egui::Visuals::dark(),
+            ThemeMode::Auto => {
+                // Use system preference or default to light
+                if ctx.style().visuals.dark_mode {
+                    egui::Visuals::dark()
+                } else {
+                    egui::Visuals::light()
+                }
+            }
+        };
+        
+        // Apply Material Design 3 colors if theme is loaded
+        let primary_color = theme.get_primary_color();
+        let on_primary = theme.get_on_primary_color();
+        let surface = theme.get_surface_color(visuals.dark_mode);
+        let on_surface = theme.get_color_by_name("onSurface");
+
+        // Convert material3 Color32 to egui Color32
+        let primary_egui = Color32::from_rgba_unmultiplied(
+            primary_color.r(),
+            primary_color.g(),
+            primary_color.b(),
+            primary_color.a(),
+        );
+
+        let on_primary_egui = Color32::from_rgba_unmultiplied(
+            on_primary.r(),
+            on_primary.g(),
+            on_primary.b(),
+            on_primary.a(),
+        );
+
+        let surface_egui = Color32::from_rgba_unmultiplied(
+            surface.r(),
+            surface.g(),
+            surface.b(),
+            surface.a(),
+        );
+
+        let on_surface_egui = Color32::from_rgba_unmultiplied(
+            on_surface.r(),
+            on_surface.g(),
+            on_surface.b(),
+            on_surface.a(),
+        );
+
+        // Apply colors to visuals
+        visuals.selection.bg_fill = primary_egui;
+        visuals.selection.stroke.color = primary_egui;
+        visuals.hyperlink_color = primary_egui;
+        
+        // Button and widget colors
+        visuals.widgets.noninteractive.bg_fill = surface_egui;
+
+        visuals.widgets.inactive.bg_fill = Color32::from_rgba_unmultiplied(
+            primary_color.r(),
+            primary_color.g(),
+            primary_color.b(),
+            20,
+        );
+
+        visuals.widgets.hovered.bg_fill = Color32::from_rgba_unmultiplied(
+            primary_color.r(),
+            primary_color.g(),
+            primary_color.b(),
+            40,
+        );
+
+        visuals.widgets.active.bg_fill = primary_egui;
+        visuals.widgets.active.fg_stroke.color = on_primary_egui;
+
+        // Window background
+        visuals.window_fill = surface_egui;
+
+        let surface_container = theme.get_color_by_name("surfaceContainer");
+        visuals.panel_fill = Color32::from_rgba_unmultiplied(
+            surface_container.r(),
+            surface_container.g(),
+            surface_container.b(),
+            surface_container.a(),
+        );
+
+        // Text colors
+        visuals.override_text_color = Some(on_surface_egui);
+
+        // Apply surface colors
+        let surface_container_lowest = theme.get_color_by_name("surfaceContainerLowest");
+        visuals.extreme_bg_color = Color32::from_rgba_unmultiplied(
+            surface_container_lowest.r(),
+            surface_container_lowest.g(),
+            surface_container_lowest.b(),
+            surface_container_lowest.a(),
+        );
+        
+        ctx.set_visuals(visuals);
+    }
+}
+
+impl crate::core::Demo for Gui {
+    fn name(&self) -> &'static str {
+        "Bingtray"
+    }
+
     fn show(&mut self, ctx: &egui::Context, open: &mut bool) {
+        self.apply_theme(ctx);
+
         use crate::core::View as _;
         let mut window = egui::Window::new("bingtray")
             .id(egui::Id::new("bingtray_gui")) // required since we change the title
@@ -117,47 +235,47 @@ impl crate::core::View for Gui {
         ui.add_space(20.0);
 
         // Dynamic image list - use cached URLs to prevent excessive reloading
-        // if !self.carousel_image_lists.is_empty() {
-        //     let mut image_list_builder = image_list()
-        //         .id_salt("standard_imagelist")
-        //         .columns(2)
-        //         .item_spacing(10.0)
-        //         .text_protected(true);
+        if !self.carousel_image_lists.is_empty() {
+            let mut image_list_builder = image_list()
+                .id_salt("standard_imagelist")
+                .columns(2)
+                .item_spacing(10.0)
+                .text_protected(true);
 
-        //     // Use a channel to communicate from callbacks
-        //     let (sender, receiver) = mpsc::channel::<(String, String)>();
+            // Use a channel to communicate from callbacks
+            let (sender, receiver) = mpsc::channel::<(String, String)>();
 
-        //     for carousel_image in self.carousel_image_lists.iter() {
-        //         let title = &carousel_image.title;
-        //         let thumbnail_url = if let Some(ref path) = carousel_image.thumbnail_path {
-        //             path.clone()
-        //         } else {
-        //             carousel_image.thumbnail_url.clone()
-        //         };
-        //         let full_url_clone = carousel_image.full_url.clone();
-        //         let title_clone = title.clone();
-        //         let sender_clone = sender.clone();
+            for carousel_image in self.carousel_image_lists.iter() {
+                let title = &carousel_image.title;
+                let thumbnail_url = if let Some(ref path) = carousel_image.thumbnail_path {
+                    path.clone()
+                } else {
+                    carousel_image.thumbnail_url.clone()
+                };
+                let full_url_clone = carousel_image.full_url.clone();
+                let title_clone = title.clone();
+                let sender_clone = sender.clone();
 
-        //         image_list_builder = image_list_builder.item_with_callback(
-        //             title,
-        //             &thumbnail_url,
-        //             move || {
-        //                 let _ = sender_clone.send((full_url_clone.clone(), title_clone.clone()));
-        //             }
-        //         );
-        //     }
+                image_list_builder = image_list_builder.item_with_callback(
+                    title,
+                    &thumbnail_url,
+                    move || {
+                        let _ = sender_clone.send((full_url_clone.clone(), title_clone.clone()));
+                    }
+                );
+            }
 
-        //     ui.label("Recent Wallpapers:");
-        //     ui.add(image_list_builder);
+            ui.label("Recent Wallpapers:");
+            ui.add(image_list_builder);
 
-        //     // Check for any messages from callbacks
-        //     if let Ok((selected_url, selected_title)) = receiver.try_recv() {
-        //         self.selected_image_url = Some(selected_url);
-        //         self.selected_image_title = selected_title;
-        //         self.selected_image_bytes = None;
-        //         self.standard_dialog_open = true;
-        //     }
-        // }
+            // Check for any messages from callbacks
+            if let Ok((selected_url, selected_title)) = receiver.try_recv() {
+                self.selected_image_url = Some(selected_url);
+                self.selected_image_title = selected_title;
+                self.selected_image_bytes = None;
+                self.standard_dialog_open = true;
+            }
+        }
     }
 }
 
