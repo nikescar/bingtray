@@ -16,6 +16,8 @@ struct DynamicImageItem {
     image_source: String,
 }
 
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Gui {
     // UI state
     is_dark_theme: bool,
@@ -39,25 +41,15 @@ pub struct Gui {
     carousel_image_lists: Vec<CarouselImage>,
     images_loaded: bool,
     
-    // Infinite scroll state
+    // scroll state
     current_page: i32,
     page_size: i32,
-    loading_more: bool,
-    all_data_exhausted: bool,
 
     // Standard dialog state
     standard_dialog_open: bool,
     selected_image_url: Option<String>,
     selected_image_title: String,
     selected_image_bytes: Option<Vec<u8>>,
-
-    // Cropper state
-    square_corners: [egui::Pos2; 4],
-    square_center: egui::Pos2,
-    square_size_factor: f32,
-    screen_ratio: f32,
-    dragging_corner: Option<usize>,
-    image_display_rect: Option<egui::Rect>,
 }
 
 // desktop tray,cli,gui -> app -> core
@@ -78,18 +70,10 @@ impl Gui {
             images_loaded: false,
             current_page: 0,
             page_size: 20,
-            loading_more: false,
-            all_data_exhausted: false,
             standard_dialog_open: false,
             selected_image_url: None,
             selected_image_title: String::new(),
             selected_image_bytes: None,
-            square_corners: [egui::pos2(0.0, 0.0); 4],
-            square_center: egui::pos2(0.0, 0.0),
-            square_size_factor: 0.5,
-            screen_ratio: 16.0 / 9.0,
-            dragging_corner: None,
-            image_display_rect: None,
         }
     }
 
@@ -213,195 +197,221 @@ impl Gui {
     }
 
     pub fn show(&mut self, ctx: &egui::Context) {
+        log::info!("BingTray GUI is being shown");
+
+        let Self {
+            is_dark_theme: false,
+            window_title,
+            switch_state: false,
+            slider_value: 0.5,
+            checkbox_state: false,
+            wallpaper_path: None,
+            app: None,
+            runtime: None,
+            carousel_image_lists: Vec::new(),
+            images_loaded: false,
+            current_page: 0,
+            page_size: 20,
+            standard_dialog_open: false,
+            selected_image_url: None,
+            selected_image_title: String::new(),
+            selected_image_bytes: None,
+        } = self.clone();
+
+        if self.current_page > 10 {
+            ctx.request_repaint();
+        }
+
+        use crate::View as _;
+        let mut window = egui::Window::new("title")
+            .id(egui::Id::new("demo_window_options")) // required since we change the title
+            .resizable(false)
+            .constrain(false)
+            .collapsible(false)
+            .title_bar(false)
+            .scroll(true)
+            .enabled(true);
+
+        window.show(ctx, |ui| self.ui(ui));
+
+
+        // self.apply_theme(ctx);
+
+        // egui::CentralPanel::default().show(ctx, |ui| {
+        //     ui.heading("BingTray");
+        //     ui.label("This is a placeholder for the BingTray GUI.");
+        // });
 
         // Apply theme based on settings
-        self.apply_theme(ctx);
+        // self.apply_theme(ctx);
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let theme = self.get_theme();
-            // Top bar with title and buttons
-            ui.horizontal(|ui| {
-                ui.heading("BingTray");
-                if ui.selectable_label(false, "About").clicked() {
-                    let _ = webbrowser::open("https://bingtray.pages.dev");
-                } 
-                if ui.selectable_label(false, "Exit").clicked() {
-                    std::process::exit(0);
-                }   
+        // egui::CentralPanel::default().show(ctx, |ui| {
+        //     let theme = self.get_theme();
+        //     // Top bar with title and buttons
+        //     ui.horizontal(|ui| {
+        //         ui.heading("BingTray");
+        //         if ui.selectable_label(false, "About").clicked() {
+        //             let _ = webbrowser::open("https://bingtray.pages.dev");
+        //         } 
+        //         if ui.selectable_label(false, "Exit").clicked() {
+        //             std::process::exit(0);
+        //         }   
 
-                // right aligned theme mode selector
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.horizontal(|ui| {
-                        // Light mode button
-                        let light_selected = theme.theme_mode == ThemeMode::Light;
-                        let light_button = ui.selectable_label(light_selected, "☀️ Light");
-                        if light_button.clicked() {
-                            self.update_theme(|theme| {
-                                theme.theme_mode = ThemeMode::Light;
-                            });
-                        }
+        //         // right aligned theme mode selector
+        //         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        //             ui.horizontal(|ui| {
+        //                 // Light mode button
+        //                 let light_selected = theme.theme_mode == ThemeMode::Light;
+        //                 let light_button = ui.selectable_label(light_selected, "☀️ Light");
+        //                 if light_button.clicked() {
+        //                     self.update_theme(|theme| {
+        //                         theme.theme_mode = ThemeMode::Light;
+        //                     });
+        //                 }
                         
-                        // Dark mode button
-                        let dark_selected = theme.theme_mode == ThemeMode::Dark;
-                        let dark_button = ui.selectable_label(dark_selected, "🌙 Dark");
-                        if dark_button.clicked() {
-                            self.update_theme(|theme| {
-                                theme.theme_mode = ThemeMode::Dark;
-                            });
-                        }
-                    });
-                });
-            });
-            ui.add_space(20.0);
+        //                 // Dark mode button
+        //                 let dark_selected = theme.theme_mode == ThemeMode::Dark;
+        //                 let dark_button = ui.selectable_label(dark_selected, "🌙 Dark");
+        //                 if dark_button.clicked() {
+        //                     self.update_theme(|theme| {
+        //                         theme.theme_mode = ThemeMode::Dark;
+        //                     });
+        //                 }
+        //             });
+        //         });
+        //     });
+        //     ui.add_space(20.0);
 
-            // Dynamic image list - use cached URLs to prevent excessive reloading
-            let scroll_response = egui::ScrollArea::vertical().show(ui, |ui| {
-                if !self.carousel_image_lists.is_empty() {
-                    let mut image_list_builder = image_list()
-                        .id_salt("standard_imagelist")
-                        .columns(2)
-                        .item_spacing(10.0)
-                        .text_protected(true);
+        //     // Dynamic image list - use cached URLs to prevent excessive reloading
+        //     if !self.carousel_image_lists.is_empty() {
+        //         let mut image_list_builder = image_list()
+        //             .id_salt("standard_imagelist")
+        //             .columns(2)
+        //             .item_spacing(10.0)
+        //             .text_protected(true);
 
-                    // Use a channel to communicate from callbacks
-                    let (sender, receiver) = mpsc::channel::<(String, String)>();
+        //         // Use a channel to communicate from callbacks
+        //         let (sender, receiver) = mpsc::channel::<(String, String)>();
 
-                    for carousel_image in self.carousel_image_lists.iter() {
-                        let title = &carousel_image.title;
-                        let thumbnail_url = if let Some(ref path) = carousel_image.thumbnail_path {
-                            path.clone()
-                        } else {
-                            carousel_image.thumbnail_url.clone()
-                        };
-                        let full_url_clone = carousel_image.full_url.clone();
-                        let title_clone = title.clone();
-                        let sender_clone = sender.clone();
+        //         for carousel_image in self.carousel_image_lists.iter() {
+        //             let title = &carousel_image.title;
+        //             let thumbnail_url = if let Some(ref path) = carousel_image.thumbnail_path {
+        //                 path.clone()
+        //             } else {
+        //                 carousel_image.thumbnail_url.clone()
+        //             };
+        //             let full_url_clone = carousel_image.full_url.clone();
+        //             let title_clone = title.clone();
+        //             let sender_clone = sender.clone();
 
-                        image_list_builder = image_list_builder.item_with_callback(
-                            title,
-                            &thumbnail_url,
-                            move || {
-                                let _ = sender_clone.send((full_url_clone.clone(), title_clone.clone()));
-                            }
-                        );
-                    }
+        //             image_list_builder = image_list_builder.item_with_callback(
+        //                 title,
+        //                 &thumbnail_url,
+        //                 move || {
+        //                     let _ = sender_clone.send((full_url_clone.clone(), title_clone.clone()));
+        //                 }
+        //             );
+        //         }
 
-                    ui.label("Recent Wallpapers:");
-                    ui.add(image_list_builder);
+        //         ui.label("Recent Wallpapers:");
+        //         ui.add(image_list_builder);
 
-                    // Check for any messages from callbacks
-                    if let Ok((selected_url, selected_title)) = receiver.try_recv() {
-                        self.selected_image_url = Some(selected_url);
-                        self.selected_image_title = selected_title;
-                        self.selected_image_bytes = None;
-                        self.standard_dialog_open = true;
-                    }
-                }
-                
-                ui.add_space(20.0);
+        //         // Check for any messages from callbacks
+        //         if let Ok((selected_url, selected_title)) = receiver.try_recv() {
+        //             self.selected_image_url = Some(selected_url);
+        //             self.selected_image_title = selected_title;
+        //             self.selected_image_bytes = None;
+        //             self.standard_dialog_open = true;
+        //         }
+        //     }
+            
+        //     ui.add_space(20.0);
 
-            });
+        //     // Popup dialog implementation
+        //     if self.standard_dialog_open {
+        //         let dialog_title = self.selected_image_title.clone();
+        //         let selected_image_title = self.selected_image_title.clone();
+        //         let selected_image_url = self.selected_image_url.clone();
 
-            // Check for infinite scroll trigger
-            if !self.all_data_exhausted && !self.loading_more && self.app.is_some() {
-                let scroll_pos = scroll_response.state.offset;
-                let content_height = scroll_response.content_size.y;
-                let viewport_height = scroll_response.inner_rect.height();
-                
-                // Trigger loading when scrolled to 90% of content
-                if viewport_height > 0.0 && content_height > viewport_height {
-                    let scroll_percentage = scroll_pos.y / (content_height - viewport_height);
-                    if scroll_percentage > 0.9 {
-                        log::info!("Infinite scroll triggered at {:.1}% - Loading more images", scroll_percentage * 100.0);
-                        self.load_more_images();
-                    }
-                }
-            }
+        //         egui::Window::new(&dialog_title)
+        //             .open(&mut self.standard_dialog_open)
+        //             .resizable(true)
+        //             .default_width(ctx.screen_rect().width())
+        //             .default_height(ctx.screen_rect().height())
+        //             .show(ctx, |ui| {
+        //                 ui.label(format!("Category: {}", selected_image_title));
 
-            // Popup dialog implementation
-            if self.standard_dialog_open {
-                let dialog_title = self.selected_image_title.clone();
-                let selected_image_title = self.selected_image_title.clone();
-                let selected_image_url = self.selected_image_url.clone();
+        //                 if let Some(url) = &selected_image_url {
+        //                     ui.label(format!("URL: {}", url));
+        //                 }
 
-                egui::Window::new(&dialog_title)
-                    .open(&mut self.standard_dialog_open)
-                    .resizable(true)
-                    .default_width(ctx.screen_rect().width())
-                    .default_height(ctx.screen_rect().height())
-                    .show(ctx, |ui| {
-                        ui.label(format!("Category: {}", selected_image_title));
+        //                 ui.separator();
 
-                        if let Some(url) = &selected_image_url {
-                            ui.label(format!("URL: {}", url));
-                        }
+        //                 // Image display area with cropper overlay
+        //                 ui.label("Select cropping area:");
 
-                        ui.separator();
+        //                 // Create a sample image or placeholder
+        //                 let available_width = ui.available_width().min(400.0);
+        //                 let target_height = available_width * 9.0 / 16.0; // 16:9 aspect ratio
 
-                        // Image display area with cropper overlay
-                        ui.label("Select cropping area:");
+        //                 let image_rect = ui.allocate_response(
+        //                     egui::Vec2::new(available_width, target_height),
+        //                     egui::Sense::hover()
+        //                 );
 
-                        // Create a sample image or placeholder
-                        let available_width = ui.available_width().min(400.0);
-                        let target_height = available_width * 9.0 / 16.0; // 16:9 aspect ratio
+        //                 // Draw background image placeholder
+        //                 ui.painter().rect_filled(
+        //                     image_rect.rect,
+        //                     5.0,
+        //                     egui::Color32::from_rgb(100, 150, 200)
+        //                 );
 
-                        let image_rect = ui.allocate_response(
-                            egui::Vec2::new(available_width, target_height),
-                            egui::Sense::hover()
-                        );
+        //                 ui.separator();
 
-                        // Draw background image placeholder
-                        ui.painter().rect_filled(
-                            image_rect.rect,
-                            5.0,
-                            egui::Color32::from_rgb(100, 150, 200)
-                        );
+        //                 // Action buttons
+        //                 ui.horizontal(|ui| {
+        //                     if ui.button("Set this Wallpaper").clicked() {
+        //                         log::info!("Setting wallpaper for: {}", selected_image_title);
+        //                         if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
+        //                             log::error!("Failed to open URL: {}", e);
+        //                         }
+        //                     }
 
-                        ui.separator();
+        //                     if ui.button("Set Cropped Wallpaper").clicked() {
+        //                         log::info!("Setting cropped wallpaper for: {}", selected_image_title);
+        //                         if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
+        //                             log::error!("Failed to open URL: {}", e);
+        //                         }
+        //                     }
 
-                        // Action buttons
-                        ui.horizontal(|ui| {
-                            if ui.button("Set this Wallpaper").clicked() {
-                                log::info!("Setting wallpaper for: {}", selected_image_title);
-                                if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
-                                    log::error!("Failed to open URL: {}", e);
-                                }
-                            }
+        //                     if ui.button("More Info").clicked() {
+        //                         log::info!("More info clicked for: {}", selected_image_title);
+        //                         if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
+        //                             log::error!("Failed to open URL: {}", e);
+        //                         }
+        //                     }
+        //                 });
 
-                            if ui.button("Set Cropped Wallpaper").clicked() {
-                                log::info!("Setting cropped wallpaper for: {}", selected_image_title);
-                                if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
-                                    log::error!("Failed to open URL: {}", e);
-                                }
-                            }
+        //                 ui.separator();
 
-                            if ui.button("More Info").clicked() {
-                                log::info!("More info clicked for: {}", selected_image_title);
-                                if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
-                                    log::error!("Failed to open URL: {}", e);
-                                }
-                            }
-                        });
+        //                 ui.horizontal(|ui| {
+        //                     if ui.button("OK").clicked() {
+        //                         log::info!("Standard dialog OK clicked!");
+        //                     }
 
-                        ui.separator();
-
-                        ui.horizontal(|ui| {
-                            if ui.button("OK").clicked() {
-                                log::info!("Standard dialog OK clicked!");
-                            }
-
-                            if ui.button("Close").clicked() {
-                                log::info!("Standard dialog Close clicked!");
-                            }
-                        });
-                    });
-            }
-        });
+        //                     if ui.button("Close").clicked() {
+        //                         log::info!("Standard dialog Close clicked!");
+        //                     }
+        //                 });
+        //             });
+        //     }
+        // });
     }
 }
 
 impl Default for Gui {
     fn default() -> Self {
+        log::info!("App Gui::default() called");
         Self::new()
     }
 }
@@ -430,34 +440,6 @@ impl eframe::App for Gui {
             }
         }
 
-        // Load initial images if not loaded and app is available
-        if !self.images_loaded && self.app.is_some() && !self.loading_more {
-            self.load_more_images();
-        }
-
         self.show(ctx);
-    }
-}
-
-impl Gui {
-    fn load_more_images(&mut self) {
-        if let Some(app) = &mut self.app {
-            self.loading_more = true;
-            match app.get_wallpaper_metadata_page(self.current_page, self.page_size) {
-                Ok(images) => {
-                    if images.is_empty() {
-                        self.all_data_exhausted = true;
-                    } else {
-                        self.carousel_image_lists.extend(images);
-                        self.current_page += 1;
-                    }
-                    self.images_loaded = true;
-                }
-                Err(e) => {
-                    log::error!("Failed to load wallpaper metadata: {}", e);
-                }
-            }
-            self.loading_more = false;
-        }
     }
 }
