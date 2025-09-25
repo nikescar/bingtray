@@ -236,6 +236,7 @@ impl crate::core::View for Gui {
 
         // Dynamic image list - use cached URLs to prevent excessive reloading
         if !self.carousel_image_lists.is_empty() {
+            
             let mut image_list_builder = image_list()
                 .id_salt("standard_imagelist")
                 .columns(2)
@@ -268,13 +269,6 @@ impl crate::core::View for Gui {
             ui.label("Recent Wallpapers:");
             ui.add(image_list_builder);
 
-            // Check for any messages from callbacks
-            if let Ok((selected_url, selected_title)) = receiver.try_recv() {
-                self.selected_image_url = Some(selected_url);
-                self.selected_image_title = selected_title;
-                self.selected_image_bytes = None;
-                self.standard_dialog_open = true;
-            }
         }
     }
 }
