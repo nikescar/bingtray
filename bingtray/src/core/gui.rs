@@ -1,11 +1,8 @@
 use eframe::egui::{self, Color32};
+use egui::{UiKind, Vec2b};
 use egui_material3::{
-    MaterialButton,
-    image_list,
     theme::{get_global_theme, ThemeMode, MaterialThemeContext},
 };
-use webbrowser;
-use std::sync::mpsc;
 
 use crate::core::app::{App, CarouselImage};
 
@@ -16,403 +13,168 @@ struct DynamicImageItem {
     image_source: String,
 }
 
+use egui::{UiKind, Vec2b};
+
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Gui {
-    // UI state
-    is_dark_theme: bool,
-    window_title: String,
+    title: String,
+    title_bar: bool,
+    closable: bool,
+    collapsible: bool,
+    resizable: bool,
+    constrain: bool,
+    scroll2: Vec2b,
+    disabled_time: f64,
 
-    // Material3 components state
-    switch_state: bool,
-    slider_value: f32,
-    checkbox_state: bool,
-
-    // Application data
-    wallpaper_path: Option<String>,
-
-    // App instance
-    app: Option<App>,
-
-    // Tokio runtime for background tasks
-    runtime: Option<tokio::runtime::Runtime>,
-
-    // Cached image data to prevent excessive reloading
-    carousel_image_lists: Vec<CarouselImage>,
-    images_loaded: bool,
-    
-    // scroll state
-    current_page: i32,
-    page_size: i32,
-
-    // Standard dialog state
-    standard_dialog_open: bool,
-    selected_image_url: Option<String>,
-    selected_image_title: String,
-    selected_image_bytes: Option<Vec<u8>>,
-}
-
-// desktop tray,cli,gui -> app -> core
-// android/ios gui -> app -> core
-// main -> gui -> app -> core
-impl Gui {
-    pub fn new() -> Self {
-        Self {
-            is_dark_theme: false,
-            window_title: "BingTray".to_string(),
-            switch_state: false,
-            slider_value: 0.5,
-            checkbox_state: false,
-            wallpaper_path: None,
-            app: None,
-            runtime: None,
-            carousel_image_lists: Vec::new(),
-            images_loaded: false,
-            current_page: 0,
-            page_size: 20,
-            standard_dialog_open: false,
-            selected_image_url: None,
-            selected_image_title: String::new(),
-            selected_image_bytes: None,
-        }
-    }
-
-    fn get_theme(&self) -> MaterialThemeContext {
-        if let Ok(theme) = get_global_theme().lock() {
-            theme.clone()
-        } else {
-            MaterialThemeContext::default()
-        }
-    }
-    
-    fn update_theme<F>(&self, update_fn: F) 
-    where 
-        F: FnOnce(&mut MaterialThemeContext)
-    {
-        if let Ok(mut theme) = get_global_theme().lock() {
-            update_fn(&mut *theme);
-        }
-    }
-
-    fn apply_theme(&self, ctx: &egui::Context) {
-        let theme = self.get_theme();
-        
-        let mut visuals = match theme.theme_mode {
-            ThemeMode::Light => egui::Visuals::light(),
-            ThemeMode::Dark => egui::Visuals::dark(),
-            ThemeMode::Auto => {
-                // Use system preference or default to light
-                if ctx.style().visuals.dark_mode {
-                    egui::Visuals::dark()
-                } else {
-                    egui::Visuals::light()
-                }
-            }
-        };
-        
-        // Apply Material Design 3 colors if theme is loaded
-        let primary_color = theme.get_primary_color();
-        let on_primary = theme.get_on_primary_color();
-        let surface = theme.get_surface_color(visuals.dark_mode);
-        let on_surface = theme.get_color_by_name("onSurface");
-
-        // Convert material3 Color32 to egui Color32
-        let primary_egui = Color32::from_rgba_unmultiplied(
-            primary_color.r(),
-            primary_color.g(),
-            primary_color.b(),
-            primary_color.a(),
-        );
-
-        let on_primary_egui = Color32::from_rgba_unmultiplied(
-            on_primary.r(),
-            on_primary.g(),
-            on_primary.b(),
-            on_primary.a(),
-        );
-
-        let surface_egui = Color32::from_rgba_unmultiplied(
-            surface.r(),
-            surface.g(),
-            surface.b(),
-            surface.a(),
-        );
-
-        let on_surface_egui = Color32::from_rgba_unmultiplied(
-            on_surface.r(),
-            on_surface.g(),
-            on_surface.b(),
-            on_surface.a(),
-        );
-
-        // Apply colors to visuals
-        visuals.selection.bg_fill = primary_egui;
-        visuals.selection.stroke.color = primary_egui;
-        visuals.hyperlink_color = primary_egui;
-        
-        // Button and widget colors
-        visuals.widgets.noninteractive.bg_fill = surface_egui;
-
-        visuals.widgets.inactive.bg_fill = Color32::from_rgba_unmultiplied(
-            primary_color.r(),
-            primary_color.g(),
-            primary_color.b(),
-            20,
-        );
-
-        visuals.widgets.hovered.bg_fill = Color32::from_rgba_unmultiplied(
-            primary_color.r(),
-            primary_color.g(),
-            primary_color.b(),
-            40,
-        );
-
-        visuals.widgets.active.bg_fill = primary_egui;
-        visuals.widgets.active.fg_stroke.color = on_primary_egui;
-
-        // Window background
-        visuals.window_fill = surface_egui;
-
-        let surface_container = theme.get_color_by_name("surfaceContainer");
-        visuals.panel_fill = Color32::from_rgba_unmultiplied(
-            surface_container.r(),
-            surface_container.g(),
-            surface_container.b(),
-            surface_container.a(),
-        );
-
-        // Text colors
-        visuals.override_text_color = Some(on_surface_egui);
-
-        // Apply surface colors
-        let surface_container_lowest = theme.get_color_by_name("surfaceContainerLowest");
-        visuals.extreme_bg_color = Color32::from_rgba_unmultiplied(
-            surface_container_lowest.r(),
-            surface_container_lowest.g(),
-            surface_container_lowest.b(),
-            surface_container_lowest.a(),
-        );
-        
-        ctx.set_visuals(visuals);
-    }
-
-    pub fn show(&mut self, ctx: &egui::Context) {
-        log::info!("BingTray GUI is being shown");
-
-        let Self {
-            is_dark_theme: false,
-            window_title,
-            switch_state: false,
-            slider_value: 0.5,
-            checkbox_state: false,
-            wallpaper_path: None,
-            app: None,
-            runtime: None,
-            carousel_image_lists: Vec::new(),
-            images_loaded: false,
-            current_page: 0,
-            page_size: 20,
-            standard_dialog_open: false,
-            selected_image_url: None,
-            selected_image_title: String::new(),
-            selected_image_bytes: None,
-        } = self.clone();
-
-        if self.current_page > 10 {
-            ctx.request_repaint();
-        }
-
-        use crate::View as _;
-        let mut window = egui::Window::new("title")
-            .id(egui::Id::new("demo_window_options")) // required since we change the title
-            .resizable(false)
-            .constrain(false)
-            .collapsible(false)
-            .title_bar(false)
-            .scroll(true)
-            .enabled(true);
-
-        window.show(ctx, |ui| self.ui(ui));
-
-
-        // self.apply_theme(ctx);
-
-        // egui::CentralPanel::default().show(ctx, |ui| {
-        //     ui.heading("BingTray");
-        //     ui.label("This is a placeholder for the BingTray GUI.");
-        // });
-
-        // Apply theme based on settings
-        // self.apply_theme(ctx);
-
-        // egui::CentralPanel::default().show(ctx, |ui| {
-        //     let theme = self.get_theme();
-        //     // Top bar with title and buttons
-        //     ui.horizontal(|ui| {
-        //         ui.heading("BingTray");
-        //         if ui.selectable_label(false, "About").clicked() {
-        //             let _ = webbrowser::open("https://bingtray.pages.dev");
-        //         } 
-        //         if ui.selectable_label(false, "Exit").clicked() {
-        //             std::process::exit(0);
-        //         }   
-
-        //         // right aligned theme mode selector
-        //         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        //             ui.horizontal(|ui| {
-        //                 // Light mode button
-        //                 let light_selected = theme.theme_mode == ThemeMode::Light;
-        //                 let light_button = ui.selectable_label(light_selected, "☀️ Light");
-        //                 if light_button.clicked() {
-        //                     self.update_theme(|theme| {
-        //                         theme.theme_mode = ThemeMode::Light;
-        //                     });
-        //                 }
-                        
-        //                 // Dark mode button
-        //                 let dark_selected = theme.theme_mode == ThemeMode::Dark;
-        //                 let dark_button = ui.selectable_label(dark_selected, "🌙 Dark");
-        //                 if dark_button.clicked() {
-        //                     self.update_theme(|theme| {
-        //                         theme.theme_mode = ThemeMode::Dark;
-        //                     });
-        //                 }
-        //             });
-        //         });
-        //     });
-        //     ui.add_space(20.0);
-
-        //     // Dynamic image list - use cached URLs to prevent excessive reloading
-        //     if !self.carousel_image_lists.is_empty() {
-        //         let mut image_list_builder = image_list()
-        //             .id_salt("standard_imagelist")
-        //             .columns(2)
-        //             .item_spacing(10.0)
-        //             .text_protected(true);
-
-        //         // Use a channel to communicate from callbacks
-        //         let (sender, receiver) = mpsc::channel::<(String, String)>();
-
-        //         for carousel_image in self.carousel_image_lists.iter() {
-        //             let title = &carousel_image.title;
-        //             let thumbnail_url = if let Some(ref path) = carousel_image.thumbnail_path {
-        //                 path.clone()
-        //             } else {
-        //                 carousel_image.thumbnail_url.clone()
-        //             };
-        //             let full_url_clone = carousel_image.full_url.clone();
-        //             let title_clone = title.clone();
-        //             let sender_clone = sender.clone();
-
-        //             image_list_builder = image_list_builder.item_with_callback(
-        //                 title,
-        //                 &thumbnail_url,
-        //                 move || {
-        //                     let _ = sender_clone.send((full_url_clone.clone(), title_clone.clone()));
-        //                 }
-        //             );
-        //         }
-
-        //         ui.label("Recent Wallpapers:");
-        //         ui.add(image_list_builder);
-
-        //         // Check for any messages from callbacks
-        //         if let Ok((selected_url, selected_title)) = receiver.try_recv() {
-        //             self.selected_image_url = Some(selected_url);
-        //             self.selected_image_title = selected_title;
-        //             self.selected_image_bytes = None;
-        //             self.standard_dialog_open = true;
-        //         }
-        //     }
-            
-        //     ui.add_space(20.0);
-
-        //     // Popup dialog implementation
-        //     if self.standard_dialog_open {
-        //         let dialog_title = self.selected_image_title.clone();
-        //         let selected_image_title = self.selected_image_title.clone();
-        //         let selected_image_url = self.selected_image_url.clone();
-
-        //         egui::Window::new(&dialog_title)
-        //             .open(&mut self.standard_dialog_open)
-        //             .resizable(true)
-        //             .default_width(ctx.screen_rect().width())
-        //             .default_height(ctx.screen_rect().height())
-        //             .show(ctx, |ui| {
-        //                 ui.label(format!("Category: {}", selected_image_title));
-
-        //                 if let Some(url) = &selected_image_url {
-        //                     ui.label(format!("URL: {}", url));
-        //                 }
-
-        //                 ui.separator();
-
-        //                 // Image display area with cropper overlay
-        //                 ui.label("Select cropping area:");
-
-        //                 // Create a sample image or placeholder
-        //                 let available_width = ui.available_width().min(400.0);
-        //                 let target_height = available_width * 9.0 / 16.0; // 16:9 aspect ratio
-
-        //                 let image_rect = ui.allocate_response(
-        //                     egui::Vec2::new(available_width, target_height),
-        //                     egui::Sense::hover()
-        //                 );
-
-        //                 // Draw background image placeholder
-        //                 ui.painter().rect_filled(
-        //                     image_rect.rect,
-        //                     5.0,
-        //                     egui::Color32::from_rgb(100, 150, 200)
-        //                 );
-
-        //                 ui.separator();
-
-        //                 // Action buttons
-        //                 ui.horizontal(|ui| {
-        //                     if ui.button("Set this Wallpaper").clicked() {
-        //                         log::info!("Setting wallpaper for: {}", selected_image_title);
-        //                         if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
-        //                             log::error!("Failed to open URL: {}", e);
-        //                         }
-        //                     }
-
-        //                     if ui.button("Set Cropped Wallpaper").clicked() {
-        //                         log::info!("Setting cropped wallpaper for: {}", selected_image_title);
-        //                         if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
-        //                             log::error!("Failed to open URL: {}", e);
-        //                         }
-        //                     }
-
-        //                     if ui.button("More Info").clicked() {
-        //                         log::info!("More info clicked for: {}", selected_image_title);
-        //                         if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
-        //                             log::error!("Failed to open URL: {}", e);
-        //                         }
-        //                     }
-        //                 });
-
-        //                 ui.separator();
-
-        //                 ui.horizontal(|ui| {
-        //                     if ui.button("OK").clicked() {
-        //                         log::info!("Standard dialog OK clicked!");
-        //                     }
-
-        //                     if ui.button("Close").clicked() {
-        //                         log::info!("Standard dialog Close clicked!");
-        //                     }
-        //                 });
-        //             });
-        //     }
-        // });
-    }
+    anchored: bool,
+    anchor: egui::Align2,
+    anchor_offset: egui::Vec2,
 }
 
 impl Default for Gui {
     fn default() -> Self {
-        log::info!("App Gui::default() called");
-        Self::new()
+        Self {
+            title: "🗖 Window Options".to_owned(),
+            title_bar: true,
+            closable: true,
+            collapsible: true,
+            resizable: true,
+            constrain: true,
+            scroll2: Vec2b::TRUE,
+            disabled_time: f64::NEG_INFINITY,
+            anchored: false,
+            anchor: egui::Align2::RIGHT_TOP,
+            anchor_offset: egui::Vec2::ZERO,
+        }
+    }
+}
+
+impl crate::core::Demo for Gui {
+    fn name(&self) -> &'static str {
+        "🗖 Window Options"
+    }
+
+    fn show(&mut self, ctx: &egui::Context, open: &mut bool) {
+        let Self {
+            title,
+            title_bar,
+            closable,
+            collapsible,
+            resizable,
+            constrain,
+            scroll2,
+            disabled_time,
+            anchored,
+            anchor,
+            anchor_offset,
+        } = self.clone();
+
+        let enabled = ctx.input(|i| i.time) - disabled_time > 2.0;
+        if !enabled {
+            ctx.request_repaint();
+        }
+
+        use crate::core::View as _;
+        let mut window = egui::Window::new(title)
+            .id(egui::Id::new("demo_window_options")) // required since we change the title
+            .resizable(resizable)
+            .constrain(constrain)
+            .collapsible(collapsible)
+            .title_bar(title_bar)
+            .scroll(scroll2)
+            .enabled(enabled);
+        if closable {
+            window = window.open(open);
+        }
+        if anchored {
+            window = window.anchor(anchor, anchor_offset);
+        }
+        window.show(ctx, |ui| self.ui(ui));
+    }
+}
+
+impl crate::core::View for Gui {
+    fn ui(&mut self, ui: &mut egui::Ui) {
+        let Self {
+            title,
+            title_bar,
+            closable,
+            collapsible,
+            resizable,
+            constrain,
+            scroll2,
+            disabled_time: _,
+            anchored,
+            anchor,
+            anchor_offset,
+        } = self;
+        ui.horizontal(|ui| {
+            ui.label("title:");
+            ui.text_edit_singleline(title);
+        });
+
+        ui.horizontal(|ui| {
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.checkbox(title_bar, "title_bar");
+                    ui.checkbox(closable, "closable");
+                    ui.checkbox(collapsible, "collapsible");
+                    ui.checkbox(resizable, "resizable");
+                    ui.checkbox(constrain, "constrain")
+                        .on_hover_text("Constrain window to the screen");
+                    ui.checkbox(&mut scroll2[0], "hscroll");
+                    ui.checkbox(&mut scroll2[1], "vscroll");
+                });
+            });
+            ui.group(|ui| {
+                ui.vertical(|ui| {
+                    ui.checkbox(anchored, "anchored");
+                    if !*anchored {
+                        ui.disable();
+                    }
+                    ui.horizontal(|ui| {
+                        ui.label("x:");
+                        ui.selectable_value(&mut anchor[0], egui::Align::LEFT, "Left");
+                        ui.selectable_value(&mut anchor[0], egui::Align::Center, "Center");
+                        ui.selectable_value(&mut anchor[0], egui::Align::RIGHT, "Right");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("y:");
+                        ui.selectable_value(&mut anchor[1], egui::Align::TOP, "Top");
+                        ui.selectable_value(&mut anchor[1], egui::Align::Center, "Center");
+                        ui.selectable_value(&mut anchor[1], egui::Align::BOTTOM, "Bottom");
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Offset:");
+                        ui.add(egui::DragValue::new(&mut anchor_offset.x));
+                        ui.add(egui::DragValue::new(&mut anchor_offset.y));
+                    });
+                });
+            });
+        });
+
+        ui.separator();
+        let on_top = Some(ui.layer_id()) == ui.ctx().top_layer_id();
+        ui.label(format!("This window is on top: {on_top}."));
+
+        ui.separator();
+        ui.horizontal(|ui| {
+            if ui.button("Disable for 2 seconds").clicked() {
+                self.disabled_time = ui.input(|i| i.time);
+            }
+            egui::reset_button(ui, self, "Reset");
+            if ui
+                .button("Close")
+                .on_hover_text("You can collapse / close Windows via Ui::close")
+                .clicked()
+            {
+                // Calling close would close the collapsible within the window
+                // ui.close();
+                // Instead, we close the window itself
+                ui.close_kind(UiKind::Window);
+            }
+        });
     }
 }
 
