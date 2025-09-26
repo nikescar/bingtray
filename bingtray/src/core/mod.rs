@@ -2,6 +2,7 @@
 pub mod gui;
 pub mod conf;
 pub mod app;
+pub mod dialog;
 pub mod sqlite;
 pub mod httpclient;
 pub mod request;

@@ -44,7 +44,10 @@ impl Default for Gui {
             app: None,
             runtime: None,
 
+            carousel_image_lists: Vec::new(),
+            images_loaded: false,
             current_page: 0,
+            page_size: 8,
 
             previous_page_cache: None,
             current_page_cache: None,
@@ -322,69 +325,86 @@ impl crate::core::View for Gui {
         // Image grid with infinite scroll
         ui.label("Recent Wallpapers:");
 
-        // Show images from get_wallpaper_metadata_page in app.rs using image_list from egui_material3
+        // Show images from get_wallpaper_metadata_page in app.rs using a grid layout
         // scroll down shows next page images, making infinite scroll. ie. when you reach 3 page, load page 4 data to next page variable and load page 2 data to previous page variable.
         // scroll up shows previous page images, making infinite scroll.
         if !self.carousel_image_lists.is_empty() {
-            let mut image_list_builder = egui_material3::image_list()
-                .id_salt("standard_imagelist")
-                .columns(2)
-                .item_spacing(10.0);
-
-            for (index, image) in self.carousel_image_lists.iter().enumerate() {
-                let image_id = ui.make_persistent_id(format!("image_{}", index));
-                let label = format!("{} - {}", image.title, image.copyright);
-                let image_source = image.url.clone();
-
-                let dynamic_item = DynamicImageItem {
-                    _id: index,
-                    label: label.clone(),
-                    image_source: image_source.clone(),
-                };
-
-                let button = egui::Button::new(label.clone())
-                    .min_size(Vec2::new(100.0, 100.0))
-                    .wrap(false);
-
-                let response = ui.add(button);
-
-                if response.clicked() {
-                    log::info!("Image clicked: {}", label);
-                    self.dialog_open = true;
-                    self.dialog_image = Some(image.clone());
-                }
-
-                image_list_builder = image_list_builder.add_item(image_id, response);
-            }
-
-            let image_list = image_list_builder.build(ui);
-
             ScrollArea::vertical()
                 .auto_shrink([false; 2])
                 .show(ui, |ui| {
-                    ui.add(image_list);
-                    
-                    // Infinite scroll logic
-                    if ui.input().scroll_delta.y < 0.0 {
-                        // Scrolling down
-                        if let Some(next_cache) = &self.next_page_cache {
-                            if !next_cache.is_empty() {
-                                self.load_page(self.current_page + 1);
+                    // Create a 4x2 grid layout for 8 images
+                    let available_width = ui.available_width();
+                    let image_width = (available_width - 40.0) / 4.0; // 4 columns with spacing
+                    let image_height = 120.0;
+
+                    // Display images in a 4x2 grid
+                    for row in 0..2 {
+                        ui.horizontal(|ui| {
+                            for col in 0..4 {
+                                let index = row * 4 + col;
+                                if index < self.carousel_image_lists.len() {
+                                    let image = &self.carousel_image_lists[index];
+
+                                    let button = egui::Button::new(&image.title)
+                                        .min_size(Vec2::new(image_width, image_height))
+                                        .wrap();
+
+                                    let response = ui.add(button);
+
+                                    if response.clicked() {
+                                        log::info!("Image clicked: {}", image.title);
+                                        self.dialog_open = true;
+                                        self.dialog_image = Some(image.clone());
+                                    }
+                                }
                             }
-                        }
-                    } else if ui.input().scroll_delta.y > 0.0 {
-                        // Scrolling up
-                        if self.current_page > 0 {
-                            if let Some(prev_cache) = &self.previous_page_cache {
-                                if !prev_cache.is_empty() {
-                                    self.load_page(self.current_page - 1);
+                        });
+                        ui.add_space(10.0);
+                    }
+
+                    // Infinite scroll logic with proper input handling
+                    ui.input(|i| {
+                        if i.raw_scroll_delta.y < -10.0 {
+                            // Scrolling down
+                            if let Some(next_cache) = &self.next_page_cache {
+                                if !next_cache.is_empty() {
+                                    self.load_page(self.current_page + 1);
+                                }
+                            }
+                        } else if i.raw_scroll_delta.y > 10.0 {
+                            // Scrolling up
+                            if self.current_page > 0 {
+                                if let Some(prev_cache) = &self.previous_page_cache {
+                                    if !prev_cache.is_empty() {
+                                        self.load_page(self.current_page - 1);
+                                    }
                                 }
                             }
                         }
-                    }
+                    });
                 });
         } else {
             ui.label("Loading images...");
+        }
+
+        // Show dialog if open
+        if self.dialog_open {
+            if let Some(ref image) = self.dialog_image.clone() {
+                let mut open = true;
+                //open dialog using Dialog window
+                let mut dialog = crate::core::Dialog {
+                    title: image.title.clone(),
+                    selected_image_title: image.title.clone(),
+                    selected_image_url: image.url.clone(),
+                    open: true,
+                };
+                dialog.show(ui.ctx(), &mut open);
+
+                if !open {
+                    self.dialog_open = false;
+                    self.dialog_image = None;
+                }
+            }
         }
 
     }
