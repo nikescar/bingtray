@@ -1,9 +1,11 @@
-use eframe::egui::{self, Color32, ScrollArea, Vec2};
+use eframe::egui::{self, Color32};
 
 use crate::core::Demo;
 use crate::core::app::{App, CarouselImage};
+use crate::core::dialog::Dialog;
 
 use egui_material3::{
+    image_list,
     theme::{get_global_theme, ThemeMode, MaterialThemeContext},
 };
 
@@ -28,11 +30,6 @@ pub struct Gui {
     current_page: i32,
     page_size: i32,
 
-    // Page caching for infinite scroll
-    previous_page_cache: Option<Vec<CarouselImage>>,
-    current_page_cache: Option<Vec<CarouselImage>>,
-    next_page_cache: Option<Vec<CarouselImage>>,
-
     // Dialog state
     dialog_open: bool,
     dialog_image: Option<CarouselImage>,
@@ -48,10 +45,6 @@ impl Default for Gui {
             images_loaded: false,
             current_page: 0,
             page_size: 8,
-
-            previous_page_cache: None,
-            current_page_cache: None,
-            next_page_cache: None,
 
             dialog_open: false,
             dialog_image: None,
@@ -190,11 +183,11 @@ impl Gui {
                             self.carousel_image_lists = images;
                             self.images_loaded = true;
                             // Cache next page
-                            if let Ok(next_images) = runtime.block_on(async {
-                                app.get_wallpaper_metadata_page(self.current_page + 1, self.page_size)
-                            }) {
-                                self.next_page_cache = Some(next_images);
-                            }
+                            // if let Ok(next_images) = runtime.block_on(async {
+                            //     app.get_wallpaper_metadata_page(self.current_page + 1, self.page_size)
+                            // }) {
+                            //     self.next_page_cache = Some(next_images);
+                            // }
                         }
                         Err(e) => {
                             log::error!("Failed to load images: {}", e);
@@ -214,37 +207,20 @@ impl Gui {
                     Ok(images) => {
                         self.carousel_image_lists = images;
                         self.current_page = page;
+                    
+                        // if let Ok(next_images) = runtime.block_on(async {
+                        //     app.get_wallpaper_metadata_page(page + 1, self.page_size)
+                        // }) {
+                        //     self.next_page_cache = Some(next_images);
+                        // }
 
-                        // Cache management for infinite scroll
-                        if page >= 3 {
-                            // Load page 4 data to next page cache and page 2 data to previous page cache
-                            if let Ok(page_4_images) = runtime.block_on(async {
-                                app.get_wallpaper_metadata_page(page + 1, self.page_size)
-                            }) {
-                                self.next_page_cache = Some(page_4_images);
-                            }
-
-                            if let Ok(page_2_images) = runtime.block_on(async {
-                                app.get_wallpaper_metadata_page(page - 1, self.page_size)
-                            }) {
-                                self.previous_page_cache = Some(page_2_images);
-                            }
-                        } else {
-                            // Normal caching
-                            if let Ok(next_images) = runtime.block_on(async {
-                                app.get_wallpaper_metadata_page(page + 1, self.page_size)
-                            }) {
-                                self.next_page_cache = Some(next_images);
-                            }
-
-                            if page > 0 {
-                                if let Ok(prev_images) = runtime.block_on(async {
-                                    app.get_wallpaper_metadata_page(page - 1, self.page_size)
-                                }) {
-                                    self.previous_page_cache = Some(prev_images);
-                                }
-                            }
-                        }
+                        // if page > 0 {
+                        //     if let Ok(prev_images) = runtime.block_on(async {
+                        //         app.get_wallpaper_metadata_page(page - 1, self.page_size)
+                        //     }) {
+                        //         self.previous_page_cache = Some(prev_images);
+                        //     }
+                        // }
                     }
                     Err(e) => {
                         log::error!("Failed to load page {}: {}", page, e);
@@ -262,6 +238,7 @@ impl crate::core::Demo for Gui {
 
     fn show(&mut self, ctx: &egui::Context, open: &mut bool) {
         self.apply_theme(ctx);
+
 
         use crate::core::View as _;
         let mut window = egui::Window::new("bingtray")
@@ -329,60 +306,45 @@ impl crate::core::View for Gui {
         // scroll down shows next page images, making infinite scroll. ie. when you reach 3 page, load page 4 data to next page variable and load page 2 data to previous page variable.
         // scroll up shows previous page images, making infinite scroll.
         if !self.carousel_image_lists.is_empty() {
-            ScrollArea::vertical()
-                .auto_shrink([false; 2])
+            let scroll_area_response = egui::ScrollArea::vertical()
+                .id_salt("image_scroll")
                 .show(ui, |ui| {
-                    // Create a 4x2 grid layout for 8 images
-                    let available_width = ui.available_width();
-                    let image_width = (available_width - 40.0) / 4.0; // 4 columns with spacing
-                    let image_height = 120.0;
+                    let mut image_list_builder = image_list()
+                        .id_salt("carousel_imagelist")
+                        .columns(1)
+                        .item_spacing(10.0)
+                        .text_protected(true);
 
-                    // Display images in a 4x2 grid
-                    for row in 0..2 {
-                        ui.horizontal(|ui| {
-                            for col in 0..4 {
-                                let index = row * 4 + col;
-                                if index < self.carousel_image_lists.len() {
-                                    let image = &self.carousel_image_lists[index];
-
-                                    let button = egui::Button::new(&image.title)
-                                        .min_size(Vec2::new(image_width, image_height))
-                                        .wrap();
-
-                                    let response = ui.add(button);
-
-                                    if response.clicked() {
-                                        log::info!("Image clicked: {}", image.title);
-                                        self.dialog_open = true;
-                                        self.dialog_image = Some(image.clone());
-                                    }
-                                }
+                    for image in &self.carousel_image_lists {
+                        let _image_clone = image.clone();
+                        image_list_builder = image_list_builder.item_with_callback(
+                            &image.title,
+                            &("https://www.bing.com".to_owned() + &image.thumbnail_url),
+                            move || {
+                                // Set up dialog data when image is clicked
+                                // println!("Image clicked: {}", _image_clone.title);
                             }
-                        });
-                        ui.add_space(10.0);
+                        );
                     }
 
-                    // Infinite scroll logic with proper input handling
-                    ui.input(|i| {
-                        if i.raw_scroll_delta.y < -10.0 {
-                            // Scrolling down
-                            if let Some(next_cache) = &self.next_page_cache {
-                                if !next_cache.is_empty() {
-                                    self.load_page(self.current_page + 1);
-                                }
-                            }
-                        } else if i.raw_scroll_delta.y > 10.0 {
-                            // Scrolling up
-                            if self.current_page > 0 {
-                                if let Some(prev_cache) = &self.previous_page_cache {
-                                    if !prev_cache.is_empty() {
-                                        self.load_page(self.current_page - 1);
-                                    }
-                                }
-                            }
-                        }
-                    });
+                    ui.add(image_list_builder);
                 });
+
+            // Infinite scroll logic: load next/prev page when reaching content end
+            let scroll_area_state = scroll_area_response.state;
+            let content_size = scroll_area_response.content_size;
+            let viewport = scroll_area_response.inner_rect;
+
+            // Check if user has scrolled to the bottom
+            if scroll_area_state.offset.y + viewport.height() >= content_size.y - 10.0 {
+                // At bottom, load next page
+                self.load_page(self.current_page + 1);
+            }
+            // Check if user has scrolled to the top
+            if scroll_area_state.offset.y <= 10.0 && self.current_page > 0 {
+                // At top, load previous page
+                self.load_page(self.current_page - 1);
+            }
         } else {
             ui.label("Loading images...");
         }
@@ -392,10 +354,10 @@ impl crate::core::View for Gui {
             if let Some(ref image) = self.dialog_image.clone() {
                 let mut open = true;
                 //open dialog using Dialog window
-                let mut dialog = crate::core::Dialog {
+                let mut dialog = Dialog {
                     title: image.title.clone(),
                     selected_image_title: image.title.clone(),
-                    selected_image_url: image.url.clone(),
+                    selected_image_url: Some(image.full_url.clone()),
                     open: true,
                 };
                 dialog.show(ui.ctx(), &mut open);
@@ -422,6 +384,10 @@ impl eframe::App for Gui {
                             self.app = Some(app);
                             self.runtime = Some(runtime);
                             log::info!("App initialized successfully");
+
+                            self.update_theme(|theme| {
+                                theme.theme_mode = ThemeMode::Light;
+                            });
                         }
                         Err(e) => {
                             log::error!("Failed to initialize App: {}", e);

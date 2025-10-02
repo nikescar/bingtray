@@ -1,27 +1,36 @@
-use egui::{UiKind, Vec2b};
+use egui::UiKind;
 
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 pub struct Dialog {
-    
+    pub title: String,
+    pub selected_image_title: String,
+    pub selected_image_url: Option<String>,
+    pub open: bool,
 }
 
 impl Default for Dialog {
     fn default() -> Self {
         Self {
-            
+            title: String::new(),
+            selected_image_title: String::new(),
+            selected_image_url: None,
+            open: false,
         }
     }
 }
 
-impl crate::Demo for Dialog {
+impl crate::core::Demo for Dialog {
     fn name(&self) -> &'static str {
         "Dialog"
     }
 
     fn show(&mut self, ctx: &egui::Context, open: &mut bool) {
         let Self {
-            
+            title,
+            selected_image_title: _,
+            selected_image_url: _,
+            open: _,
         } = self.clone();
 
         use crate::core::View as _;
@@ -32,7 +41,7 @@ impl crate::Demo for Dialog {
             .resizable(false)
             .constrain(false)
             .collapsible(false)
-            .title_bar(false)
+            .title_bar(true)
             .scroll(true)
             .enabled(true);
         window = window.open(open);
@@ -44,7 +53,10 @@ impl crate::Demo for Dialog {
 impl crate::core::View for Dialog {
     fn ui(&mut self, ui: &mut egui::Ui) {
         let Self {
-            
+            title: _,
+            selected_image_title,
+            selected_image_url,
+            open: _,
         } = self;
         
 
@@ -60,7 +72,7 @@ impl crate::core::View for Dialog {
         ui.label("Select cropping area:");
 
         // Create a sample image or placeholder
-        let available_width = ui.available_width().min(400.0);
+        let available_width = ui.ctx().screen_rect().width() - 40.0;
         let target_height = available_width * 9.0 / 16.0; // 16:9 aspect ratio
 
         let image_rect = ui.allocate_response(
@@ -81,16 +93,10 @@ impl crate::core::View for Dialog {
         ui.horizontal(|ui| {
             if ui.button("Set this Wallpaper").clicked() {
                 log::info!("Setting wallpaper for: {}", selected_image_title);
-                if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
-                    log::error!("Failed to open URL: {}", e);
-                }
             }
 
             if ui.button("Set Cropped Wallpaper").clicked() {
                 log::info!("Setting cropped wallpaper for: {}", selected_image_title);
-                if let Err(e) = webbrowser::open("https://bingtray.pages.dev") {
-                    log::error!("Failed to open URL: {}", e);
-                }
             }
 
             if ui.button("More Info").clicked() {
@@ -104,12 +110,15 @@ impl crate::core::View for Dialog {
         ui.separator();
 
         ui.horizontal(|ui| {
-            if ui.button("OK").clicked() {
-                log::info!("Standard dialog OK clicked!");
-            }
-
-            if ui.button("Close").clicked() {
-                log::info!("Standard dialog Close clicked!");
+            if ui
+                .button("Close")
+                .on_hover_text("You can collapse / close Windows via Ui::close")
+                .clicked()
+            {
+                // Calling close would close the collapsible within the window
+                // ui.close();
+                // Instead, we close the window itself
+                ui.close_kind(UiKind::Window);
             }
         });
 
