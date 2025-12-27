@@ -150,14 +150,14 @@ jobs:
           inAppUpdatePriority: 2
           debugSymbols: mobile/app/build/intermediates/merged_native_libs/release/mergeReleaseNativeLibs/out/lib
       
-      - name: Android, Upload to the Amazon AppStore
-        if: "(contains(matrix.platform.name, 'Android APK arm64'))"
-        uses: ALJAZEERAPLUS/amazon-appstore-action@v1
-        with:
-          client-id: ${{secrets.AMAZON_APPSTORE_CLIENT_ID}}
-          client-secret: ${{secrets.AMAZON_APPSTORE_CLIENT_SECRET}}
-          app-id: ${{ secrets.AMAZON_APPSTORE_APP_ID }}
-          apk-file: app/build/outputs/apk/release/app-release.apk
+      # - name: Android, Upload to the Amazon AppStore
+      #   if: "(contains(matrix.platform.name, 'Android APK arm64'))"
+      #   uses: ALJAZEERAPLUS/amazon-appstore-action@v1
+      #   with:
+      #     client-id: ${{secrets.AMAZON_APPSTORE_CLIENT_ID}}
+      #     client-secret: ${{secrets.AMAZON_APPSTORE_CLIENT_SECRET}}
+      #     app-id: ${{ secrets.AMAZON_APPSTORE_APP_ID }}
+      #     apk-file: app/build/outputs/apk/release/app-release.apk
 
       - name: Non Android, Native bingtray Build ${{ matrix.platform.name }} binary
         if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64')
