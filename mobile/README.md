@@ -29,6 +29,17 @@ $ adb logcat -v time -s *:V > fullcat.log
 $ adb logcat -s BingtrayApp > bingcat.log
 ```
 
+### Build on qemu continer
+
+For those whose os environment doesnt support android development, Qemu supports.
+```bash
+$ ./qemu.sh init # build alpine qemu container
+$ ./qemu.sh run # run the container
+$ ./qemu.sh ssh # ssh into the container
+$ ./qemu.sh syncto # sync project files into container
+$ ./qemu.sh syncfrom # take out built files from the container
+```
+
 ### Android keystore for github workflow 
 
 Set github secrets on Settings > Security > Secrets and Variables > Actions > Environments > New Secret.
