@@ -226,7 +226,7 @@ EOF
 fi
 
 # make project dir
-# mkdir -p /var/run/sshd /opt/project/uad-shizuku
+# mkdir -p /var/run/sshd /opt/project/bingtray
 
 # running qemu with SSH port forwarding (host:2222 -> guest:22)
 if [[ "$1" == "run" ]]; then
@@ -257,11 +257,13 @@ fi
 
 # rsync host to guest
 if [[ "$1" == "syncto" ]]; then
-  rsync -avzP --exclude='.qemu' --exclude='jniLibs' --exclude='target' --exclude='build' --rsh="ssh -p 2222 -i ~/qemu/.qemu_ssh/id_ed25519" $PROJECT_ROOT root@localhost:$CONTAINER_DIR
+  rsync -avzP --exclude='.qemu' --exclude='jniLibs' --exclude='target' --exclude='build' --exclude='.solidbase' --exclude='reference' --exclude='.git' \
+    --rsh="ssh -p 2222 -i ~/qemu/.qemu_ssh/id_ed25519" $PROJECT_ROOT root@localhost:$CONTAINER_DIR
 fi
 
 # rsync guest to host
 if [[ "$1" == "syncfrom" ]]; then
   mkdir -p $TAKEOUT_DIR
-  rsync -avzP --exclude='.qemu' --exclude='target' --rsh="ssh -p 2222 -i ~/qemu/.qemu_ssh/id_ed25519" root@localhost:$CONTAINER_DIR/$PROJECT_NAME/$RELATIVE_DIR/$TAKEOUT_DIR $TAKEOUT_DIR
+  rsync -avzP --exclude='.qemu' --exclude='target' --rsh="ssh -p 2222 -i ~/qemu/.qemu_ssh/id_ed25519" \
+    root@localhost:$CONTAINER_DIR/$PROJECT_NAME/$RELATIVE_DIR/$TAKEOUT_DIR/ $TAKEOUT_DIR
 fi

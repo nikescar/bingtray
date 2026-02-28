@@ -10,7 +10,7 @@ android {
     def appVersionName = System.getenv("APPLICATION_VERSION_NAME") ?: "1.0.0"
     defaultConfig {
         applicationId "pe.nikescar.bingtray"
-        minSdk 21
+        minSdk 24
         targetSdk 35
         versionCode appVersionCode.toInteger()
         versionName appVersionName
@@ -19,7 +19,7 @@ android {
     }
 
     // Load keystore properties
-    def keystorePropertiesFile = rootProject.file("keystore.properties")
+    def keystorePropertiesFile = file("keystore.properties")
     def keystoreProperties = new Properties()
     if (keystorePropertiesFile.exists()) {
         keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
@@ -88,15 +88,30 @@ android {
         }
     }
     
+    buildFeatures {
+        aidl true
+    }
+
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    lint {
+        abortOnError false
+        checkReleaseBuilds false
     }
     
     namespace 'pe.nikescar.bingtray'
 }
 
 dependencies {
+    implementation 'dev.rikka.shizuku:api:13.1.5'
+    implementation 'dev.rikka.shizuku:provider:13.1.5'
+}
 
+// Disable all lint tasks to work around current lint crashes in build environment.
+tasks.matching { it.name.toLowerCase().contains("lint") }.configureEach {
+    enabled = false
 }
 

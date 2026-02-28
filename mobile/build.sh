@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# build script for local development
 
 # extrepo enable debian_official
 # [[ $(dpkg -l|grep libssl-dev|grep -c "libssl-dev") -lt 1 ]] && apt install libssl-dev squashfs-tools
@@ -15,7 +16,7 @@ fi
 source $HOME/.cargo/env
 
 if [[ -f /etc/debian_version ]] && [[ ! -d "$HOME/.local/jdk-24.0.1/bin" ]]; then
-    echo "Installing JDK 24..."
+    echo "Installing JDK 24..." # https://jdk.java.net/25/
     durl="https://download.java.net/java/GA/jdk24.0.1/24a58e0e276943138bf3e963e6291ac2/9/GPL/openjdk-24.0.1_linux-x64_bin.tar.gz"
     pushd "$HOME/Downloads"
     [[ ! -f "openjdk-24.0.1_linux-x64_bin.tar.gz" ]] && wget --directory-prefix="$HOME/Downloads" "${durl}" 2>&1 1>/dev/null
@@ -181,19 +182,52 @@ export APPLICATION_VERSION_CODE=${timestamp:0:-1}
 export APPLICATION_VERSION_NAME=$(grep -m1 "^version = " ../Cargo.toml | cut -d' ' -f3 | tr -d '"')
 
 export RUSTFLAGS="-Zlocation-detail=none -Zfmt-debug=none"
-cargo ndk -t armeabi-v7a -o app/src/main/jniLibs/ build --release --lib
-cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build --release --lib
-cargo ndk -t x86 -o app/src/main/jniLibs/ build --release --lib
-cargo ndk -t x86_64 -o app/src/main/jniLibs/ build --release --lib
+# Build arm64-v8a first to prioritize 64-bit on compatible devices
+cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build --release --lib || {
+    echo "Error: cargo ndk build failed for arm64-v8a"
+    exit 1
+}
+
+# Run additional targets only in GitHub Actions workflow
+if [[ -n "${GITHUB_ACTIONS}" ]] || [[ -n "${CI}" ]]; then
+    echo "Running additional architecture builds for CI..."
+    cargo ndk -t armeabi-v7a -o app/src/main/jniLibs/ build --release --lib || {
+        echo "Error: cargo ndk build failed for armeabi-v7a"
+        exit 1
+    }
+    cargo ndk -t x86 -o app/src/main/jniLibs/ build --release --lib || {
+        echo "Error: cargo ndk build failed for x86"
+        exit 1
+    }
+    cargo ndk -t x86_64 -o app/src/main/jniLibs/ build --release --lib || {
+        echo "Error: cargo ndk build failed for x86_64"
+        exit 1
+    }
+fi
+
+if [[ ! -f "./app/keystore.properties" && ! -f "./app/release.keystore" && -n ${KEYSTORE_BASE64} ]]; then
+    echo "storePassword=${STORE_PASSWORD}" > ./app/keystore.properties
+    echo "keyPassword=${KEY_PASSWORD}" >> ./app/keystore.properties
+    echo "keyAlias=${KEY_ALIAS}" >> ./app/keystore.properties
+    echo "storeFile=release.keystore" >> ./app/keystore.properties
+    echo "${KEYSTORE_BASE64}" | base64 -d > ./app/release.keystore
+    echo "${STORE_PASSWORD}" | keytool -list -v -keystore ./app/release.keystore
+fi
+
+# generate keystore.properties file
 ANDROID_SPLIT_BUILD=1 gradle build
+# ANDROID_SPLIT_BUILD=1 gradle bundleDebug
+if [[ -n "${GITHUB_ACTIONS}" ]] || [[ -n "${CI}" ]]; then
+    ANDROID_SPLIT_BUILD=1 gradle bundleRelease
+fi
 
 # adb commands
 # adb devices
 # adb install app/bulid/outputs/apk/release/app-release.apk
-# adb uninstall pe.nikescar.bingtray
-# adb shell am start -n pe.nikescar.bingtray/.MainActivity
+# adb uninstall pe.nikescar.uad_shizuku
+# adb shell am start -n pe.nikescar.uad_shizuku/.MainActivity
 
 # logcat commands
 # adb logcat -c
 # adb logcat -v time -s *:V > fullcat.log
-# adb logcat -s BingtrayApp > bingcat.log
+# adb logcat -s UAD-Shizuku > uadcat.log
