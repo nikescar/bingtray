@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# this is a build script for fdroid system.
+# build script for fdroid system.
 # gitlab-runner 18.3.0~pre  registry.gitlab.com/fdroid/fdroidserver:buildserver-bookworm
 
 # extrepo enable debian_official
@@ -138,6 +138,7 @@ cargo ndk -t armeabi-v7a -o app/src/main/jniLibs/ build --release --lib
 cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build --release --lib
 cargo ndk -t x86 -o app/src/main/jniLibs/ build --release --lib
 cargo ndk -t x86_64 -o app/src/main/jniLibs/ build --release --lib
+gradle build
 gradle assembleRelease
 
 # adb commands
@@ -149,4 +150,4 @@ gradle assembleRelease
 # logcat commands
 # adb logcat -c
 # adb logcat -v time -s *:V > fullcat.log
-# adb logcat -s BingtrayApp > bingcat.log
+# adb logcat -s bingtray > uadcat.log

@@ -14,9 +14,6 @@ Cargo.lock
 /target
 
 /tmp
-/bingtray-and/tmp
-/bingtray-and-old
-/bingtray-and-new
 /mobile/tmp
 /mobile/Android.ndk.tar.zst
 release-key-keystore_base64_encoded.txt
@@ -56,6 +53,52 @@ gradle-app.setting
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
 
+*.iml
+.gradle
+/local.properties
+/.idea/caches
+/.idea/libraries
+/.idea/modules.xml
+/.idea/workspace.xml
+/.idea/navEditor.xml
+/.idea/assetWizardSettings.xml
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+local.properties
+*.so
+
+# Added by cargo
+
+/target
+
+# Keystore files - DO NOT COMMIT
+*.keystore
+keystore.properties
+release.keystore
+
+# AI Rules - Generated Files
+**/.agents/commands/*-ai-rules.md
+**/.agents/skills/ai-rules-generated-*
+**/.claude/commands/ai-rules/
+**/.claude/skills/ai-rules-generated-*
+**/.codex/skills/ai-rules-generated-*
+**/.cursor/commands/ai-rules/
+**/.cursor/mcp.json
+**/.cursor/rules/
+**/.firebender/skills/ai-rules-generated-*
+**/.gemini/settings.json
+**/.mcp.json
+**/.roo/mcp.json
+**/AGENTS.md
+**/CLAUDE.md
+**/GEMINI.md
+**/ai-rules/.generated-ai-rules
+**/firebender.json
+!**/ai-rules/AGENTS.md
+# End AI Rules
 
 # From https://github.com/github/gitignore/blob/master/Global/JetBrains.gitignore
 # Covers JetBrains IDEs: IntelliJ, RubyMine, PhpStorm, AppCode, PyCharm, CLion, Android Studio and Webstorm
@@ -134,14 +177,47 @@ Temporary Items
 .idea
 .secrets
 .solidbase
-bingtray-core/tmp/
-web/bingtray_core.js
-web/bingtray_core_bg.wasm
 web/tmp/
-bingtray/tmp/
 
 prime/
 stage/
 parts/
 *.snap
 .vscode/
+.upload/
+
+/reference
+
+adb_dumpsys
+adb_dumpsys_netstats
+adb_dumpsys_package_packages
+adb_dumpsys_usagestats
+adb_sumpsys_usagestats_history
+.config
+
+.claude
+.zed
+
+# AI Rules - Generated Files
+**/.agents/commands/*-ai-rules.md
+**/.agents/skills/ai-rules-generated-*
+**/.claude/commands/ai-rules/
+**/.claude/skills/ai-rules-generated-*
+**/.codex/skills/ai-rules-generated-*
+**/.cursor/commands/ai-rules/
+**/.cursor/mcp.json
+**/.cursor/rules/
+**/.firebender/skills/ai-rules-generated-*
+**/.gemini/settings.json
+**/.mcp.json
+**/.roo/mcp.json
+**/AGENTS.md
+**/CLAUDE.md
+**/GEMINI.md
+**/ai-rules/.generated-ai-rules
+**/firebender.json
+!**/ai-rules/AGENTS.md
+# End AI Rules
+
+/mobile/app/tmp/
+/mobile/build.local.sh

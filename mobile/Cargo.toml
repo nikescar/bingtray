@@ -1,5 +1,6 @@
 [package]
-name = "mobile"
+name = "bingtray"
+build = "build.rs"
 version.workspace = true
 license.workspace = true
 edition.workspace = true
@@ -9,31 +10,98 @@ rust-version.workspace = true
 default = ["serde"]
 desktop = []
 serde = ["dep:serde", "dep:serde_json"]
+# Enable this feature for release builds to bundle DuckDB statically
+# Debug builds will use system DuckDB library (much faster compilation)
+# Usage: cargo build --release --features bundled-duckdb
+bundled-duckdb = ["duckdb/bundled"]
 
 [lib]
-name = "bingtray_mobile"
+name = "bingtray"
 crate-type = ["cdylib", "rlib"]
 
-# No binary target - this is a library only
+[[bin]]
+name = "bingtray"
+path = "src/main.rs"
+required-features = []
 
 [dependencies]
+# Core dependencies
 log = { workspace = true }
-bingtray-core = { path = "../bingtray-core", features = ["serde"] }
+anyhow = "1.0"
+serde = { version = "1.0", default-features = false, features = ["derive"], optional = true }
+serde_json = { version = "1.0", features = ["std"], optional = true }
+chrono = "0.4"
+
+# UI framework
 egui = { workspace = true }
 eframe = { workspace = true }
 egui_extras = { workspace = true }
-serde = { version = "1.0", default-features = false, features = ["derive"], optional = true }
-serde_json = { version = "1.0", default-features = false, optional = true }
-wgpu = { workspace = true }
+egui-material3 = { workspace = true }
 
+# i18n
+egui-i18n = { workspace = true }
+sys-locale = { workspace = true }
+
+# HTTP for cross-platform image downloads
+ehttp = "0.5.0"
+webbrowser = "1.1"
+
+# Utilities
+image = "0.25"
+crossbeam-queue = "0.3"
+rand = "0.8"
+poll-promise = "0.3.0"
+bincode = "1.3"
+md5 = "0.7"
+
+# Desktop-only dependencies
+[target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
+tray-icon = { version = "0.18", default-features = false }
+wallpaper = "3.2.0"
+duckdb = "1.3"
+env_logger = "0.11"
+directories = { workspace = true }
+opener = "0.7"
+
+# Android-specific dependencies
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = { version = "0.1", default-features = false }
 jni = { version = "0.21", default-features = false }
 android_logger = { version = "0.15", default-features = false }
 android-activity = { version = "0.6", default-features = false, features = ["native-activity"] }
 ndk-sys = { version = "0.6.0", default-features = false }
+eframe = { workspace = true, default-features = false, features = ["default_fonts","glow","android-native-activity"] }
+duckdb = { version = "1.3", features = ["bundled"] }
 
-[target.'cfg(target_os = "ios")'.dependencies]
-bevy = { version = "0.16.0", default-features = false, features = ["bevy_render", "bevy_core_pipeline", "bevy_sprite", "bevy_text", "bevy_ui", "bevy_winit"], optional = true }
-bevy_egui = { version = "0.35.1", default-features = false, optional = true }
-objc2-avf-audio = { version = "0.3.0", features = ["AVAudioSession", "AVAudioSessionTypes"] }
+# Windows-specific dependencies
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-sys = { version = "0.59", features = [
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Console",
+] }
+eframe = { workspace = true, default-features = false, features = ["default_fonts","glow"] }
+
+# macOS-specific dependencies
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2-core-foundation = { version = "0.3", features = ["CFRunLoop"] }
+eframe = { workspace = true, default-features = false, features = ["default_fonts","glow"] }
+
+# Linux-specific dependencies
+[target.'cfg(target_os = "linux")'.dependencies]
+gtk = "0.18"
+eframe = { workspace = true, default-features = false, features = ["default_fonts","glow","x11", "wayland"] }
+
+# WASM-specific dependencies
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["HtmlCanvasElement"] }
+arrow = { version = "54", default-features = false, features = ["ipc"] }
+eframe = { workspace = true, default-features = false, features = ["default_fonts","glow"] }
+
+[dev-dependencies]
+tempfile = "3.8"
+
+[build-dependencies]
+winres = "0.1.12"

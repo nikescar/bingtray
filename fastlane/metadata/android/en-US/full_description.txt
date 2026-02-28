@@ -10,7 +10,7 @@ BingTray is a cross-platform wallpaper manager that automatically downloads and 
 • Clean, minimalist interface
 
 <b>How it works:</b>
-The app visits random Bing markets and downloads new wallpapers if they haven't been downloaded before. When you've exhausted all available market images, you'll need to wait for a week to get new content as Bing updates their wallpapers weekly.
+The app visits Bing market and downloads new wallpapers if they haven't been downloaded before. When you've exhausted all available market images, you'll need to wait for a week to get new content as Bing updates their wallpapers weekly.
 
 <b>Menu Options:</b>
 • <b>Cache Dir Contents:</b> Opens the folder where images and configs are saved

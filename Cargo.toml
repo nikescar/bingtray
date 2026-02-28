@@ -1,8 +1,6 @@
 [workspace]
-resolver = "2"  
+resolver = "2"
 members = [
-    "bingtray-core",
-    "bingtray",
     "mobile",
 ]
 
@@ -10,7 +8,7 @@ members = [
 edition = "2021"
 license = "MIT OR Apache-2.0"
 rust-version = "1.81"
-version = "0.0.6"
+version = "0.0.7"
 
 [workspace.dependencies]
 directories = "5.0"
@@ -21,21 +19,32 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.8"
-regex = "1.10"
+regex = "1.12"
 scraper = "0.20"
 log = { version = "0.4", default-features = false }
-tokio = { version = "1.0", features = ["rt", "rt-multi-thread"] }
+tokio = { version = "1.49", features = ["rt", "rt-multi-thread"] }
 
-egui = { version = "0.32", default-features = false, features = ["default_fonts"] }
-eframe = { version = "0.32", default-features = false, features = [
+# i18n dependencies
+egui-i18n = { version = "0.2", features = ["fluent"], default-features = false }
+sys-locale = "0.3"
+
+egui = { version = "0.33", default-features = false, features = ["default_fonts"] }
+eframe = { version = "0.33", default-features = false, features = [
     "default_fonts",
     "glow",
     "persistence",
     "android-native-activity",
-    "wgpu",
 ] }
-egui_extras = { version = "0.32", default-features = false, features = ["image", "svg", "default", "all_loaders"] }
-wgpu = { version = "25.0.0" }
+egui_extras = { version = "0.33", default-features = false, features = ["image", "svg", "default", "all_loaders"] }
+egui-material3 = { git = "https://github.com/nikescar/egui-material3/", default-features = false }
+
+[profile.dev]
+# Fast incremental builds for development
+opt-level = 0
+debug = 2
+lto = false
+incremental = true
+codegen-units = 256
 
 [profile.release]
 lto = true # "fat"
@@ -47,3 +56,4 @@ strip = "symbols"
 [profile.release-with-symbols]
 inherits = "release"
 strip = false
+
