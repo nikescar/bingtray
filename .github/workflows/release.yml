@@ -1,12 +1,16 @@
+name: Build and Release
+
 on:
   push:
     tags:
       - v*
+    branches:
+      - test
   workflow_dispatch:
 
 env:
   RUST_VERSION: 1.86.0
-  BIN_NAME: "bingtray"
+  BIN_NAME: "uad-shizuku"
 
 jobs:
   build:
@@ -94,85 +98,152 @@ jobs:
           #   build-args: "--profile release-with-symbols"
 
     steps:
-      - name: Linux, Build packages. set vars
+      - name: Linux - Install Build Dependencies
         if: contains(matrix.platform.target, 'linux')
-        run: | 
-          sudo apt install musl-tools libgtk-3-dev libxdo-dev libappindicator3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libwayland-dev libcairo2-dev libpixman-1-dev libpango1.0-dev libxdo-dev librust-glib-sys-dev librust-gio-sys-dev librust-gobject-sys-dev librust-gdk-sys-dev libwebkit2gtk-4.1-dev librust-gdk-pixbuf-sys-dev librust-cairo-sys-rs-dev librust-pango-sys-dev librust-atk-sys-dev libgdk-pixbuf2.0-dev libatk1.0-dev musl-dev
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools libgtk-3-dev libxdo-dev libappindicator3-dev libglib2.0-dev libgdk-pixbuf-2.0-dev libwayland-dev libcairo2-dev libpixman-1-dev libpango1.0-dev libxdo-dev librust-glib-sys-dev librust-gio-sys-dev librust-gobject-sys-dev librust-gdk-sys-dev libwebkit2gtk-4.1-dev librust-gdk-pixbuf-sys-dev librust-cairo-sys-rs-dev librust-pango-sys-dev librust-atk-sys-dev libgdk-pixbuf2.0-dev libatk1.0-dev musl-dev
           export PKG_CONFIG_ALLOW_CROSS=1
           export PKG_CONFIG_PATH="/usr/lib/x86_64-linux-musl/pkgconfig"
           
-      - name: Android, Build packages.
+      - name: Android - Install Build Dependencies
         if: contains(matrix.platform.target, 'android')
         run: |
-          sudo apt install android-libunwind android-libunwind-dev libunwind-dev musl-tools llvm-14 clang llvm
+          sudo apt-get update
+          sudo apt-get install -y android-libunwind android-libunwind-dev libunwind-dev musl-tools llvm-14 clang llvm
 
-      - name: All, Checkout Git repo
+      - name: Checkout Repository
         uses: actions/checkout@v3
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
+
+      - name: Update Version from Git Tag
+        shell: bash
+        run: |
+          # Extract version from git tag (remove 'v' prefix if present)
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION=$(git describe --tags --abbrev=0 | sed 's/^v//')
+            echo "Detected version: $VERSION"
+            # Update version in Cargo.toml (compatible with both GNU and BSD sed)
+            sed -i.bak "s/^version = .*/version = \"$VERSION\"/" ./Cargo.toml && rm -f ./Cargo.toml.bak
+            echo "Updated Cargo.toml with version $VERSION"
+            grep "^version = " ./Cargo.toml
+          else
+            echo "Not a tag build, skipping version update"
+            VERSION=$(git describe --tags --always --dirty)
+            echo "Build version: $VERSION"
+          fi
       
-      - name: All, Install Rust nightly
+      - name: Install Rust Toolchain
         uses: dtolnay/rust-toolchain@nightly
         with:
           targets: ${{ matrix.platform.target }}
           components: rustfmt, clippy
 
-      - name: Android, Install package for Android
+      - name: Android - Install Cross-Compilation Tool
         if: contains(matrix.platform.target, 'android')
         run: | 
           cargo install cross --git https://github.com/cross-rs/cross
 
-      - name: Android, Build ${{ matrix.platform.name }} binary # android release apk/aab build
+      - name: Android - Build Release APK
         if: (contains(matrix.platform.name, 'Android APK arm64'))
         run: | 
-          echo "storePassword=${{ secrets.STORE_PASSWORD }}" > ./mobile/keystore.properties
-          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> ./mobile/keystore.properties
-          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> ./mobile/keystore.properties
-          echo "storeFile=release.keystore" >> ./mobile/keystore.properties
+          echo "storePassword=${{ secrets.STORE_PASSWORD }}" > ./mobile/app/keystore.properties
+          echo "keyPassword=${{ secrets.KEY_PASSWORD }}" >> ./mobile/app/keystore.properties
+          echo "keyAlias=${{ secrets.KEY_ALIAS }}" >> ./mobile/app/keystore.properties
+          echo "storeFile=release.keystore" >> ./mobile/app/keystore.properties
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > ./mobile/app/release.keystore
           echo "${{ secrets.STORE_PASSWORD }}" | keytool -list -v -keystore $PWD/mobile/app/release.keystore
 
           pushd mobile
           bash ./build.gh.sh
-          cp ./app/build/outputs/apk/release/app-release.apk ./app/build/outputs/apk/release/bingtray-all-signed.apk
-          ls -al ./app/build/outputs/apk/release
+          
+          # Verify outputs
+          echo "=== Listing APK outputs ==="
+          ls -alh ./app/build/outputs/apk/release/ || echo "APK directory not found"
+          echo "=== Listing AAB outputs ==="
+          ls -alh ./app/build/outputs/bundle/release/ || echo "AAB directory not found"
+          
+          # Copy APK for artifact upload
+          cp ./app/build/outputs/apk/release/app-release.apk ./app/build/outputs/apk/release/uad-shizuku-all-signed.apk
           popd
       
-      - name: Android, Publish to google play # https://github.com/marketplace/actions/upload-android-release-to-play-store
+      - name: Android - Verify AAB exists
         if: (contains(matrix.platform.name, 'Android APK arm64'))
+        run: |
+          if [ ! -f "mobile/app/build/outputs/bundle/release/app-release.aab" ]; then
+            echo "ERROR: AAB file not found at mobile/app/build/outputs/bundle/release/app-release.aab"
+            exit 1
+          fi
+          echo "AAB file verified:"
+          ls -lh mobile/app/build/outputs/bundle/release/app-release.aab
+      
+      - name: Android - Publish to google play # https://github.com/marketplace/actions/upload-android-release-to-play-store
+        if: (contains(matrix.platform.name, 'Android APK arm64'))
+        continue-on-error: true
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
-          packageName: pe.nikescar.bingtray
+          packageName: pe.nikescar.uad_shizuku
           releaseFiles: mobile/app/build/outputs/bundle/release/app-release.aab
-          track: production
+          track: alpha # production
+          status: completed
           inAppUpdatePriority: 2
-          debugSymbols: mobile/app/build/intermediates/merged_native_libs/release/mergeReleaseNativeLibs/out/lib
       
-      # - name: Android, Upload to the Amazon AppStore
-      #   if: "(contains(matrix.platform.name, 'Android APK arm64'))"
-      #   uses: ALJAZEERAPLUS/amazon-appstore-action@v1
-      #   with:
-      #     client-id: ${{secrets.AMAZON_APPSTORE_CLIENT_ID}}
-      #     client-secret: ${{secrets.AMAZON_APPSTORE_CLIENT_SECRET}}
-      #     app-id: ${{ secrets.AMAZON_APPSTORE_APP_ID }}
-      #     apk-file: app/build/outputs/apk/release/app-release.apk
-
-      - name: Non Android, Native bingtray Build ${{ matrix.platform.name }} binary
+      - name: Build Binary for ${{ matrix.platform.name }}
         if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64')
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: ${{ matrix.platform.build-args }} --package bingtray
+          args: ${{ matrix.platform.build-args }} --package uad-shizuku
 
-      - name: All except Android, Store artifact bingtray
+      - name: Windows - Code Signing
+        if: (contains(matrix.platform.target, 'windows') && env.WINDOWS_CERT_P12_BASE64 != '' && env.WINDOWS_CERT_PASSWORD != '')
+        id: sign_exe
+        env:
+          WINDOWS_CERT_P12_BASE64: ${{ secrets.WINDOWS_CERT_P12_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        shell: pwsh
+        run: |
+          # Decode the certificate
+          $certBytes = [System.Convert]::FromBase64String($env:WINDOWS_CERT_P12_BASE64)
+          [System.IO.File]::WriteAllBytes("windows.pfx", $certBytes)
+
+          # Verify the executable exists
+          echo "Checking for build output..."
+          Get-ChildItem -Path target -Recurse -Filter "*.exe" | Format-Table FullName
+
+          $EXE_PATH = "target/release-with-symbols/uad-shizuku.exe"
+          if (-Not (Test-Path $EXE_PATH)) {
+            echo "::error:: Executable not found at $EXE_PATH"
+            echo "Listing target directory contents:"
+            Get-ChildItem -Path target -Recurse | Format-Table FullName
+            exit 1
+          }
+          echo "Signing $EXE_PATH..."
+
+          # Find signtool.exe (it's part of the Windows SDK)
+          $SIGNTOOL_PATH = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse | Sort-Object VersionInfo -Descending | Select-Object -First 1).FullName
+          if ($null -eq $SIGNTOOL_PATH) {
+            echo "::error:: signtool.exe not found."
+            exit 1
+          }
+          echo "Using signtool at $SIGNTOOL_PATH"
+
+          # Sign the file
+          & $SIGNTOOL_PATH sign /f "windows.pfx" /p $env:WINDOWS_CERT_PASSWORD /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 $EXE_PATH
+
+          # Clean up
+          Remove-Item windows.pfx
+
+      - name: Upload Binary Artifact
         if: (!contains(matrix.platform.name, 'Android APK arm64'))
         uses: actions/upload-artifact@v4
         with:
           # Finally, we store the binary as GitHub artifact for later usage
-          name: bingtray-${{ matrix.platform.target }}
-          path: target/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingtray*
+          name: uad-shizuku-${{ matrix.platform.target }}
+          path: target/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/uad-shizuku*
           retention-days: 1
       
       # - name: All except Android, Build snap packages
@@ -189,12 +260,12 @@ jobs:
       #     snap: ${{ steps.build.outputs.snap }}
       #     release: edge
 
-      - name: Android, Store artifact Android release arm64 apk
+      - name: Android - Upload APK Artifact
         if: (contains(matrix.platform.name, 'Android APK arm64'))
         uses: actions/upload-artifact@v4
         with:
-          name: bingtray-all-signed.apk
-          path: ./mobile/app/build/outputs/apk/release/bingtray-all-signed.apk
+          name: uad-shizuku-all-signed.apk
+          path: ./mobile/app/build/outputs/apk/release/uad-shizuku-all-signed.apk
           retention-days: 1
       
   release:
@@ -204,7 +275,7 @@ jobs:
     if: startsWith( github.ref, 'refs/tags/v' )
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout Git repo
+      - name: Checkout Repository
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -214,7 +285,123 @@ jobs:
         with:
           path: artifacts
 
-      - name: list artifacts
+      - name: VirusTotal Scan
+        id: vt_scan
+        continue-on-error: true
+        uses: crazy-max/ghaction-virustotal@v4
+        with:
+          vt_api_key: ${{ secrets.VT_API_KEY }}
+          update_release_body: false
+          request_rate: 4
+          files: |
+            ./artifacts/uad-shizuku-aarch64-apple-darwin/uad-shizuku
+            ./artifacts/uad-shizuku-aarch64-linux-android/uad-shizuku
+            ./artifacts/uad-shizuku-aarch64-unknown-linux-musl/uad-shizuku
+            ./artifacts/uad-shizuku-all-signed.apk/uad-shizuku-all-signed.apk
+            ./artifacts/uad-shizuku-armv7-linux-androideabi/uad-shizuku
+            ./artifacts/uad-shizuku-armv7-unknown-linux-musleabihf/uad-shizuku
+            ./artifacts/uad-shizuku-x86_64-apple-darwin/uad-shizuku
+            ./artifacts/uad-shizuku-x86_64-unknown-linux-musl/uad-shizuku
+            ./artifacts/uad-shizuku-x86_64-pc-windows-msvc/uad-shizuku.exe
+
+      - name: Parse Analysis Results
+        id: parse_results
+        run: |
+          # Extract changelog from CHANGELOG.md (first "What's Changed" section only)
+          CHANGELOG_CONTENT=""
+          if [ -f "CHANGELOG.md" ]; then
+            echo "Extracting changelog from CHANGELOG.md..."
+
+            # Read the first "What's Changed" section
+            # Stop at the next "##" heading or end of file
+            CHANGELOG_RAW=$(awk '
+              /^## What'\''s Changed$/ { in_section=1; next }
+              in_section && /^##/ { exit }
+              in_section && NF { print }
+            ' CHANGELOG.md)
+
+            # Process changelog: remove "by @username" and deduplicate
+            if [ -n "$CHANGELOG_RAW" ]; then
+              # Remove "by @username" pattern and deduplicate lines
+              CHANGELOG_CONTENT=$(echo "$CHANGELOG_RAW" | \
+                sed -E 's/ by @[a-zA-Z0-9_-]+//g' | \
+                awk '!seen[$0]++')
+
+              echo "Processed changelog:"
+              echo "$CHANGELOG_CONTENT"
+            fi
+          fi
+
+          # Get the analysis output from previous step
+          ANALYSIS="${{ steps.vt_scan.outputs.analysis }}"
+
+          echo "Raw analysis output:"
+          echo "$ANALYSIS"
+
+          # Parse the analysis output and format for release notes
+          # Format: file1=url1,file2=url2,...
+
+          VT_RESULTS=""
+
+          # Check if we have any results
+          if [ -z "$ANALYSIS" ]; then
+            echo "Warning: No analysis output from VirusTotal scan"
+            VT_RESULTS="⚠️ VirusTotal scan encountered errors. Some files may have been scanned previously (409 error)."
+          else
+            # Split by comma and process each entry
+            IFS=',' read -ra ENTRIES <<< "$ANALYSIS"
+            for entry in "${ENTRIES[@]}"; do
+              # Skip empty entries
+              if [ -z "$entry" ]; then
+                continue
+              fi
+
+              # Split by = to get file and URL
+              IFS='=' read -r file url <<< "$entry"
+
+              # Skip if file or url is empty
+              if [ -z "$file" ] || [ -z "$url" ]; then
+                continue
+              fi
+
+              # Extract identifier from path
+              # For .exe and .apk files, use the filename
+              # For other files (binaries), use the parent directory name which contains platform info
+              if [[ "$file" == *.exe ]] || [[ "$file" == *.apk ]]; then
+                identifier=$(basename "$file")
+              else
+                identifier=$(basename "$(dirname "$file")")
+              fi
+
+              # Build markdown link
+              VT_RESULTS="${VT_RESULTS}- **${identifier}**: [View VirusTotal Report](${url})\n"
+            done
+
+            # Check if we have formatted results
+            if [ -z "$VT_RESULTS" ]; then
+              echo "Warning: No valid results to format"
+              VT_RESULTS="⚠️ No scan results available. Files may have been scanned recently."
+            fi
+          fi
+
+          # Combine changelog and VirusTotal results
+          FORMATTED_RESULTS=""
+
+          if [ -n "$CHANGELOG_CONTENT" ]; then
+            FORMATTED_RESULTS="${FORMATTED_RESULTS}## What's Changed\n${CHANGELOG_CONTENT}\n\n"
+          fi
+
+          FORMATTED_RESULTS="${FORMATTED_RESULTS}## VirusTotal Scan Results\n${VT_RESULTS}"
+
+          # Save to output (escape for GitHub Actions)
+          echo "formatted_results<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$FORMATTED_RESULTS" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+          echo "Formatted results:"
+          echo -e "$FORMATTED_RESULTS"
+
+      - name: Prepare Release Artifacts
         run: |
           find artifacts/
           mkdir distbin/
@@ -223,18 +410,26 @@ jobs:
           do
               if [ -d "$i" ]
               then
-                  [[ "$i" == *"bingtray-all-signed.apk"* ]] && cp artifacts/bingtray-all-signed.apk/bingtray-all-signed.apk distbin/bingtray-all-signed.apk && continue
+                  # Handle APK separately
+                  [[ "$i" == *"uad-shizuku-all-signed.apk"* ]] && cp artifacts/uad-shizuku-all-signed.apk/uad-shizuku-all-signed.apk distbin/uad-shizuku-all-signed.apk && continue
+                  
+                  # Handle Windows executables - copy directly without compression
+                  if [[ "$i" == *"windows"* ]]; then
+                      cp "$i"/*.exe distbin/ 2>/dev/null || true
+                      continue
+                  fi
+                  
+                  # Handle other platforms - tar compress
                   cp LICENSE* "$i"
                   cp README.md "$i"
-                  rm "$i/bingtray.d" 1>/dev/null 2>&1 || true
-                  chmod +x "$i/bingtray" 1>/dev/null 2>&1 || true
-                  chmod +x "$i/bingtray.exe" 1>/dev/null 2>&1 || true
+                  rm "$i/uad-shizuku.d" 1>/dev/null 2>&1 || true
+                  chmod +x "$i/uad-shizuku" 1>/dev/null 2>&1 || true
                   tar -cvpzf "${i}.tar.gz" --directory=${i} .
               fi
           done
-          cp artifacts/bing*.tar.gz distbin/
+          cp artifacts/*.tar.gz distbin/ 2>/dev/null || true
         
-      - name: Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         if: github.ref_type == 'tag'
         with:
@@ -243,5 +438,5 @@ jobs:
           # draft: true
           make_latest: true
           files: distbin/*
+          body: ${{ steps.parse_results.outputs.formatted_results }}
           token: ${{ secrets.RELEASE_TOKEN }}
-

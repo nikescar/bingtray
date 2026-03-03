@@ -1,0 +1,151 @@
+name: Release to Snapstore and Flathub
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+jobs:
+  download-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download artifact from latest build
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: release.yml
+          name_is_regexp: true
+          name: uad-shizuku-(x86_64|aarch64|armv7).*linux.*
+          path: artifacts
+          branch: main
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List downloaded files (verification)
+        run: ls -R artifacts/
+
+      - name: Prepare binaries for snap
+        run: |
+          mkdir -p snap-binaries/x86_64
+          mkdir -p snap-binaries/aarch64
+          mkdir -p snap-binaries/armv7
+
+          # Extract binaries from artifacts
+          if [ -d "artifacts/uad-shizuku-x86_64-unknown-linux-musl" ]; then
+            cp artifacts/uad-shizuku-x86_64-unknown-linux-musl/uad-shizuku snap-binaries/x86_64/
+            chmod +x snap-binaries/x86_64/uad-shizuku
+          fi
+
+          if [ -d "artifacts/uad-shizuku-aarch64-unknown-linux-musl" ]; then
+            cp artifacts/uad-shizuku-aarch64-unknown-linux-musl/uad-shizuku snap-binaries/aarch64/
+            chmod +x snap-binaries/aarch64/uad-shizuku
+          fi
+
+          if [ -d "artifacts/uad-shizuku-armv7-unknown-linux-musleabihf" ]; then
+            cp artifacts/uad-shizuku-armv7-unknown-linux-musleabihf/uad-shizuku snap-binaries/armv7/
+            chmod +x snap-binaries/armv7/uad-shizuku
+          fi
+
+          echo "Prepared binaries:"
+          ls -R snap-binaries/
+
+  publish-snapstore:
+    runs-on: ubuntu-latest
+    needs: download-and-deploy
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: amd64
+            artifact-name: uad-shizuku-x86_64-unknown-linux-musl
+          - architecture: arm64
+            artifact-name: uad-shizuku-aarch64-unknown-linux-musl
+          - architecture: armhf
+            artifact-name: uad-shizuku-armv7-unknown-linux-musleabihf
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: release.yml
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          name: ${{ matrix.artifact-name }}
+          path: artifacts
+
+      - name: Prepare snap binary
+        run: |
+          mkdir -p snap-binary
+          cp artifacts/uad-shizuku snap-binary/
+          chmod +x snap-binary/uad-shizuku
+          ls -la snap-binary/
+
+      - name: Build snap package for ${{ matrix.architecture }}
+        uses: snapcore/action-build@v1
+        id: build
+        with:
+          snapcraft-channel: stable
+
+      - name: Publish snap to store (${{ matrix.architecture }})
+        uses: snapcore/action-publish@v1
+        env:
+          SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_LOGIN }}
+        with:
+          snap: ${{ steps.build.outputs.snap }}
+          release: edge
+
+  publish-flathub:
+    runs-on: ubuntu-latest
+    needs: download-and-deploy
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          workflow: release.yml
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          name_is_regexp: true
+          name: uad-shizuku-(x86_64|aarch64).*linux.*
+          path: artifacts
+
+      - name: Install flatpak and flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      - name: Build Flatpak
+        run: |
+          flatpak-builder --force-clean --repo=repo build-dir flatpak/pe.nikescar.uad-shizuku.yml
+
+      - name: Create Flatpak bundle
+        run: |
+          flatpak build-bundle repo uad-shizuku.flatpak pe.nikescar.uad-shizuku
+
+      - name: Upload Flatpak artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: uad-shizuku-flatpak
+          path: uad-shizuku.flatpak
+          retention-days: 7
+
+      # Note: Actual Flathub publishing requires submitting to the Flathub repository
+      # This creates a flatpak bundle that can be manually submitted
+      - name: Flathub publishing note
+        run: |
+          echo "To publish to Flathub, submit a PR to https://github.com/flathub/flathub"
+          echo "with your pe.nikescar.uad-shizuku.yml manifest file"
