@@ -224,10 +224,10 @@ fi
 # adb commands
 # adb devices
 # adb install app/bulid/outputs/apk/release/app-release.apk
-# adb uninstall pe.nikescar.uad_shizuku
-# adb shell am start -n pe.nikescar.uad_shizuku/.MainActivity
+# adb uninstall pe.nikescar.bingtray
+# adb shell am start -n pe.nikescar.bingtray/.MainActivity
 
 # logcat commands
 # adb logcat -c
 # adb logcat -v time -s *:V > fullcat.log
-# adb logcat -s UAD-Shizuku > uadcat.log
+# adb logcat -s bingtray > uadcat.log

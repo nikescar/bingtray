@@ -10,7 +10,7 @@ on:
 
 env:
   RUST_VERSION: 1.86.0
-  BIN_NAME: "uad-shizuku"
+  BIN_NAME: "bingtray"
 
 jobs:
   build:
@@ -166,7 +166,7 @@ jobs:
           ls -alh ./app/build/outputs/bundle/release/ || echo "AAB directory not found"
           
           # Copy APK for artifact upload
-          cp ./app/build/outputs/apk/release/app-release.apk ./app/build/outputs/apk/release/uad-shizuku-all-signed.apk
+          cp ./app/build/outputs/apk/release/app-release.apk ./app/build/outputs/apk/release/bingtray-all-signed.apk
           popd
       
       - name: Android - Verify AAB exists
@@ -185,7 +185,7 @@ jobs:
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
-          packageName: pe.nikescar.uad_shizuku
+          packageName: pe.nikescar.bingtray
           releaseFiles: mobile/app/build/outputs/bundle/release/app-release.aab
           track: alpha # production
           status: completed
@@ -196,7 +196,7 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: build
-          args: ${{ matrix.platform.build-args }} --package uad-shizuku
+          args: ${{ matrix.platform.build-args }} --package bingtray
 
       - name: Windows - Code Signing
         if: (contains(matrix.platform.target, 'windows') && env.WINDOWS_CERT_P12_BASE64 != '' && env.WINDOWS_CERT_PASSWORD != '')
@@ -214,7 +214,7 @@ jobs:
           echo "Checking for build output..."
           Get-ChildItem -Path target -Recurse -Filter "*.exe" | Format-Table FullName
 
-          $EXE_PATH = "target/release-with-symbols/uad-shizuku.exe"
+          $EXE_PATH = "target/release-with-symbols/bingtray.exe"
           if (-Not (Test-Path $EXE_PATH)) {
             echo "::error:: Executable not found at $EXE_PATH"
             echo "Listing target directory contents:"
@@ -242,8 +242,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           # Finally, we store the binary as GitHub artifact for later usage
-          name: uad-shizuku-${{ matrix.platform.target }}
-          path: target/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/uad-shizuku*
+          name: bingtray-${{ matrix.platform.target }}
+          path: target/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingtray*
           retention-days: 1
       
       # - name: All except Android, Build snap packages
@@ -264,8 +264,8 @@ jobs:
         if: (contains(matrix.platform.name, 'Android APK arm64'))
         uses: actions/upload-artifact@v4
         with:
-          name: uad-shizuku-all-signed.apk
-          path: ./mobile/app/build/outputs/apk/release/uad-shizuku-all-signed.apk
+          name: bingtray-all-signed.apk
+          path: ./mobile/app/build/outputs/apk/release/bingtray-all-signed.apk
           retention-days: 1
       
   release:
@@ -294,15 +294,15 @@ jobs:
           update_release_body: false
           request_rate: 4
           files: |
-            ./artifacts/uad-shizuku-aarch64-apple-darwin/uad-shizuku
-            ./artifacts/uad-shizuku-aarch64-linux-android/uad-shizuku
-            ./artifacts/uad-shizuku-aarch64-unknown-linux-musl/uad-shizuku
-            ./artifacts/uad-shizuku-all-signed.apk/uad-shizuku-all-signed.apk
-            ./artifacts/uad-shizuku-armv7-linux-androideabi/uad-shizuku
-            ./artifacts/uad-shizuku-armv7-unknown-linux-musleabihf/uad-shizuku
-            ./artifacts/uad-shizuku-x86_64-apple-darwin/uad-shizuku
-            ./artifacts/uad-shizuku-x86_64-unknown-linux-musl/uad-shizuku
-            ./artifacts/uad-shizuku-x86_64-pc-windows-msvc/uad-shizuku.exe
+            ./artifacts/bingtray-aarch64-apple-darwin/bingtray
+            ./artifacts/bingtray-aarch64-linux-android/bingtray
+            ./artifacts/bingtray-aarch64-unknown-linux-musl/bingtray
+            ./artifacts/bingtray-all-signed.apk/bingtray-all-signed.apk
+            ./artifacts/bingtray-armv7-linux-androideabi/bingtray
+            ./artifacts/bingtray-armv7-unknown-linux-musleabihf/bingtray
+            ./artifacts/bingtray-x86_64-apple-darwin/bingtray
+            ./artifacts/bingtray-x86_64-unknown-linux-musl/bingtray
+            ./artifacts/bingtray-x86_64-pc-windows-msvc/bingtray.exe
 
       - name: Parse Analysis Results
         id: parse_results
@@ -411,7 +411,7 @@ jobs:
               if [ -d "$i" ]
               then
                   # Handle APK separately
-                  [[ "$i" == *"uad-shizuku-all-signed.apk"* ]] && cp artifacts/uad-shizuku-all-signed.apk/uad-shizuku-all-signed.apk distbin/uad-shizuku-all-signed.apk && continue
+                  [[ "$i" == *"bingtray-all-signed.apk"* ]] && cp artifacts/bingtray-all-signed.apk/bingtray-all-signed.apk distbin/bingtray-all-signed.apk && continue
                   
                   # Handle Windows executables - copy directly without compression
                   if [[ "$i" == *"windows"* ]]; then
@@ -422,8 +422,8 @@ jobs:
                   # Handle other platforms - tar compress
                   cp LICENSE* "$i"
                   cp README.md "$i"
-                  rm "$i/uad-shizuku.d" 1>/dev/null 2>&1 || true
-                  chmod +x "$i/uad-shizuku" 1>/dev/null 2>&1 || true
+                  rm "$i/bingtray.d" 1>/dev/null 2>&1 || true
+                  chmod +x "$i/bingtray" 1>/dev/null 2>&1 || true
                   tar -cvpzf "${i}.tar.gz" --directory=${i} .
               fi
           done

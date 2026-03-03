@@ -21,7 +21,7 @@ jobs:
         with:
           workflow: release.yml
           name_is_regexp: true
-          name: uad-shizuku-(x86_64|aarch64|armv7).*linux.*
+          name: bingtray-(x86_64|aarch64|armv7).*linux.*
           path: artifacts
           branch: main
           github_token: ${{ secrets.GITHUB_TOKEN }}
@@ -36,19 +36,19 @@ jobs:
           mkdir -p snap-binaries/armv7
 
           # Extract binaries from artifacts
-          if [ -d "artifacts/uad-shizuku-x86_64-unknown-linux-musl" ]; then
-            cp artifacts/uad-shizuku-x86_64-unknown-linux-musl/uad-shizuku snap-binaries/x86_64/
-            chmod +x snap-binaries/x86_64/uad-shizuku
+          if [ -d "artifacts/bingtray-x86_64-unknown-linux-musl" ]; then
+            cp artifacts/bingtray-x86_64-unknown-linux-musl/bingtray snap-binaries/x86_64/
+            chmod +x snap-binaries/x86_64/bingtray
           fi
 
-          if [ -d "artifacts/uad-shizuku-aarch64-unknown-linux-musl" ]; then
-            cp artifacts/uad-shizuku-aarch64-unknown-linux-musl/uad-shizuku snap-binaries/aarch64/
-            chmod +x snap-binaries/aarch64/uad-shizuku
+          if [ -d "artifacts/bingtray-aarch64-unknown-linux-musl" ]; then
+            cp artifacts/bingtray-aarch64-unknown-linux-musl/bingtray snap-binaries/aarch64/
+            chmod +x snap-binaries/aarch64/bingtray
           fi
 
-          if [ -d "artifacts/uad-shizuku-armv7-unknown-linux-musleabihf" ]; then
-            cp artifacts/uad-shizuku-armv7-unknown-linux-musleabihf/uad-shizuku snap-binaries/armv7/
-            chmod +x snap-binaries/armv7/uad-shizuku
+          if [ -d "artifacts/bingtray-armv7-unknown-linux-musleabihf" ]; then
+            cp artifacts/bingtray-armv7-unknown-linux-musleabihf/bingtray snap-binaries/armv7/
+            chmod +x snap-binaries/armv7/bingtray
           fi
 
           echo "Prepared binaries:"
@@ -62,11 +62,11 @@ jobs:
       matrix:
         include:
           - architecture: amd64
-            artifact-name: uad-shizuku-x86_64-unknown-linux-musl
+            artifact-name: bingtray-x86_64-unknown-linux-musl
           - architecture: arm64
-            artifact-name: uad-shizuku-aarch64-unknown-linux-musl
+            artifact-name: bingtray-aarch64-unknown-linux-musl
           - architecture: armhf
-            artifact-name: uad-shizuku-armv7-unknown-linux-musleabihf
+            artifact-name: bingtray-armv7-unknown-linux-musleabihf
 
     steps:
       - name: Checkout Repository
@@ -85,8 +85,8 @@ jobs:
       - name: Prepare snap binary
         run: |
           mkdir -p snap-binary
-          cp artifacts/uad-shizuku snap-binary/
-          chmod +x snap-binary/uad-shizuku
+          cp artifacts/bingtray snap-binary/
+          chmod +x snap-binary/bingtray
           ls -la snap-binary/
 
       - name: Build snap package for ${{ matrix.architecture }}
@@ -119,7 +119,7 @@ jobs:
           workflow: release.yml
           github_token: ${{ secrets.GITHUB_TOKEN }}
           name_is_regexp: true
-          name: uad-shizuku-(x86_64|aarch64).*linux.*
+          name: bingtray-(x86_64|aarch64).*linux.*
           path: artifacts
 
       - name: Install flatpak and flatpak-builder
@@ -130,17 +130,17 @@ jobs:
 
       - name: Build Flatpak
         run: |
-          flatpak-builder --force-clean --repo=repo build-dir flatpak/pe.nikescar.uad-shizuku.yml
+          flatpak-builder --force-clean --repo=repo build-dir flatpak/pe.nikescar.bingtray.yml
 
       - name: Create Flatpak bundle
         run: |
-          flatpak build-bundle repo uad-shizuku.flatpak pe.nikescar.uad-shizuku
+          flatpak build-bundle repo bingtray.flatpak pe.nikescar.bingtray
 
       - name: Upload Flatpak artifact
         uses: actions/upload-artifact@v4
         with:
-          name: uad-shizuku-flatpak
-          path: uad-shizuku.flatpak
+          name: bingtray-flatpak
+          path: bingtray.flatpak
           retention-days: 7
 
       # Note: Actual Flathub publishing requires submitting to the Flathub repository
@@ -148,4 +148,4 @@ jobs:
       - name: Flathub publishing note
         run: |
           echo "To publish to Flathub, submit a PR to https://github.com/flathub/flathub"
-          echo "with your pe.nikescar.uad-shizuku.yml manifest file"
+          echo "with your pe.nikescar.bingtray.yml manifest file"
