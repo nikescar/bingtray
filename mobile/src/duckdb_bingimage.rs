@@ -71,19 +71,157 @@ pub struct BingImageDb {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl BingImageDb {
+    /// Check if a database file is potentially corrupted
+    /// Returns true if the file exists but has suspicious characteristics
+    fn is_database_corrupted(db_path: &PathBuf) -> bool {
+        use std::fs;
+
+        if !db_path.exists() {
+            return false; // New database, not corrupted
+        }
+
+        // Check if file size is suspiciously small (< 100 bytes is likely corrupted)
+        if let Ok(metadata) = fs::metadata(db_path) {
+            if metadata.len() < 100 {
+                log::warn!("Database file is suspiciously small ({} bytes), may be corrupted", metadata.len());
+                return true;
+            }
+        }
+
+        // Try to read the first few bytes to check for valid DuckDB magic bytes
+        if let Ok(mut file) = fs::File::open(db_path) {
+            use std::io::Read;
+            let mut magic = [0u8; 8];
+            if file.read_exact(&mut magic).is_ok() {
+                // DuckDB files typically start with specific magic bytes
+                // We're being conservative here - if we can't verify, we'll try to open anyway
+            }
+        }
+
+        false
+    }
+
+    /// Attempt to recover from a corrupted database by deleting and recreating it
+    fn recover_corrupted_database(db_path: &PathBuf) -> Result<()> {
+        log::warn!("Attempting to recover corrupted database at {:?}", db_path);
+
+        // Create backup of corrupted file
+        if db_path.exists() {
+            let backup_path = db_path.with_extension("db.corrupted.bak");
+            if let Err(e) = std::fs::rename(db_path, &backup_path) {
+                log::error!("Failed to backup corrupted database: {}", e);
+                // Try to delete if rename fails
+                if let Err(e) = std::fs::remove_file(db_path) {
+                    return Err(anyhow::anyhow!("Failed to remove corrupted database: {}", e));
+                }
+            } else {
+                log::info!("Backed up corrupted database to {:?}", backup_path);
+            }
+        }
+
+        // Also remove WAL (Write-Ahead Log) files which can cause corruption
+        let wal_path = db_path.with_extension("db.wal");
+        if wal_path.exists() {
+            if let Err(e) = std::fs::remove_file(&wal_path) {
+                log::warn!("Failed to remove WAL file {:?}: {}", wal_path, e);
+            } else {
+                log::info!("Removed WAL file {:?}", wal_path);
+            }
+        }
+
+        // Remove temporary files
+        let tmp_path = db_path.with_extension("db.tmp");
+        if tmp_path.exists() {
+            if let Err(e) = std::fs::remove_file(&tmp_path) {
+                log::warn!("Failed to remove temp file {:?}: {}", tmp_path, e);
+            } else {
+                log::info!("Removed temp file {:?}", tmp_path);
+            }
+        }
+
+        log::info!("Corrupted database removed, will create new database");
+        Ok(())
+    }
+
+    /// Validate database by attempting a simple query
+    fn validate_database_connection(conn: &Connection) -> Result<()> {
+        // Try a simple query to verify the database is functional
+        match conn.execute("SELECT 1", []) {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                log::error!("Database validation failed: {}", e);
+                Err(anyhow::anyhow!("Database validation failed: {}", e))
+            }
+        }
+    }
+
     /// Create a new database connection or open existing database
+    /// Automatically handles corrupted database files by recreating them
     pub fn new(db_path: PathBuf) -> Result<Self> {
-        let conn = Connection::open(&db_path)
-            .with_context(|| format!("Failed to open DuckDB at {:?}", db_path))?;
+        // Check for obvious corruption before attempting to open
+        if Self::is_database_corrupted(&db_path) {
+            Self::recover_corrupted_database(&db_path)?;
+        }
+
+        // Attempt to open the database
+        let conn = match Connection::open(&db_path) {
+            Ok(conn) => {
+                // Validate that the connection actually works
+                match Self::validate_database_connection(&conn) {
+                    Ok(_) => conn,
+                    Err(validation_err) => {
+                        log::error!("Database opened but validation failed: {}", validation_err);
+                        drop(conn); // Close the connection
+
+                        // Try recovery
+                        Self::recover_corrupted_database(&db_path)?;
+
+                        // Retry opening after recovery
+                        Connection::open(&db_path)
+                            .with_context(|| format!("Failed to open DuckDB after recovery at {:?}", db_path))?
+                    }
+                }
+            }
+            Err(open_err) => {
+                log::error!("Failed to open database: {}", open_err);
+
+                // If opening fails, try to recover
+                Self::recover_corrupted_database(&db_path)?;
+
+                // Retry opening after recovery
+                Connection::open(&db_path)
+                    .with_context(|| format!("Failed to open DuckDB after recovery at {:?}", db_path))?
+            }
+        };
 
         let db = Self {
             conn: Arc::new(Mutex::new(conn)),
         };
 
-        // Initialize schema
-        db.init_schema()?;
+        // Initialize schema - this will also serve as a final validation
+        match db.init_schema() {
+            Ok(_) => Ok(db),
+            Err(schema_err) => {
+                log::error!("Failed to initialize schema: {}", schema_err);
+                drop(db); // Close the connection
 
-        Ok(db)
+                // Final recovery attempt
+                Self::recover_corrupted_database(&db_path)?;
+
+                // Create a new connection and retry schema initialization
+                let new_conn = Connection::open(&db_path)
+                    .with_context(|| format!("Failed to open DuckDB after schema error at {:?}", db_path))?;
+
+                let new_db = Self {
+                    conn: Arc::new(Mutex::new(new_conn)),
+                };
+
+                new_db.init_schema()
+                    .context("Failed to initialize schema after recovery")?;
+
+                Ok(new_db)
+            }
+        }
     }
 
     /// Initialize database schema
