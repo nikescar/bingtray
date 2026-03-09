@@ -99,6 +99,7 @@ pub struct BingtrayApp {
 
     // Dialog states
     pub dlg_settings: crate::dlg_settings_stt::DlgSettings,
+    pub dlg_about: crate::dlg_about_stt::DlgAbout,
 
     // Progress tracking for background tasks
     pub package_load_progress: std::sync::Arc<std::sync::Mutex<Option<f32>>>,
@@ -118,6 +119,11 @@ pub struct BingtrayApp {
     pub install_dialog_open: bool,
     #[cfg(not(target_os = "android"))]
     pub install_message: String,
+
+    // Update status (both desktop and Android)
+    pub update_status: String,
+    pub update_available: bool,
+    pub update_checking: bool,
 
     // Update status (both desktop and Android)
     pub update_status: String,

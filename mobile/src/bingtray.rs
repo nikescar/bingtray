@@ -7,6 +7,7 @@ use crate::{BingImage, Config, Settings};
 pub use crate::dlg_settings_stt::DlgSettings;
 use crate::calc_bingimage::sanitize_filename;
 use image;
+use crate::install;
 
 // Desktop-only imports
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
@@ -21,6 +22,7 @@ use egui_material3::{menu, menu_item, top_app_bar};
 use egui_material3::material_symbol::{
     ICON_SETTINGS,
     ICON_MENU,
+    ICON_INFO,
 };
 use eframe::egui::{Color32};
 // Theme loading is done in main.rs, not here
@@ -37,6 +39,7 @@ use std::collections::{HashMap, HashSet};
 static MENU_TOGGLE: AtomicBool = AtomicBool::new(false);
 static SEARCH_TOGGLE: AtomicBool = AtomicBool::new(false);
 static SETTINGS_TOGGLE: AtomicBool = AtomicBool::new(false);
+static ABOUT_TOGGLE: AtomicBool = AtomicBool::new(false);
 
 // Static flags for menu actions
 static MENU_SHOW_APP: AtomicBool = AtomicBool::new(false);
@@ -45,6 +48,7 @@ static MENU_NEXT_MARKET: AtomicBool = AtomicBool::new(false);
 static MENU_KEEP_CURRENT: AtomicBool = AtomicBool::new(false);
 static MENU_BLACKLIST_CURRENT: AtomicBool = AtomicBool::new(false);
 static MENU_RANDOM_FAVORITE: AtomicBool = AtomicBool::new(false);
+static MENU_INSTALL: AtomicBool = AtomicBool::new(false);
 static MENU_QUIT: AtomicBool = AtomicBool::new(false);
 
 /// Trait for platform-specific wallpaper setting
@@ -214,6 +218,31 @@ pub struct BingtrayApp {
     // Dialog states
     #[cfg_attr(feature = "serde", serde(skip))]
     dlg_settings: DlgSettings,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    dlg_about: crate::dlg_about_stt::DlgAbout,
+    // Installation status (desktop only)
+    #[cfg(not(target_os = "android"))]
+    #[cfg_attr(feature = "serde", serde(skip))]
+    install_status: crate::install_stt::InstallStatus,
+    #[cfg(not(target_os = "android"))]
+    #[cfg_attr(feature = "serde", serde(skip))]
+    install_dialog_open: bool,
+    #[cfg(not(target_os = "android"))]
+    #[cfg_attr(feature = "serde", serde(skip))]
+    install_message: String,
+    // Update status (both desktop and Android)
+    #[cfg_attr(feature = "serde", serde(skip))]
+    update_status: String,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    update_available: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    update_checking: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    update_download_url: String,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    update_current_version: String,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    update_latest_version: String,
     // HTTP cache
     #[cfg_attr(feature = "serde", serde(skip))]
     ehttp_cache: Option<Arc<crate::ehttp_cache::EhttpCache>>,
@@ -355,6 +384,21 @@ impl Default for BingtrayApp {
             settings: Settings::default(),
             // Dialog states
             dlg_settings: DlgSettings::default(),
+            dlg_about: crate::dlg_about_stt::DlgAbout::default(),
+            // Installation status (desktop only)
+            #[cfg(not(target_os = "android"))]
+            install_status: install::check_install(),
+            #[cfg(not(target_os = "android"))]
+            install_dialog_open: false,
+            #[cfg(not(target_os = "android"))]
+            install_message: String::new(),
+            // Update status (both desktop and Android)
+            update_status: String::new(),
+            update_available: false,
+            update_checking: false,
+            update_download_url: String::new(),
+            update_current_version: String::new(),
+            update_latest_version: String::new(),
             // HTTP cache
             ehttp_cache,
         }
@@ -369,6 +413,11 @@ impl eframe::App for BingtrayApp {
         // Check for settings toggle
         if SETTINGS_TOGGLE.swap(false, Ordering::Relaxed) {
             self.dlg_settings.open = true;
+        }
+
+        // Check for about toggle
+        if ABOUT_TOGGLE.swap(false, Ordering::Relaxed) {
+            self.dlg_about.open();
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
@@ -387,6 +436,20 @@ impl eframe::App for BingtrayApp {
             // TODO: apply theme
             log::info!("Applying theme: {}", theme_name);
         }
+
+        // Show about dialog
+        self.dlg_about.show(ctx, self.update_checking, self.update_available, &self.update_status);
+        // Handle check update and perform update from about dialog
+        if self.dlg_about.do_check_update {
+            self.check_for_update();
+        }
+        if self.dlg_about.do_perform_update {
+            self.perform_update();
+        }
+
+        // Show install dialog (desktop only)
+        #[cfg(not(target_os = "android"))]
+        self.show_install_dialog(ctx);
     }
 }
 
@@ -465,7 +528,7 @@ impl BingtrayApp {
 
         // ##################### TOP APP BAR #####################
         let prev_url = self.url.clone();
-        let trigger_fetch = ui_mainpanel(ui, &mut self.url, &mut self.carousel_images, &mut self.carousel_promises, &mut self.selected_carousel_image, &mut self.main_panel_image, &mut self.main_panel_promise, &mut self.image_cache, &mut self.bing_api_promise, &mut self.config, &mut self.market_code_index, &mut self.infinite_scroll_page_index, &mut self.current_market_codes, &mut self.scroll_position, &mut self.loading_more, &mut self.reset_rectangle_for_new_image, &mut self.current_main_image_url, &mut self.seen_image_names, &mut self.wallpaper_status, &mut self.wallpaper_start_time, &mut self.showing_historical, &mut self.market_exhausted, &mut self.market_code_timestamps, &mut self.all_data_exhausted, &mut self.showing_cached, &mut self.cached_page_index, &mut self.menu_anchor_rect);
+        let trigger_fetch = ui_mainpanel(ui, &mut self.menu_anchor_rect);
 
         // Check menu toggle flag set by top app bar callback
         if MENU_TOGGLE.swap(false, Ordering::Relaxed) {
@@ -557,6 +620,12 @@ impl BingtrayApp {
                     }
                 }
             }
+        }
+
+        #[cfg(not(target_os = "android"))]
+        if MENU_INSTALL.swap(false, Ordering::Relaxed) {
+            info!("Install/Uninstall action");
+            self.perform_install_action();
         }
 
         if MENU_QUIT.swap(false, Ordering::Relaxed) {
@@ -1537,31 +1606,6 @@ fn open_directory(path: &std::path::Path) -> Result<(), String> {
 
 fn ui_mainpanel(
     ui: &mut egui::Ui,
-    _url: &mut String,
-    carousel_images: &mut Vec<CarouselImage>,
-    carousel_promises: &mut Vec<Promise<ehttp::Result<CarouselImage>>>,
-    selected_carousel_image: &mut Option<CarouselImage>,
-    main_panel_image: &mut Option<CarouselImage>,
-    main_panel_promise: &mut Option<Promise<ehttp::Result<CarouselImage>>>,
-    image_cache: &mut HashMap<String, CarouselImage>,
-    bing_api_promise: &mut Option<Promise<Result<Vec<BingImage>, String>>>,
-    config: &mut Option<Config>,
-    market_code_index: &mut usize,
-    infinite_scroll_page_index: &mut usize,
-    current_market_codes: &mut Vec<String>,
-    scroll_position: &mut f32,
-    loading_more: &mut bool,
-    reset_rectangle_for_new_image: &mut bool,
-    current_main_image_url: &mut Option<String>,
-    seen_image_names: &mut std::collections::HashSet<String>,
-    wallpaper_status: &mut Option<String>,
-    wallpaper_start_time: &mut Option<SystemTime>,
-    showing_historical: &mut bool,
-    market_exhausted: &mut bool,
-    market_code_timestamps: &mut std::collections::HashMap<String, i64>,
-    all_data_exhausted: &mut bool,
-    showing_cached: &mut bool,
-    cached_page_index: &mut usize,
     menu_anchor_rect: &mut Option<Rect>,
 ) -> bool {
     let trigger_fetch = false;
@@ -1577,6 +1621,9 @@ fn ui_mainpanel(
         // })
         // .action_icon_char(ICON_NOTIFICATIONS, || println!("Interactive: Notifications"))
         // .action_icon_char(ICON_ACCOUNT_CIRCLE, || println!("Interactive: Account"))
+        .action_icon_char(ICON_INFO, || {
+            ABOUT_TOGGLE.store(true, Ordering::Relaxed);
+        })
         .action_icon_char(ICON_SETTINGS, || {
             SETTINGS_TOGGLE.store(true, Ordering::Relaxed);
         })
@@ -1704,6 +1751,20 @@ impl BingtrayApp {
                 .enabled(false)
         };
 
+        // Install/Uninstall menu item (desktop only)
+        #[cfg(not(target_os = "android"))]
+        let install_text = if self.install_status == crate::install_stt::InstallStatus::Installed {
+            format!("{}", tr!("uninstall"))
+        } else {
+            format!("{}", tr!("install"))
+        };
+        #[cfg(not(target_os = "android"))]
+        let install_item = menu_item(&install_text)
+            .leading_icon("download")
+            .on_click(|| {
+                MENU_INSTALL.store(true, Ordering::Relaxed);
+            });
+
         let quit_item = menu_item(&format!("{}", tr!("tray-quit")))
             .leading_icon("exit_to_app")
             .on_click(|| {
@@ -1715,8 +1776,15 @@ impl BingtrayApp {
             .item(next_market_item)
             .item(keep_current_item)
             .item(blacklist_current_item)
-            .item(random_favorite_item)
-            .item(quit_item);
+            .item(random_favorite_item);
+
+        // Add install item for desktop only
+        #[cfg(not(target_os = "android"))]
+        {
+            menu_builder = menu_builder.item(install_item);
+        }
+
+        menu_builder = menu_builder.item(quit_item);
 
         if let Some(rect) = self.menu_anchor_rect {
             menu_builder = menu_builder.anchor_rect(rect);
@@ -2265,5 +2333,134 @@ impl BingtrayApp {
     // Save market code timestamps to bingtray-core (removed - functions deleted)
     fn save_market_code_timestamps(&self) {
         info!("Market code saving functions removed - no-op");
+    }
+
+    /// Check for updates from GitHub
+    fn check_for_update(&mut self) {
+        self.update_checking = true;
+        self.update_status.clear();
+        self.update_available = false;
+
+        match crate::install::check_update() {
+            Ok(info) => {
+                self.update_checking = false;
+                if info.available {
+                    self.update_available = true;
+                    // Store update info for later use
+                    self.update_download_url = info.download_url.clone();
+                    self.update_current_version = info.current_version.clone();
+                    self.update_latest_version = info.latest_version.clone();
+                    self.update_status = format!("{} → {}", info.current_version, info.latest_version);
+                } else {
+                    self.update_status = tr!("up-to-date").to_string();
+                }
+            }
+            Err(e) => {
+                self.update_checking = false;
+                self.update_status = format!("{}: {}", tr!("update-error"), e);
+            }
+        }
+    }
+
+    /// Perform update
+    fn perform_update(&mut self) {
+        // Check if we have update info stored from check_for_update()
+        if !self.update_available || self.update_download_url.is_empty() {
+            self.install_message = "No update available. Please check for updates first.".to_string();
+            #[cfg(not(target_os = "android"))]
+            {
+                self.install_dialog_open = true;
+            }
+            return;
+        }
+
+        #[cfg(not(target_os = "android"))]
+        {
+            use crate::install_stt::InstallResult;
+
+            let tmp_dir = if let Some(ref cfg) = self.config {
+                cfg.cached_dir.join("tmp")
+            } else {
+                std::path::PathBuf::from("./tmp")
+            };
+
+            // Use the stored download URL from check_for_update()
+            match crate::install::do_update(&self.update_download_url, &tmp_dir) {
+                InstallResult::Success(msg) => {
+                    self.install_message = msg;
+                    self.update_available = false;
+                    self.update_status.clear();
+                    self.update_download_url.clear();
+                    self.dlg_about.close();
+                }
+                InstallResult::Error(err) => {
+                    self.install_message = format!("Error: {}", err);
+                }
+            }
+            self.install_dialog_open = true;
+        }
+
+        #[cfg(target_os = "android")]
+        {
+            // On Android, open browser to download page using stored URL
+            if let Err(e) = webbrowser::open(&self.update_download_url) {
+                log::error!("Failed to open browser for update download: {}", e);
+                self.update_status = format!("Failed to open browser: {}", e);
+            } else {
+                log::info!("Opened browser for update download");
+                self.dlg_about.close();
+            }
+        }
+    }
+
+    /// Show install dialog (desktop only)
+    #[cfg(not(target_os = "android"))]
+    fn show_install_dialog(&mut self, ctx: &egui::Context) {
+        if !self.install_dialog_open {
+            return;
+        }
+
+        let mut close_clicked = false;
+
+        egui::Window::new(tr!("install"))
+            .id(egui::Id::new("install_dialog"))
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(&self.install_message);
+                ui.add_space(8.0);
+
+                if ui.button(tr!("ok")).clicked() {
+                    close_clicked = true;
+                }
+            });
+
+        if close_clicked {
+            self.install_dialog_open = false;
+        }
+    }
+
+    /// Perform install or uninstall action based on current status
+    #[cfg(not(target_os = "android"))]
+    fn perform_install_action(&mut self) {
+        use crate::install_stt::InstallResult;
+
+        let result = if self.install_status == crate::install_stt::InstallStatus::Installed {
+            crate::install::do_uninstall()
+        } else {
+            crate::install::do_install()
+        };
+
+        match result {
+            InstallResult::Success(msg) => {
+                self.install_message = msg;
+                // Refresh install status
+                self.install_status = crate::install::check_install();
+            }
+            InstallResult::Error(err) => {
+                self.install_message = format!("Error: {}", err);
+            }
+        }
+        self.install_dialog_open = true;
     }
 }

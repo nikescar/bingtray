@@ -17,8 +17,14 @@ pub mod duckdb_bingimage;
 pub mod calc_bingimage; // Now available on all platforms (contains cross-platform functions + desktop-only struct)
 pub mod dlg_settings_stt;
 pub mod dlg_settings;
+pub mod dlg_about_stt;
+pub mod dlg_about;
 pub mod i18n;
 pub mod ehttp_cache;
+
+// Installation management (available on all platforms, but some functions desktop-only)
+pub mod install_stt;
+pub mod install;
 
 // Desktop-only modules
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
