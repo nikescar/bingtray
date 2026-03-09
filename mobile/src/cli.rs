@@ -128,24 +128,24 @@ pub fn run_cli_mode(logic: &mut BingTrayLogic) -> Result<()> {
 fn print_menu(logic: &BingTrayLogic) {
     println!("═══════════════════════════════════════════════════════════");
     println!("MENU:");
-    println!("  0. 📁 Open Cache Directory");
-    println!("  1. 🔄 Download & Set Next Market Wallpaper{}",
+    println!("  0. Open Cache Directory");
+    println!("  1. Download & Set Next Market Wallpaper{}",
         if logic.has_next_available() { "" } else { " (downloading...)" });
 
     if logic.can_keep() {
-        println!("  2. ⭐ Keep \"{}\"", logic.get_current_image_title());
+        println!("  2. Keep \"{}\"", logic.get_current_image_title());
     } else {
-        println!("  2. ⭐ Keep Current Image (no current image)");
+        println!("  2. Keep Current Image (no current image)");
     }
 
     if logic.can_blacklist() {
-        println!("  3. 🚫 Blacklist \"{}\"", logic.get_current_image_title());
+        println!("  3. Blacklist \"{}\"", logic.get_current_image_title());
     } else {
-        println!("  3. 🚫 Blacklist Current Image (no current image)");
+        println!("  3. Blacklist Current Image (no current image)");
     }
 
-    println!("  4. 🎲 Random Favorite Wallpaper{}",
+    println!("  4. Random Favorite Wallpaper{}",
         if logic.has_kept_wallpapers() { "" } else { " (no favorites yet)" });
-    println!("  5. 🚪 Exit");
+    println!("  5. Exit");
     println!("═══════════════════════════════════════════════════════════");
 }

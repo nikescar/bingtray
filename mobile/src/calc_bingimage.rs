@@ -1209,6 +1209,43 @@ pub fn save_image_to_unprocessed(
 }
 
 // ============================================================================
+// Desktop-Only WallpaperSetter Implementation
+// ============================================================================
+
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+/// Desktop wallpaper setter that uses the cross-platform api_setwallpaper module
+pub struct DesktopWallpaperSetter;
+
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+impl crate::bingtray::WallpaperSetter for DesktopWallpaperSetter {
+    fn set_wallpaper_from_bytes(&self, bytes: &[u8]) -> std::io::Result<bool> {
+        log::info!("DesktopWallpaperSetter: Setting wallpaper from {} bytes", bytes.len());
+
+        match api_setwallpaper::set_wallpaper_from_bytes(bytes) {
+            Ok(()) => {
+                log::info!("DesktopWallpaperSetter: Wallpaper set successfully");
+                Ok(true)
+            }
+            Err(e) => {
+                log::error!("DesktopWallpaperSetter: Failed to set wallpaper: {}", e);
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to set wallpaper: {}", e)
+                ))
+            }
+        }
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+impl DesktopWallpaperSetter {
+    /// Create a new desktop wallpaper setter instance
+    pub fn new() -> Self {
+        DesktopWallpaperSetter
+    }
+}
+
+// ============================================================================
 // Desktop-Only BingTrayLogic Struct
 // ============================================================================
 

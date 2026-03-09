@@ -44,32 +44,32 @@ fn load_icon() -> Icon {
 fn create_tray_menu(logic: &BingTrayLogic) -> (Menu, MenuItems) {
     let menu = Menu::new();
 
-    let show_app = MenuItem::new(format!("🖼️ {}", tr!("tray-show-app")), true, None);
-    let cache_dir = MenuItem::new(format!("📁 {}", tr!("tray-cache-dir")), true, None);
-    let next_market = MenuItem::new(format!("🔄 {}", tr!("tray-next-market")), logic.has_next_available(), None);
+    let show_app = MenuItem::new(format!("{}", tr!("tray-show-app")), true, None);
+    let cache_dir = MenuItem::new(format!("{}", tr!("tray-cache-dir")), true, None);
+    let next_market = MenuItem::new(format!("{}", tr!("tray-next-market")), logic.has_next_available(), None);
 
     let current_title = logic.get_current_image_title();
     let keep_text = if logic.can_keep() {
-        format!("⭐ {}", tr!("tray-keep-with-title", { title: current_title.clone() }))
+        format!("{}", tr!("tray-keep-with-title", { title: current_title.clone() }))
     } else {
-        format!("⭐ {}", tr!("tray-keep-current"))
+        format!("{}", tr!("tray-keep-current"))
     };
     let keep_current = MenuItem::new(keep_text, logic.can_keep(), None);
 
     let blacklist_text = if logic.can_blacklist() {
-        format!("🚫 {}", tr!("tray-blacklist-with-title", { title: current_title.clone() }))
+        format!("{}", tr!("tray-blacklist-with-title", { title: current_title.clone() }))
     } else {
-        format!("🚫 {}", tr!("tray-blacklist-current"))
+        format!("{}", tr!("tray-blacklist-current"))
     };
     let blacklist_current = MenuItem::new(blacklist_text, logic.can_blacklist(), None);
 
     let random_favorite = MenuItem::new(
-        format!("🎲 {}", tr!("tray-random-favorite")),
+        format!("{}", tr!("tray-random-favorite")),
         logic.has_kept_wallpapers(),
         None,
     );
 
-    let quit = MenuItem::new(format!("🚪 {}", tr!("tray-quit")), true, None);
+    let quit = MenuItem::new(format!("{}", tr!("tray-quit")), true, None);
 
     let menu_items = MenuItems {
         show_app: show_app.id().clone(),

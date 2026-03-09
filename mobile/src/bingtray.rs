@@ -329,7 +329,16 @@ impl Default for BingtrayApp {
             all_data_exhausted: false,
             showing_cached: false,
             cached_page_index: 0,
-            wallpaper_setter: None,
+            wallpaper_setter: {
+                #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+                {
+                    Some(Arc::new(crate::calc_bingimage::DesktopWallpaperSetter::new()))
+                }
+                #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+                {
+                    None
+                }
+            },
             screen_size_provider: None,
             #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
             tray_logic: BingTrayLogic::new().ok(),
@@ -1630,13 +1639,13 @@ impl BingtrayApp {
         let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title) =
             (false, false, false, false, String::new());
 
-        let cache_dir_item = menu_item(&format!("📁 {}", tr!("tray-cache-dir")))
+        let cache_dir_item = menu_item(&format!("{}", tr!("tray-cache-dir")))
             .leading_icon("folder_open")
             .on_click(|| {
                 MENU_CACHE_DIR.store(true, Ordering::Relaxed);
             });
 
-        let next_market_text = format!("🔄 {}", tr!("tray-next-market"));
+        let next_market_text = format!("{}", tr!("tray-next-market"));
         let next_market_item = if has_next_available {
             menu_item(&next_market_text)
                 .leading_icon("skip_next")
@@ -1650,9 +1659,9 @@ impl BingtrayApp {
         };
 
         let keep_text = if can_keep && !current_title.is_empty() {
-            format!("⭐ {}", tr!("tray-keep-with-title", { title: current_title.clone() }))
+            format!("{}", tr!("tray-keep-with-title", { title: current_title.clone() }))
         } else {
-            format!("⭐ {}", tr!("tray-keep-current"))
+            format!("{}", tr!("tray-keep-current"))
         };
         let keep_current_item = if can_keep {
             menu_item(&keep_text)
@@ -1667,9 +1676,9 @@ impl BingtrayApp {
         };
 
         let blacklist_text = if can_blacklist && !current_title.is_empty() {
-            format!("🚫 {}", tr!("tray-blacklist-with-title", { title: current_title.clone() }))
+            format!("{}", tr!("tray-blacklist-with-title", { title: current_title.clone() }))
         } else {
-            format!("🚫 {}", tr!("tray-blacklist-current"))
+            format!("{}", tr!("tray-blacklist-current"))
         };
         let blacklist_current_item = if can_blacklist {
             menu_item(&blacklist_text)
@@ -1684,18 +1693,18 @@ impl BingtrayApp {
         };
 
         let random_favorite_item = if has_kept_wallpapers {
-            menu_item(&format!("🎲 {}", tr!("tray-random-favorite")))
+            menu_item(&format!("{}", tr!("tray-random-favorite")))
                 .leading_icon("casino")
                 .on_click(|| {
                     MENU_RANDOM_FAVORITE.store(true, Ordering::Relaxed);
                 })
         } else {
-            menu_item(&format!("🎲 {}", tr!("tray-random-favorite")))
+            menu_item(&format!("{}", tr!("tray-random-favorite")))
                 .leading_icon("casino")
                 .enabled(false)
         };
 
-        let quit_item = menu_item(&format!("🚪 {}", tr!("tray-quit")))
+        let quit_item = menu_item(&format!("{}", tr!("tray-quit")))
             .leading_icon("exit_to_app")
             .on_click(|| {
                 MENU_QUIT.store(true, Ordering::Relaxed);
