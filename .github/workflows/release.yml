@@ -119,7 +119,7 @@ jobs:
           fetch-depth: 0
 
       - name: Android - Patch Cargo.toml for Android builds
-        if: contains(matrix.platform.target, 'android')
+        if: (contains(matrix.platform.name, 'Android APK arm64'))
         run: |
           if [ -n "${{ secrets.CARGO_PATCH }}" ]; then
             echo "${{ secrets.CARGO_PATCH }}" >> Cargo.toml
