@@ -11,8 +11,8 @@ use std::path::Path;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use std::process::Command;
 
-/// Detect the desktop environment
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+/// Detect the desktop environment (Linux only)
+#[cfg(target_os = "linux")]
 fn get_desktop_environment() -> String {
     // Check common environment variables
     if let Ok(de) = std::env::var("XDG_CURRENT_DESKTOP") {
@@ -40,7 +40,7 @@ fn get_desktop_environment() -> String {
 }
 
 /// Get the user who owns the X session
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+#[cfg(target_os = "linux")]
 fn get_x_session_user() -> Option<String> {
     use std::os::unix::fs::MetadataExt;
 
@@ -84,9 +84,9 @@ fn get_x_session_user() -> Option<String> {
     None
 }
 
-/// Check if desktop user and runtime user are different
+/// Check if desktop user and runtime user are different (Linux with X11)
 /// Returns (current_user, desktop_user, is_different)
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+#[cfg(target_os = "linux")]
 pub fn check_user_mismatch() -> (String, String, bool) {
     let current_user = std::env::var("USER")
         .or_else(|_| std::env::var("USERNAME"))
@@ -99,6 +99,15 @@ pub fn check_user_mismatch() -> (String, String, bool) {
                        current_user != "unknown";
 
     (current_user, desktop_user, is_different)
+}
+
+/// Check if desktop user and runtime user are different (Windows/macOS stub)
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub fn check_user_mismatch() -> (String, String, bool) {
+    let current_user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "unknown".to_string());
+    (current_user.clone(), current_user, false)
 }
 
 /// Check if desktop user and runtime user are different (Android/WASM stub)
