@@ -22,7 +22,8 @@ crate-type = ["cdylib", "rlib"]
 [[bin]]
 name = "bingtray"
 path = "src/main.rs"
-required-features = []
+# Binary is desktop-only (Android uses lib entry point via android_main)
+required-features = ["desktop"]
 
 [dependencies]
 # Core dependencies

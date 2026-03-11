@@ -209,10 +209,10 @@ jobs:
           command: build
           args: ${{ matrix.platform.build-args }} --package bingtray
 
-      - name: Build Binary for Android targets
+      - name: Build Library for Android targets
         if: contains(matrix.platform.target, 'android') && !contains(matrix.platform.name, 'Android APK arm64')
         run: |
-          cross build --target ${{ matrix.platform.target }} ${{ matrix.platform.build-args }} --package bingtray
+          cross build --target ${{ matrix.platform.target }} ${{ matrix.platform.build-args }} --package bingtray --lib
 
       - name: Windows - Code Signing
         if: (contains(matrix.platform.target, 'windows') && env.WINDOWS_CERT_P12_BASE64 != '' && env.WINDOWS_CERT_PASSWORD != '')
