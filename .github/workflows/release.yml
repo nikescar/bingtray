@@ -201,6 +201,7 @@ jobs:
           track: production # production
           status: completed
           inAppUpdatePriority: 2
+          changesNotSentForReview: true
       
       - name: Build Binary for ${{ matrix.platform.name }} (non-Android)
         if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64') && !contains(matrix.platform.target, 'android')
@@ -309,6 +310,41 @@ jobs:
         with:
           path: artifacts
 
+      - name: Calculate SHA256 Hashes
+        id: calc_hashes
+        run: |
+          echo "Calculating SHA256 hashes for all files..."
+
+          declare -A FILE_HASHES
+
+          FILES=(
+            "./artifacts/bingtray-aarch64-apple-darwin/bingtray"
+            "./artifacts/bingtray-aarch64-linux-android/bingtray"
+            "./artifacts/bingtray-aarch64-unknown-linux-musl/bingtray"
+            "./artifacts/bingtray-all-signed.apk/bingtray-all-signed.apk"
+            "./artifacts/bingtray-armv7-linux-androideabi/bingtray"
+            "./artifacts/bingtray-armv7-unknown-linux-musleabihf/bingtray"
+            "./artifacts/bingtray-x86_64-apple-darwin/bingtray"
+            "./artifacts/bingtray-x86_64-unknown-linux-musl/bingtray"
+            "./artifacts/bingtray-x86_64-pc-windows-msvc/bingtray.exe"
+          )
+
+          HASH_OUTPUT=""
+          for file in "${FILES[@]}"; do
+            if [ -f "$file" ]; then
+              hash=$(sha256sum "$file" | awk '{print $1}')
+              echo "$file -> $hash"
+              HASH_OUTPUT="${HASH_OUTPUT}${file}=${hash},"
+            else
+              echo "Warning: File not found: $file"
+            fi
+          done
+
+          # Remove trailing comma
+          HASH_OUTPUT="${HASH_OUTPUT%,}"
+
+          echo "hashes=$HASH_OUTPUT" >> $GITHUB_OUTPUT
+
       - name: VirusTotal Scan
         id: vt_scan
         continue-on-error: true
@@ -358,21 +394,52 @@ jobs:
 
           # Get the analysis output from previous step
           ANALYSIS="${{ steps.vt_scan.outputs.analysis }}"
+          HASHES="${{ steps.calc_hashes.outputs.hashes }}"
 
           echo "Raw analysis output:"
           echo "$ANALYSIS"
+
+          echo "File hashes:"
+          echo "$HASHES"
 
           # Parse the analysis output and format for release notes
           # Format: file1=url1,file2=url2,...
 
           VT_RESULTS=""
 
-          # Check if we have any results
+          # Check if we have any results from VT scan
           if [ -z "$ANALYSIS" ]; then
-            echo "Warning: No analysis output from VirusTotal scan"
-            VT_RESULTS="⚠️ VirusTotal scan encountered errors. Some files may have been scanned previously (409 error)."
+            echo "No analysis output from VirusTotal scan - using SHA256 hashes to generate URLs"
+
+            # Generate URLs from hashes
+            IFS=',' read -ra HASH_ENTRIES <<< "$HASHES"
+            for entry in "${HASH_ENTRIES[@]}"; do
+              if [ -z "$entry" ]; then
+                continue
+              fi
+
+              # Split by = to get file and hash
+              IFS='=' read -r file hash <<< "$entry"
+
+              if [ -z "$file" ] || [ -z "$hash" ]; then
+                continue
+              fi
+
+              # Extract identifier from path
+              if [[ "$file" == *.exe ]] || [[ "$file" == *.apk ]]; then
+                identifier=$(basename "$file")
+              else
+                identifier=$(basename "$(dirname "$file")")
+              fi
+
+              # Generate VirusTotal URL from SHA256
+              url="https://www.virustotal.com/gui/file/${hash}"
+
+              # Build markdown link
+              VT_RESULTS="${VT_RESULTS}- **${identifier}**: [View VirusTotal Report](${url})\n"
+            done
           else
-            # Split by comma and process each entry
+            # Split by comma and process each entry from VT scan
             IFS=',' read -ra ENTRIES <<< "$ANALYSIS"
             for entry in "${ENTRIES[@]}"; do
               # Skip empty entries
@@ -403,8 +470,30 @@ jobs:
 
             # Check if we have formatted results
             if [ -z "$VT_RESULTS" ]; then
-              echo "Warning: No valid results to format"
-              VT_RESULTS="⚠️ No scan results available. Files may have been scanned recently."
+              echo "Warning: No valid results to format, falling back to hash-based URLs"
+
+              # Fallback to hash-based URLs
+              IFS=',' read -ra HASH_ENTRIES <<< "$HASHES"
+              for entry in "${HASH_ENTRIES[@]}"; do
+                if [ -z "$entry" ]; then
+                  continue
+                fi
+
+                IFS='=' read -r file hash <<< "$entry"
+
+                if [ -z "$file" ] || [ -z "$hash" ]; then
+                  continue
+                fi
+
+                if [[ "$file" == *.exe ]] || [[ "$file" == *.apk ]]; then
+                  identifier=$(basename "$file")
+                else
+                  identifier=$(basename "$(dirname "$file")")
+                fi
+
+                url="https://www.virustotal.com/gui/file/${hash}"
+                VT_RESULTS="${VT_RESULTS}- **${identifier}**: [View VirusTotal Report](${url})\n"
+              done
             fi
           fi
 
