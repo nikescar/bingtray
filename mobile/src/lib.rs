@@ -56,6 +56,7 @@ pub struct Config {
     pub unprocessed_dir: PathBuf,
     pub keepfavorite_dir: PathBuf,
     pub cached_dir: PathBuf,
+    pub image_cached_dir: PathBuf,
     pub db_path: PathBuf,
 }
 
@@ -76,9 +77,10 @@ impl Config {
             let unprocessed_dir = cache_dir.join("unprocessed");
             let keepfavorite_dir = cache_dir.join("keepfavorite");
             let cached_dir = cache_dir.join("cached");
+            let image_cached_dir = cache_dir.join("image_cache");
 
             // Create directories if they don't exist
-            for dir in [&config_dir, &cache_dir, &unprocessed_dir, &keepfavorite_dir, &cached_dir] {
+            for dir in [&config_dir, &cache_dir, &unprocessed_dir, &keepfavorite_dir, &cached_dir, &image_cached_dir] {
                 match fs::create_dir_all(dir) {
                     Ok(()) => log::info!("Successfully created directory: {:?}", dir),
                     Err(e) => log::error!("Failed to create directory: {:?} - Error: {}", dir, e),
@@ -90,6 +92,7 @@ impl Config {
                 unprocessed_dir,
                 keepfavorite_dir,
                 cached_dir,
+                image_cached_dir,
                 db_path: config_dir.join("bingtray.db"),
             })
         }
@@ -104,6 +107,7 @@ impl Config {
                 unprocessed_dir: PathBuf::new(),
                 keepfavorite_dir: PathBuf::new(),
                 cached_dir: PathBuf::new(),
+                image_cached_dir: PathBuf::new(),
                 db_path: PathBuf::new(),
             })
         }
@@ -120,18 +124,21 @@ impl Config {
             let unprocessed_dir = cache_dir.join("unprocessed");
             let keepfavorite_dir = cache_dir.join("keepfavorite");
             let cached_dir = cache_dir.join("cached");
+            let image_cached_dir = cache_dir.join("image_cache");
 
             // Create directories if they don't exist
             fs::create_dir_all(&config_dir)?;
             fs::create_dir_all(&unprocessed_dir)?;
             fs::create_dir_all(&keepfavorite_dir)?;
             fs::create_dir_all(&cached_dir)?;
+            fs::create_dir_all(&image_cached_dir)?;
 
             Ok(Config {
                 config_dir: config_dir.clone(),
                 unprocessed_dir,
                 keepfavorite_dir,
                 cached_dir,
+                image_cached_dir,
                 db_path: config_dir.join("bingtray.db"),
             })
         }

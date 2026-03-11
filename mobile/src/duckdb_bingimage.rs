@@ -344,11 +344,28 @@ impl BingImageDb {
             }
         }
 
-        // Commit transaction
-        conn.execute("COMMIT", [])
-            .context("Failed to commit transaction")?;
-
-        Ok(saved_count)
+        // Commit transaction with error handling for constraint violations
+        match conn.execute("COMMIT", []) {
+            Ok(_) => {
+                log::debug!("Transaction committed successfully");
+                Ok(saved_count)
+            }
+            Err(e) => {
+                let error_msg = e.to_string();
+                // Check if it's a constraint violation (duplicate key)
+                if error_msg.contains("PRIMARY KEY") || error_msg.contains("UNIQUE constraint") || error_msg.contains("duplicate key") {
+                    log::warn!("Constraint violation during commit (likely multiple instances running): {}", error_msg);
+                    // Try to rollback the transaction
+                    let _ = conn.execute("ROLLBACK", []);
+                    // Return success with 0 count since data might already exist
+                    Ok(0)
+                } else {
+                    // For other errors, rollback and propagate the error
+                    let _ = conn.execute("ROLLBACK", []);
+                    Err(anyhow::anyhow!("Failed to commit transaction: {}", e))
+                }
+            }
+        }
     }
 
     /// Get an image by URL
@@ -685,6 +702,19 @@ impl BingImageDb {
                 days_elapsed >= 7
             }
             _ => true, // Download if no timestamp or error
+        }
+    }
+}
+
+// Implement Drop for native BingImageDb to checkpoint on shutdown
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for BingImageDb {
+    fn drop(&mut self) {
+        log::debug!("BingImageDb dropping, performing final checkpoint");
+        // Checkpoint the database on shutdown to flush WAL to disk
+        // This is safe to ignore errors since we're shutting down anyway
+        if let Ok(conn) = self.conn.lock() {
+            let _ = conn.execute("CHECKPOINT", []);
         }
     }
 }

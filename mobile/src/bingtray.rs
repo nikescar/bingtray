@@ -72,6 +72,7 @@ pub struct CarouselImage {
     pub full_url: String,
     #[cfg_attr(feature = "serde", serde(skip))]
     pub image_bytes: Option<Vec<u8>>,
+    pub status: Option<String>, // Image status: "unprocessed", "cached", "keepfavorite", "blacklisted"
 }
 
 /// Resource for handling HTTP responses
@@ -562,61 +563,88 @@ impl BingtrayApp {
 
             if MENU_NEXT_MARKET.swap(false, Ordering::Relaxed) {
                 info!("Setting next market wallpaper");
+                let mut should_load_to_panel = false;
                 if let Some(ref mut logic) = self.tray_logic {
                     match logic.set_next_market_wallpaper() {
                         Ok(true) => {
-                            info!("Next market wallpaper set successfully");
-                            // Trigger a UI refresh if needed
+                            info!("Wallpaper set successfully!");
+                            should_load_to_panel = true;
                             ui.ctx().request_repaint();
                         }
                         Ok(false) => {
-                            warn!("No wallpapers available");
+                            warn!("No wallpapers available. Please download more images.");
                         }
                         Err(e) => {
-                            error!("Failed to set next market wallpaper: {}", e);
+                            error!("Failed to set wallpaper: {}", e);
                         }
                     }
+                }
+                if should_load_to_panel {
+                    self.load_current_wallpaper_to_main_panel();
                 }
             }
 
             if MENU_KEEP_CURRENT.swap(false, Ordering::Relaxed) {
-                info!("Keeping current image");
+                let mut should_load_to_panel = false;
                 if let Some(ref mut logic) = self.tray_logic {
-                    if let Err(e) = logic.keep_current_image() {
-                        error!("Failed to keep current image: {}", e);
+                    if logic.can_keep() {
+                        info!("Keeping current image");
+                        if let Err(e) = logic.keep_current_image() {
+                            error!("Failed to keep image: {}", e);
+                        } else {
+                            info!("Image moved to favorites!");
+                            should_load_to_panel = true;
+                            ui.ctx().request_repaint();
+                        }
                     } else {
-                        info!("Current image kept successfully");
-                        ui.ctx().request_repaint();
+                        warn!("No current image to keep");
                     }
+                }
+                if should_load_to_panel {
+                    self.load_current_wallpaper_to_main_panel();
                 }
             }
 
             if MENU_BLACKLIST_CURRENT.swap(false, Ordering::Relaxed) {
-                info!("Blacklisting current image");
+                let mut should_load_to_panel = false;
                 if let Some(ref mut logic) = self.tray_logic {
-                    if let Err(e) = logic.blacklist_current_image() {
-                        error!("Failed to blacklist current image: {}", e);
+                    if logic.can_blacklist() {
+                        let title = logic.get_current_image_title();
+                        info!("Blacklisting \"{}\"", title);
+                        if let Err(e) = logic.blacklist_current_image() {
+                            error!("Failed to blacklist image: {}", e);
+                        } else {
+                            info!("Image blacklisted!");
+                            should_load_to_panel = true;
+                            ui.ctx().request_repaint();
+                        }
                     } else {
-                        info!("Current image blacklisted successfully");
-                        ui.ctx().request_repaint();
+                        warn!("No current image to blacklist");
                     }
+                }
+                if should_load_to_panel {
+                    self.load_current_wallpaper_to_main_panel();
                 }
             }
 
             if MENU_RANDOM_FAVORITE.swap(false, Ordering::Relaxed) {
-                info!("Setting random favorite wallpaper");
                 if let Some(ref mut logic) = self.tray_logic {
-                    match logic.set_kept_wallpaper() {
-                        Ok(true) => {
-                            info!("Random favorite wallpaper set successfully");
-                            ui.ctx().request_repaint();
+                    if logic.has_kept_wallpapers() {
+                        info!("Setting random favorite wallpaper");
+                        match logic.set_kept_wallpaper() {
+                            Ok(true) => {
+                                info!("Favorite wallpaper set!");
+                                ui.ctx().request_repaint();
+                            }
+                            Ok(false) => {
+                                warn!("No favorite wallpapers available");
+                            }
+                            Err(e) => {
+                                error!("Failed to set favorite wallpaper: {}", e);
+                            }
                         }
-                        Ok(false) => {
-                            warn!("No favorite wallpapers available");
-                        }
-                        Err(e) => {
-                            error!("Failed to set random favorite wallpaper: {}", e);
-                        }
+                    } else {
+                        warn!("No favorite wallpapers available. Use Keep option to save some first.");
                     }
                 }
             }
@@ -678,6 +706,7 @@ impl BingtrayApp {
                 let thumbnail_url = carousel_img.thumbnail_url.clone();
                 let title = carousel_img.title.clone();
                 let full_url = carousel_img.full_url.clone();
+                let status = carousel_img.status.clone();
 
                 carousel_widget = carousel_widget.item(Box::new(move |ui: &mut egui::Ui, _rect| {
                     ui.vertical_centered(|ui| {
@@ -697,6 +726,20 @@ impl BingtrayApp {
                                 d.insert_temp(egui::Id::new("carousel_clicked_index"), idx);
                                 d.insert_temp(egui::Id::new("carousel_clicked_url"), full_url.clone());
                             });
+                        }
+
+                        // Show status icon if available
+                        if let Some(ref status_str) = status {
+                            let status_icon = match status_str.as_str() {
+                                "unprocessed" => "🆕",
+                                "cached" => "💾",
+                                "keepfavorite" => "⭐",
+                                "blacklisted" => "🚫",
+                                _ => "",
+                            };
+                            if !status_icon.is_empty() {
+                                ui.label(status_icon);
+                            }
                         }
 
                         ui.add_space(5.0);
@@ -759,6 +802,7 @@ impl BingtrayApp {
                                             thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
                                             full_url: carousel_image_clone.full_url.clone(),
                                             image_bytes: None,
+                                            status: carousel_image_clone.status.clone(),
                                         };
                                     }
 
@@ -773,6 +817,7 @@ impl BingtrayApp {
                                         thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
                                         full_url: carousel_image_clone.full_url.clone(),
                                         image_bytes: Some(image_bytes),
+                                        status: carousel_image_clone.status.clone(),
                                     }
                                 });
                                 sender.send(result);
@@ -947,14 +992,50 @@ impl BingtrayApp {
                                 bing_image.title.clone()
                             };
                             
+                            // Helper function to URL encode text for query parameters
+                            // Encodes UTF-8 bytes properly for non-ASCII characters
+                            let url_encode = |text: &str| -> String {
+                                let mut encoded = String::new();
+                                for byte in text.bytes() {
+                                    match byte {
+                                        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                                            encoded.push(byte as char);
+                                        }
+                                        b' ' => {
+                                            encoded.push('+');
+                                        }
+                                        _ => {
+                                            encoded.push_str(&format!("%{:02X}", byte));
+                                        }
+                                    }
+                                }
+                                encoded
+                            };
+
+                            // Generate copyright_link from copyright text if not provided by API
+                            let copyright_text = bing_image.copyright.clone().unwrap_or_default();
+                            let generated_link = if copyright_text.is_empty() {
+                                String::new()
+                            } else {
+                                // URL encode the copyright text for use in search query
+                                let encoded_copyright = url_encode(&copyright_text);
+                                format!("/search?q={}&form=hpcapt", encoded_copyright)
+                            };
+
+                            // Use API-provided copyright_link if available, otherwise use generated link
+                            let final_copyright_link = match bing_image.copyright_link.clone() {
+                                Some(link) if !link.trim().is_empty() => link,
+                                _ => generated_link,
+                            };
+
                             let carousel_image = CarouselImage {
                                 title: display_title.clone(),
-                                copyright: bing_image.copyright.clone().unwrap_or_default(),
-                                copyright_link: bing_image.copyright_link.clone().unwrap_or_default(),
+                                copyright: copyright_text,
+                                copyright_link: final_copyright_link,
                                 thumbnail_url: thumbnail_url.clone(),
                                 full_url: full_url.clone(),
-                                
                                 image_bytes: None,
+                                status: None, // Status will be fetched from DB later if needed
                             };
                             
                             self.carousel_images.push(carousel_image.clone());
@@ -991,8 +1072,8 @@ impl BingtrayApp {
                                             copyright_link: carousel_image.copyright_link.clone(),
                                             thumbnail_url: carousel_image.thumbnail_url.clone(),
                                             full_url: carousel_image.full_url.clone(),
-
                                             image_bytes: Some(image_bytes),
+                                            status: carousel_image.status.clone(),
                                         }
                                     } else {
                                         // Default fallback - mark for removal
@@ -1003,8 +1084,8 @@ impl BingtrayApp {
                                             copyright_link: carousel_image.copyright_link.clone(),
                                             thumbnail_url: carousel_image.thumbnail_url.clone(),
                                             full_url: carousel_image.full_url.clone(),
-
                                             image_bytes: None,
+                                            status: carousel_image.status.clone(),
                                         }
                                     }
                                 });
@@ -1692,7 +1773,20 @@ impl BingtrayApp {
                 MENU_CACHE_DIR.store(true, Ordering::Relaxed);
             });
 
-        let next_market_text = format!("{}", tr!("tray-next-market"));
+        let next_market_text = {
+            #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+            {
+                if let Some(ref logic) = self.tray_logic {
+                    format!("{}\n{}", tr!("tray-next-market"), logic.get_wallpaper_page_status())
+                } else {
+                    format!("{}", tr!("tray-next-market"))
+                }
+            }
+            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+            {
+                format!("{}", tr!("tray-next-market"))
+            }
+        };
         let next_market_item = if has_next_available {
             menu_item(&next_market_text)
                 .leading_icon("skip_next")
@@ -2235,6 +2329,53 @@ impl BingtrayApp {
             let result = (1920.0, 1080.0); // Default desktop resolution
             self.cached_screen_size = Some(result);
             result
+        }
+    }
+
+    /// Load the current wallpaper from BingTrayLogic into the main panel
+    fn load_current_wallpaper_to_main_panel(&mut self) {
+        let current_path = if let Some(ref logic) = self.tray_logic {
+            logic.get_current_image_path()
+        } else {
+            None
+        };
+
+        if let Some(current_path) = current_path {
+            info!("Loading current wallpaper to main panel: {:?}", current_path);
+
+            // Read the image file
+            match std::fs::read(&current_path) {
+                Ok(image_bytes) => {
+                    let title = if let Some(ref logic) = self.tray_logic {
+                        logic.get_current_image_title()
+                    } else {
+                        String::from("Current Wallpaper")
+                    };
+
+                    // Create a CarouselImage from the file
+                    let carousel_image = CarouselImage {
+                        title: title.clone(),
+                        copyright: String::new(),
+                        copyright_link: String::new(),
+                        thumbnail_url: String::new(),
+                        full_url: format!("file://{}", current_path.display()),
+                        image_bytes: Some(image_bytes.clone()),
+                        status: None,
+                    };
+
+                    // Set it as the main panel image
+                    self.main_panel_image = Some(carousel_image.clone());
+                    self.reset_rectangle_for_new_image = true;
+
+                    // Cache it
+                    self.image_cache.insert(carousel_image.full_url.clone(), carousel_image);
+
+                    info!("Current wallpaper loaded to main panel: {}", title);
+                }
+                Err(e) => {
+                    error!("Failed to read wallpaper file {:?}: {}", current_path, e);
+                }
+            }
         }
     }
 

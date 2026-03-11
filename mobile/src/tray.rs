@@ -46,7 +46,11 @@ fn create_tray_menu(logic: &BingTrayLogic) -> (Menu, MenuItems) {
 
     let show_app = MenuItem::new(format!("{}", tr!("tray-show-app")), true, None);
     let cache_dir = MenuItem::new(format!("{}", tr!("tray-cache-dir")), true, None);
-    let next_market = MenuItem::new(format!("{}", tr!("tray-next-market")), logic.has_next_available(), None);
+    let next_market = MenuItem::new(
+        format!("{}\n{}", tr!("tray-next-market"), logic.get_wallpaper_page_status()),
+        logic.has_next_available(),
+        None
+    );
 
     let current_title = logic.get_current_image_title();
     let keep_text = if logic.can_keep() {
@@ -175,57 +179,15 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
                     log::error!("Failed to open cache directory: {}", e);
                 }
             } else if event.id == menu_items.next_market {
-                // Set next wallpaper from unprocessed folder
-                log::info!("Setting next wallpaper");
-
-                // Try to set next wallpaper
-                match app.set_next_wallpaper() {
+                // Next market wallpaper
+                log::info!("Setting next market wallpaper");
+                match app.set_next_market_wallpaper() {
                     Ok(true) => {
-                        log::info!("Wallpaper set successfully");
-
-                        // Auto-download if unprocessed folder is getting low (< 3 images)
-                        // This ensures we always have images ready
-                        if !app.has_unprocessed_files() || app.count_unprocessed_files() < 3 {
-                            log::info!("Unprocessed folder low, downloading next page in background");
-                            match app.download_from_next_market() {
-                                Ok(count) => {
-                                    log::info!("Downloaded {} images for next use", count);
-                                }
-                                Err(e) => {
-                                    log::warn!("Failed to download next page: {}", e);
-                                }
-                            }
-                        }
-
+                        log::info!("Wallpaper set successfully!");
                         update_tray_menu(&tray_icon, &app, &mut menu_items);
                     }
                     Ok(false) => {
-                        log::warn!("No wallpapers available in unprocessed folder");
-
-                        // Try to download
-                        log::info!("Attempting to download from next page");
-                        match app.download_from_next_market() {
-                            Ok(count) => {
-                                log::info!("Downloaded {} images", count);
-                                // Try setting wallpaper again
-                                match app.set_next_wallpaper() {
-                                    Ok(true) => {
-                                        log::info!("Wallpaper set after download");
-                                        update_tray_menu(&tray_icon, &app, &mut menu_items);
-                                    }
-                                    Ok(false) => {
-                                        log::error!("Still no wallpapers after download");
-                                    }
-                                    Err(e) => {
-                                        log::error!("Failed to set wallpaper: {}", e);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                log::error!("Failed to download: {}. No more images available.", e);
-                                update_tray_menu(&tray_icon, &app, &mut menu_items);
-                            }
-                        }
+                        log::warn!("No wallpapers available. Please download more images.");
                     }
                     Err(e) => {
                         log::error!("Failed to set wallpaper: {}", e);
@@ -233,34 +195,49 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
                 }
             } else if event.id == menu_items.keep_current {
                 // Keep current image
-                log::info!("Keeping current image");
-                if let Err(e) = app.keep_current_image() {
-                    log::error!("Failed to keep image: {}", e);
+                if app.can_keep() {
+                    log::info!("Keeping current image");
+                    if let Err(e) = app.keep_current_image() {
+                        log::error!("Failed to keep image: {}", e);
+                    } else {
+                        log::info!("Image moved to favorites!");
+                        update_tray_menu(&tray_icon, &app, &mut menu_items);
+                    }
                 } else {
-                    update_tray_menu(&tray_icon, &app, &mut menu_items);
+                    log::warn!("No current image to keep");
                 }
             } else if event.id == menu_items.blacklist_current {
                 // Blacklist current image
-                log::info!("Blacklisting current image");
-                if let Err(e) = app.blacklist_current_image() {
-                    log::error!("Failed to blacklist image: {}", e);
+                if app.can_blacklist() {
+                    let title = app.get_current_image_title();
+                    log::info!("Blacklisting \"{}\"", title);
+                    if let Err(e) = app.blacklist_current_image() {
+                        log::error!("Failed to blacklist image: {}", e);
+                    } else {
+                        log::info!("Image blacklisted!");
+                        update_tray_menu(&tray_icon, &app, &mut menu_items);
+                    }
                 } else {
-                    update_tray_menu(&tray_icon, &app, &mut menu_items);
+                    log::warn!("No current image to blacklist");
                 }
             } else if event.id == menu_items.random_favorite {
                 // Set random favorite wallpaper
-                log::info!("Setting random favorite wallpaper");
-                match app.set_kept_wallpaper() {
-                    Ok(true) => {
-                        log::info!("Favorite wallpaper set successfully");
-                        update_tray_menu(&tray_icon, &app, &mut menu_items);
+                if app.has_kept_wallpapers() {
+                    log::info!("Setting random favorite wallpaper");
+                    match app.set_kept_wallpaper() {
+                        Ok(true) => {
+                            log::info!("Favorite wallpaper set!");
+                            update_tray_menu(&tray_icon, &app, &mut menu_items);
+                        }
+                        Ok(false) => {
+                            log::warn!("No favorite wallpapers available");
+                        }
+                        Err(e) => {
+                            log::error!("Failed to set favorite wallpaper: {}", e);
+                        }
                     }
-                    Ok(false) => {
-                        log::warn!("No favorite wallpapers available");
-                    }
-                    Err(e) => {
-                        log::error!("Failed to set favorite wallpaper: {}", e);
-                    }
+                } else {
+                    log::warn!("No favorite wallpapers available. Use Keep option to save some first.");
                 }
             } else if event.id == menu_items.quit {
                 // Quit application

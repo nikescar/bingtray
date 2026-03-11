@@ -259,12 +259,12 @@ clipboard-paste = 붙여넣기
 # Tray Menu (Desktop)
 tray-show-app = 앱 표시
 tray-cache-dir = 캐시 디렉토리 열기
-tray-next-market = 다음 마켓 배경화면
+tray-next-market = 다운로드 & 다음 배경화면 설정
 tray-keep-current = 현재 이미지 보관
 tray-keep-with-title = "{ $title }" 보관
 tray-blacklist-current = 현재 이미지 차단
 tray-blacklist-with-title = "{ $title }" 차단
-tray-random-favorite = 랜덤 즐겨찾기
+tray-random-favorite = 랜덤 즐겨찾기 배경화면
 tray-quit = 종료
 
 # Main UI (bingtray.rs)

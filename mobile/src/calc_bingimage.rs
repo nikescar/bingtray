@@ -57,11 +57,9 @@ use std::time::SystemTime;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::duckdb_bingimage::*;
 
-// Desktop-only imports (wallpaper setting, random selection, channels)
+// Desktop-only imports (wallpaper setting, channels)
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use crate::api_setwallpaper;
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-use rand::seq::SliceRandom;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use std::sync::mpsc;
 
@@ -85,24 +83,65 @@ pub fn get_market_codes() -> Result<Vec<String>> {
     // The reference implementation scrapes this from Microsoft docs, but for reliability
     // we'll use a static list
     let codes = vec![
-        "en-US", "en-GB", "de-DE", "fr-FR", "es-ES", "it-IT", "ja-JP", "zh-CN",
-        "pt-BR", "ru-RU", "nl-NL", "pl-PL", "tr-TR", "ko-KR", "sv-SE", "da-DK",
-        "fi-FI", "nb-NO", "cs-CZ", "hu-HU", "ro-RO", "el-GR", "th-TH", "id-ID",
-        "vi-VN", "uk-UA", "bg-BG", "hr-HR", "sk-SK", "sl-SI", "et-EE", "lv-LV",
-        "lt-LT", "sr-Latn-RS", "ar-SA", "he-IL", "pt-PT", "es-MX", "fr-CA",
+        "en-US",
+        "en-GB",
+        "de-DE",
+        "fr-FR",
+        "es-ES",
+        "it-IT",
+        "ja-JP",
+        "zh-CN",
+        "pt-BR",
+        "ru-RU",
+        "nl-NL",
+        "pl-PL",
+        "tr-TR",
+        "ko-KR",
+        "sv-SE",
+        "da-DK",
+        "fi-FI",
+        "nb-NO",
+        "cs-CZ",
+        "hu-HU",
+        "ro-RO",
+        "el-GR",
+        "th-TH",
+        "id-ID",
+        "vi-VN",
+        "uk-UA",
+        "bg-BG",
+        "hr-HR",
+        "sk-SK",
+        "sl-SI",
+        "et-EE",
+        "lv-LV",
+        "lt-LT",
+        "sr-Latn-RS",
+        "ar-SA",
+        "he-IL",
+        "pt-PT",
+        "es-MX",
+        "fr-CA",
     ];
 
     Ok(codes.iter().map(|s| s.to_string()).collect())
 }
 
 /// Load Bing images from database cache for a specific market code
-pub fn load_bing_images_from_cache(config: &Config, market_code: &str, count: usize) -> Result<Vec<BingImage>> {
-    log::info!("Loading Bing images from database cache for market: {}", market_code);
+pub fn load_bing_images_from_cache(
+    config: &Config,
+    market_code: &str,
+    count: usize,
+) -> Result<Vec<BingImage>> {
+    log::info!(
+        "Loading Bing images from database cache for market: {}",
+        market_code
+    );
 
-    let db = BingImageDb::new(config.db_path.clone())
-        .context("Failed to open database")?;
+    let db = BingImageDb::new(config.db_path.clone()).context("Failed to open database")?;
 
-    let records = db.get_images_by_market_code(market_code)
+    let records = db
+        .get_images_by_market_code(market_code)
         .context("Failed to load images from database")?;
 
     if records.is_empty() {
@@ -125,16 +164,26 @@ pub fn load_bing_images_from_cache(config: &Config, market_code: &str, count: us
 }
 
 /// Save Bing images to database cache
-fn save_bing_images_to_cache(db: &BingImageDb, market_code: &str, images: &[BingImage]) -> Result<()> {
-    log::info!("Saving {} Bing images to cache for market: {}", images.len(), market_code);
+fn save_bing_images_to_cache(
+    db: &BingImageDb,
+    market_code: &str,
+    images: &[BingImage],
+) -> Result<()> {
+    log::info!(
+        "Saving {} Bing images to cache for market: {}",
+        images.len(),
+        market_code
+    );
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_secs() as i64;
 
-    for img in images {
-        let record = BingImageRecord {
+    // Convert BingImages to BingImageRecords
+    let records: Vec<BingImageRecord> = images
+        .iter()
+        .map(|img| BingImageRecord {
             url: img.url.clone(),
             title: img.title.clone(),
             copyright: img.copyright.clone(),
@@ -142,26 +191,47 @@ fn save_bing_images_to_cache(db: &BingImageDb, market_code: &str, images: &[Bing
             market_code: market_code.to_string(),
             fetched_at: now,
             status: ImageStatus::Unprocessed,
-        };
+        })
+        .collect();
 
-        db.upsert_image(&record)?;
+    // Use batch_upsert_images which handles duplicate key errors gracefully
+    match db.batch_upsert_images(&records) {
+        Ok(saved_count) => {
+            log::info!("Successfully cached {} out of {} Bing images", saved_count, images.len());
+        }
+        Err(e) => {
+            log::warn!("Failed to batch upsert images (possibly duplicate entries): {}", e);
+            // Don't fail completely - continue with timestamp update
+        }
     }
 
     // Save download timestamp
-    db.set_last_download_timestamp(market_code, now)?;
-    db.checkpoint()?;
+    if let Err(e) = db.set_last_download_timestamp(market_code, now) {
+        log::warn!("Failed to set download timestamp: {}", e);
+    }
 
-    log::info!("Successfully cached {} Bing images", images.len());
+    // Note: Removed checkpoint() call here as it can cause lock contention
+    // in multi-process scenarios. DuckDB will automatically checkpoint the WAL
+    // at appropriate times. Manual checkpoints should only be done at app shutdown.
+
     Ok(())
 }
 
 /// Fetch Bing images with caching support (checks 7-day cache before downloading)
-pub fn get_bing_images_manifest_cached(config: Option<&Config>, market_code: &str, count: u32, offset: u32) -> Result<Vec<BingImage>> {
+pub fn get_bing_images_manifest_cached(
+    config: Option<&Config>,
+    market_code: &str,
+    count: u32,
+    offset: u32,
+) -> Result<Vec<BingImage>> {
     // Check if we should use cache
     if let Some(cfg) = config {
         if let Ok(db) = BingImageDb::new(cfg.db_path.clone()) {
             if offset == 0 && !db.should_download_manifest(market_code) {
-                log::info!("Bing images for {} are fresh (< 7 days), loading from cache", market_code);
+                log::info!(
+                    "Bing images for {} are fresh (< 7 days), loading from cache",
+                    market_code
+                );
                 match load_bing_images_from_cache(cfg, market_code, count as usize) {
                     Ok(images) => return Ok(images),
                     Err(e) => {
@@ -204,9 +274,17 @@ pub fn get_bing_images_manifest_cached(config: Option<&Config>, market_code: &st
 ///
 /// # Returns
 /// A vector of BingImage structs containing URLs and metadata
-pub fn get_bing_images_manifest(market_code: &str, count: u32, offset: u32) -> Result<Vec<BingImage>> {
-    log::info!("get_bing_images_manifest called for market_code: {}, count: {}, offset: {}",
-              market_code, count, offset);
+pub fn get_bing_images_manifest(
+    market_code: &str,
+    count: u32,
+    offset: u32,
+) -> Result<Vec<BingImage>> {
+    log::info!(
+        "get_bing_images_manifest called for market_code: {}, count: {}, offset: {}",
+        market_code,
+        count,
+        offset
+    );
 
     // Build API URL
     let url = format!(
@@ -325,8 +403,7 @@ pub fn sanitize_filename(filename: &str) -> String {
 pub fn load_historical_from_cache(config: &Config, count: usize) -> Result<Vec<BingImage>> {
     log::info!("Loading historical images from database cache");
 
-    let db = BingImageDb::new(config.db_path.clone())
-        .context("Failed to open database")?;
+    let db = BingImageDb::new(config.db_path.clone()).context("Failed to open database")?;
 
     let (_, historical_images) = load_historical_metadata_with_db(config, Some(&db))?;
 
@@ -368,7 +445,8 @@ pub fn download_historical_data(config: &Config, _starting_index: usize) -> Resu
 
     log::info!("Downloading historical data from GitHub");
 
-    let url = "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
+    let url =
+        "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
 
     // Create request with User-Agent
     let mut request = ehttp::Request::get(url);
@@ -419,9 +497,11 @@ pub fn download_historical_data(config: &Config, _starting_index: usize) -> Resu
                         let url = &rest[link_end + 2..url_end];
 
                         // Split content into title and copyright
-                        let (title, copyright) = if let Some(copyright_start) = content.find("(©") {
+                        let (title, copyright) = if let Some(copyright_start) = content.find("(©")
+                        {
                             let title = content[..copyright_start].trim();
-                            let copyright = content[copyright_start + 1..].trim_end_matches(')').trim();
+                            let copyright =
+                                content[copyright_start + 1..].trim_end_matches(')').trim();
                             (title, copyright)
                         } else {
                             (content, "")
@@ -454,7 +534,10 @@ pub fn download_historical_data(config: &Config, _starting_index: usize) -> Resu
         }
     }
 
-    log::info!("Parsed {} historical images from GitHub", historical_images.len());
+    log::info!(
+        "Parsed {} historical images from GitHub",
+        historical_images.len()
+    );
 
     if historical_images.is_empty() {
         anyhow::bail!("No historical images found in downloaded data");
@@ -486,7 +569,10 @@ pub fn download_historical_data(config: &Config, _starting_index: usize) -> Resu
         })
         .collect();
 
-    log::info!("Returning {} images for carousel display", bing_images.len());
+    log::info!(
+        "Returning {} images for carousel display",
+        bing_images.len()
+    );
     Ok(bing_images)
 }
 
@@ -517,7 +603,8 @@ pub fn download_historical_data_with_progress(
 
     log::info!("Downloading historical data from GitHub");
 
-    let url = "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
+    let url =
+        "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
 
     // Create request with User-Agent
     let mut request = ehttp::Request::get(url);
@@ -574,9 +661,11 @@ pub fn download_historical_data_with_progress(
                         let url = &rest[link_end + 2..url_end];
 
                         // Split content into title and copyright
-                        let (title, copyright) = if let Some(copyright_start) = content.find("(©") {
+                        let (title, copyright) = if let Some(copyright_start) = content.find("(©")
+                        {
                             let title = content[..copyright_start].trim();
-                            let copyright = content[copyright_start + 1..].trim_end_matches(')').trim();
+                            let copyright =
+                                content[copyright_start + 1..].trim_end_matches(')').trim();
                             (title, copyright)
                         } else {
                             (content, "")
@@ -609,7 +698,10 @@ pub fn download_historical_data_with_progress(
         }
     }
 
-    log::info!("Parsed {} historical images from GitHub", historical_images.len());
+    log::info!(
+        "Parsed {} historical images from GitHub",
+        historical_images.len()
+    );
 
     if historical_images.is_empty() {
         anyhow::bail!("No historical images found in downloaded data");
@@ -633,7 +725,14 @@ pub fn download_historical_data_with_progress(
             None
         }
     };
-    save_historical_metadata_with_progress(config, 0, &historical_images, db.as_ref(), progress_status.clone(), ctx.clone())?;
+    save_historical_metadata_with_progress(
+        config,
+        0,
+        &historical_images,
+        db.as_ref(),
+        progress_status.clone(),
+        ctx.clone(),
+    )?;
 
     // Return first page (up to 8 images) as BingImage structs for carousel
     let bing_images: Vec<BingImage> = historical_images
@@ -647,7 +746,10 @@ pub fn download_historical_data_with_progress(
         })
         .collect();
 
-    log::info!("Returning {} images for carousel display", bing_images.len());
+    log::info!(
+        "Returning {} images for carousel display",
+        bing_images.len()
+    );
     Ok(bing_images)
 }
 
@@ -679,7 +781,9 @@ pub fn get_next_historical_page(config: &Config) -> Result<usize> {
 
     if all_images.is_empty() {
         log::info!("No historical metadata available yet");
-        return Err(anyhow::anyhow!("No historical data available - call download_historical_data first"));
+        return Err(anyhow::anyhow!(
+            "No historical data available - call download_historical_data first"
+        ));
     }
 
     let start_idx = current_page * 8;
@@ -691,7 +795,8 @@ pub fn get_next_historical_page(config: &Config) -> Result<usize> {
 
     // Update page number only (don't re-save images that are already in database)
     if let Some(database) = db.as_ref() {
-        database.set_historical_page(current_page + 1)
+        database
+            .set_historical_page(current_page + 1)
             .context("Failed to save historical page to database")?;
         log::debug!("Updated historical page number to {}", current_page + 1);
     }
@@ -753,15 +858,20 @@ pub fn get_historical_page_info(config: &Config) -> Result<(usize, usize)> {
 ///
 /// # Returns
 /// A tuple of (current_page, images)
-fn load_historical_metadata_with_db(_config: &Config, db: Option<&BingImageDb>) -> Result<(usize, Vec<HistoricalImage>)> {
+fn load_historical_metadata_with_db(
+    _config: &Config,
+    db: Option<&BingImageDb>,
+) -> Result<(usize, Vec<HistoricalImage>)> {
     // Load page number and historical images from database
     if let Some(database) = db {
-        let current_page = database.get_historical_page()
+        let current_page = database
+            .get_historical_page()
             .context("Failed to load historical page from database")?;
         log::debug!("Loaded historical page {} from database", current_page);
 
         // Load historical images from bing_images table (market_code = 'historical')
-        let records = database.get_images_by_market_code("historical")
+        let records = database
+            .get_images_by_market_code("historical")
             .context("Failed to load historical images from database")?;
 
         // Convert BingImageRecord to HistoricalImage
@@ -776,7 +886,11 @@ fn load_historical_metadata_with_db(_config: &Config, db: Option<&BingImageDb>) 
                 let mut remaining_days = days_since_epoch;
 
                 loop {
-                    let days_in_year = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) { 366 } else { 365 };
+                    let days_in_year = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
+                        366
+                    } else {
+                        365
+                    };
                     if remaining_days >= days_in_year {
                         remaining_days -= days_in_year;
                         year += 1;
@@ -786,7 +900,20 @@ fn load_historical_metadata_with_db(_config: &Config, db: Option<&BingImageDb>) 
                 }
 
                 let is_leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-                let days_in_month = [31, if is_leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+                let days_in_month = [
+                    31,
+                    if is_leap { 29 } else { 28 },
+                    31,
+                    30,
+                    31,
+                    30,
+                    31,
+                    31,
+                    30,
+                    31,
+                    30,
+                    31,
+                ];
 
                 let mut month = 1;
                 for (i, &days) in days_in_month.iter().enumerate() {
@@ -813,7 +940,10 @@ fn load_historical_metadata_with_db(_config: &Config, db: Option<&BingImageDb>) 
         // Sort by date (most recent first)
         images.sort_by(|a, b| b.fullstartdate.cmp(&a.fullstartdate));
 
-        log::info!("Successfully loaded {} historical images from bing_images table", images.len());
+        log::info!(
+            "Successfully loaded {} historical images from bing_images table",
+            images.len()
+        );
         return Ok((current_page, images));
     }
 
@@ -832,15 +962,24 @@ fn load_historical_metadata_with_db(_config: &Config, db: Option<&BingImageDb>) 
 /// * `current_page` - The current page number to save
 /// * `images` - Slice of HistoricalImage objects to persist
 /// * `db` - Optional database connection
-fn save_historical_metadata_with_db(_config: &Config, current_page: usize, images: &[HistoricalImage], db: Option<&BingImageDb>) -> Result<()> {
+fn save_historical_metadata_with_db(
+    _config: &Config,
+    current_page: usize,
+    images: &[HistoricalImage],
+    db: Option<&BingImageDb>,
+) -> Result<()> {
     // Save page number and historical images to database
     if let Some(database) = db {
         // Save all images (not just 8) to database
-        log::info!("Saving historical page {} with {} images to bing_images table",
-            current_page, images.len());
+        log::info!(
+            "Saving historical page {} with {} images to bing_images table",
+            current_page,
+            images.len()
+        );
 
         // Save historical page number
-        database.set_historical_page(current_page)
+        database
+            .set_historical_page(current_page)
             .context("Failed to save historical page to database")?;
         log::debug!("Saved historical page number to database: {}", current_page);
 
@@ -889,15 +1028,23 @@ fn save_historical_metadata_with_db(_config: &Config, current_page: usize, image
                     saved_count += 1;
                     // Log progress every 100 images
                     if (idx + 1) % 100 == 0 || idx + 1 == total_count {
-                        log::info!("Progress: Saved {}/{} historical images ({:.1}%)",
-                            idx + 1, total_count, ((idx + 1) as f32 / total_count as f32) * 100.0);
+                        log::info!(
+                            "Progress: Saved {}/{} historical images ({:.1}%)",
+                            idx + 1,
+                            total_count,
+                            ((idx + 1) as f32 / total_count as f32) * 100.0
+                        );
                     }
                 }
                 Err(e) => log::warn!("Failed to save historical image {}: {}", img.url, e),
             }
         }
 
-        log::info!("Successfully saved {} historical images to bing_images table (out of {} total)", saved_count, images.len());
+        log::info!(
+            "Successfully saved {} historical images to bing_images table (out of {} total)",
+            saved_count,
+            images.len()
+        );
 
         // Save download timestamp
         log::info!("Saving metadata...");
@@ -905,15 +1052,20 @@ fn save_historical_metadata_with_db(_config: &Config, current_page: usize, image
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
-        database.set_last_download_timestamp("historical", now)
+        database
+            .set_last_download_timestamp("historical", now)
             .context("Failed to save historical download timestamp")?;
         log::debug!("Saved historical download timestamp: {}", now);
 
         // Flush database to ensure data is written to disk
         log::info!("Writing data to disk...");
-        database.checkpoint()
+        database
+            .checkpoint()
             .context("Failed to checkpoint database")?;
-        log::info!("Database checkpoint completed - all {} images saved successfully", saved_count);
+        log::info!(
+            "Database checkpoint completed - all {} images saved successfully",
+            saved_count
+        );
 
         return Ok(());
     }
@@ -934,11 +1086,15 @@ fn save_historical_metadata_with_progress(
     // Save page number and historical images to database
     if let Some(database) = db {
         // Save all images (not just 8) to database
-        log::info!("Saving historical page {} with {} images to bing_images table",
-            current_page, images.len());
+        log::info!(
+            "Saving historical page {} with {} images to bing_images table",
+            current_page,
+            images.len()
+        );
 
         // Save historical page number
-        database.set_historical_page(current_page)
+        database
+            .set_historical_page(current_page)
             .context("Failed to save historical page to database")?;
         log::debug!("Saved historical page number to database: {}", current_page);
 
@@ -990,8 +1146,12 @@ fn save_historical_metadata_with_progress(
             match database.batch_upsert_images(chunk) {
                 Ok(count) => {
                     saved_count += count;
-                    let progress_msg = format!("Saved {}/{} images ({:.0}%)",
-                        saved_count, total_count, (saved_count as f32 / total_count as f32) * 100.0);
+                    let progress_msg = format!(
+                        "Saved {}/{} images ({:.0}%)",
+                        saved_count,
+                        total_count,
+                        (saved_count as f32 / total_count as f32) * 100.0
+                    );
                     log::info!("Progress: {}", progress_msg);
 
                     // Update UI progress
@@ -1004,7 +1164,11 @@ fn save_historical_metadata_with_progress(
             }
         }
 
-        log::info!("Successfully saved {} historical images to bing_images table (out of {} total)", saved_count, images.len());
+        log::info!(
+            "Successfully saved {} historical images to bing_images table (out of {} total)",
+            saved_count,
+            images.len()
+        );
 
         // Update progress
         if let Ok(mut status) = progress_status.lock() {
@@ -1018,7 +1182,8 @@ fn save_historical_metadata_with_progress(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs() as i64;
-        database.set_last_download_timestamp("historical", now)
+        database
+            .set_last_download_timestamp("historical", now)
             .context("Failed to save historical download timestamp")?;
         log::debug!("Saved historical download timestamp: {}", now);
 
@@ -1029,9 +1194,13 @@ fn save_historical_metadata_with_progress(
         ctx.request_repaint();
 
         log::info!("Writing data to disk...");
-        database.checkpoint()
+        database
+            .checkpoint()
             .context("Failed to checkpoint database")?;
-        log::info!("Database checkpoint completed - all {} images saved successfully", saved_count);
+        log::info!(
+            "Database checkpoint completed - all {} images saved successfully",
+            saved_count
+        );
 
         return Ok(());
     }
@@ -1067,7 +1236,8 @@ pub fn load_cached_images_paginated(config: &Config, page: usize) -> Result<Vec<
     let mut entries: Vec<_> = read_dir(&config.cached_dir)?
         .filter_map(|e| e.ok())
         .filter(|e| {
-            e.path().extension()
+            e.path()
+                .extension()
                 .and_then(|s| s.to_str())
                 .map(|s| s == "jpg" || s == "jpeg" || s == "png")
                 .unwrap_or(false)
@@ -1086,7 +1256,8 @@ pub fn load_cached_images_paginated(config: &Config, page: usize) -> Result<Vec<
 
     for entry in entries.iter().skip(start).take(8) {
         let filename = entry.file_name().to_string_lossy().to_string();
-        let title = filename.replace("_thumb.jpg", "")
+        let title = filename
+            .replace("_thumb.jpg", "")
             .replace(".jpg", "")
             .replace(".jpeg", "")
             .replace(".png", "");
@@ -1125,10 +1296,14 @@ pub fn load_historical_images_paginated(config: &Config, page: usize) -> Result<
     // egui decodes images synchronously on main thread - loading 8 at once causes 5s freeze
     let limit = 3;
     let offset = page * 3;
-    let records = db.get_images_by_market_code_paginated("historical", limit, offset)
+    let records = db
+        .get_images_by_market_code_paginated("historical", limit, offset)
         .context("Failed to load paginated historical images from database")?;
 
-    log::info!("Successfully loaded {} historical images from bing_images table", records.len());
+    log::info!(
+        "Successfully loaded {} historical images from bing_images table",
+        records.len()
+    );
 
     // Convert BingImageRecord to BingImage
     let bing_images: Vec<BingImage> = records
@@ -1219,7 +1394,10 @@ pub struct DesktopWallpaperSetter;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 impl crate::bingtray::WallpaperSetter for DesktopWallpaperSetter {
     fn set_wallpaper_from_bytes(&self, bytes: &[u8]) -> std::io::Result<bool> {
-        log::info!("DesktopWallpaperSetter: Setting wallpaper from {} bytes", bytes.len());
+        log::info!(
+            "DesktopWallpaperSetter: Setting wallpaper from {} bytes",
+            bytes.len()
+        );
 
         match api_setwallpaper::set_wallpaper_from_bytes(bytes) {
             Ok(()) => {
@@ -1230,7 +1408,7 @@ impl crate::bingtray::WallpaperSetter for DesktopWallpaperSetter {
                 log::error!("DesktopWallpaperSetter: Failed to set wallpaper: {}", e);
                 Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!("Failed to set wallpaper: {}", e)
+                    format!("Failed to set wallpaper: {}", e),
                 ))
             }
         }
@@ -1260,6 +1438,10 @@ pub struct BingTrayLogic {
     current_market_offset: u32,
     download_exhausted: bool, // True when API returns no more images
     last_downloaded_urls: Vec<String>, // Track last download to detect duplicates
+    ehttp_cache: crate::ehttp_cache::EhttpCache,
+    last_kept_index: usize, // Track rotation through kept wallpapers
+    current_page_size: usize, // Number of images in the current historical page
+    current_rotation_index: usize, // Current position in rotation through unprocessed images
 }
 
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
@@ -1277,13 +1459,49 @@ impl BingTrayLogic {
     /// A new BingTrayLogic instance ready for wallpaper operations
     pub fn new() -> Result<Self> {
         let config = Config::new()?;
+        Self::from_config(config)
+    }
 
+    /// Create a new BingTrayLogic instance with a custom configuration.
+    /// Primarily used for testing with temporary directories.
+    #[cfg(test)]
+    pub fn from_config(config: Config) -> Result<Self> {
         // Initialize database
         let db = BingImageDb::new(config.db_path.clone()).ok();
 
         // Load market state (default to en-US, offset 0)
-        let (current_market_code, current_market_offset) = Self::load_market_state(&config)
-            .unwrap_or_else(|_| ("en-US".to_string(), 0));
+        let (current_market_code, current_market_offset) =
+            Self::load_market_state(&config).unwrap_or_else(|_| ("en-US".to_string(), 0));
+
+        // Initialize ehttp cache with 7-day TTL (flush on restart)
+        let ehttp_cache = crate::ehttp_cache::EhttpCache::new(
+            Some(config.image_cached_dir.clone()),
+            7 * 24 * 3600, // 7 days
+        );
+
+        // Load last_kept_index from DB or default to 0
+        let last_kept_index = if let Some(ref database) = db {
+            database
+                .get_config("last_kept_index")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        // Load current_page_size from DB or default to 8 (standard Bing API page size)
+        let current_page_size = if let Some(ref database) = db {
+            database
+                .get_config("current_page_size")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(8)
+        } else {
+            8
+        };
 
         Ok(Self {
             config,
@@ -1293,37 +1511,118 @@ impl BingTrayLogic {
             current_market_offset,
             download_exhausted: false,
             last_downloaded_urls: Vec::new(),
+            ehttp_cache,
+            last_kept_index,
+            current_page_size,
+            current_rotation_index: 0,
         })
     }
 
-    /// Load the current market code and offset from persistent storage.
-    ///
-    /// # Returns
-    /// A tuple of (market_code, offset) or an error if the file doesn't exist or is invalid
-    fn load_market_state(config: &Config) -> Result<(String, u32)> {
-        let state_file = config.config_dir.join("market_state.conf");
-        if !state_file.exists() {
-            return Ok(("en-US".to_string(), 0));
-        }
+    /// Create a new BingTrayLogic instance with a custom configuration.
+    /// Used in production when Config is already created.
+    #[cfg(not(test))]
+    fn from_config(config: Config) -> Result<Self> {
+        // Initialize database
+        let db = BingImageDb::new(config.db_path.clone()).ok();
 
-        let content = fs::read_to_string(&state_file)?;
-        let parts: Vec<&str> = content.trim().split('|').collect();
+        // Load market state (default to en-US, offset 0)
+        let (current_market_code, current_market_offset) =
+            Self::load_market_state(&config).unwrap_or_else(|_| ("en-US".to_string(), 0));
 
-        if parts.len() != 2 {
-            return Ok(("en-US".to_string(), 0));
-        }
+        // Initialize ehttp cache with 7-day TTL (flush on restart)
+        let ehttp_cache = crate::ehttp_cache::EhttpCache::new(
+            Some(config.image_cached_dir.clone()),
+            7 * 24 * 3600, // 7 days
+        );
 
-        let market_code = parts[0].to_string();
-        let offset = parts[1].parse::<u32>().unwrap_or(0);
+        // Load last_kept_index from DB or default to 0
+        let last_kept_index = if let Some(ref database) = db {
+            database
+                .get_config("last_kept_index")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(0)
+        } else {
+            0
+        };
 
-        Ok((market_code, offset))
+        // Load current_page_size from DB or default to 8 (standard Bing API page size)
+        let current_page_size = if let Some(ref database) = db {
+            database
+                .get_config("current_page_size")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(8)
+        } else {
+            8
+        };
+
+        Ok(Self {
+            config,
+            current_image_path: None,
+            db,
+            current_market_code,
+            current_market_offset,
+            download_exhausted: false,
+            last_downloaded_urls: Vec::new(),
+            ehttp_cache,
+            last_kept_index,
+            current_page_size,
+            current_rotation_index: 0,
+        })
     }
 
-    /// Save the current market code and offset to persistent storage.
+    /// Load the current market code and offset from persistent storage (DuckDB).
+    ///
+    /// # Returns
+    /// A tuple of (market_code, offset) or defaults to ("en-US", 0) if not found
+    fn load_market_state(config: &Config) -> Result<(String, u32)> {
+        // Try to load from DuckDB
+        if let Ok(db) = BingImageDb::new(config.db_path.clone()) {
+            // Get the most recently used market code
+            let market_code = if let Ok(market_codes) = db.get_market_codes() {
+                market_codes
+                    .first()
+                    .map(|record| record.code.clone())
+                    .unwrap_or_else(|| "en-US".to_string())
+            } else {
+                "en-US".to_string()
+            };
+
+            // Get the offset from config_kv table
+            let offset = db
+                .get_config("market_offset")
+                .ok()
+                .flatten()
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(0);
+
+            Ok((market_code, offset))
+        } else {
+            // Fallback to defaults if DB not available
+            Ok(("en-US".to_string(), 0))
+        }
+    }
+
+    /// Save the current market code and offset to persistent storage (DuckDB).
     fn save_market_state(&self) -> Result<()> {
-        let state_file = self.config.config_dir.join("market_state.conf");
-        let content = format!("{}|{}", self.current_market_code, self.current_market_offset);
-        fs::write(&state_file, content)?;
+        if let Some(db) = &self.db {
+            // Save market code with current timestamp (in microseconds for better precision)
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_micros() as i64;
+
+            db.upsert_market_code(&self.current_market_code, now)?;
+
+            // Save offset in config_kv table
+            db.set_config("market_offset", &self.current_market_offset.to_string())?;
+
+            // Flush database to ensure data is written to disk
+            db.checkpoint()?;
+        }
         Ok(())
     }
 
@@ -1365,6 +1664,10 @@ impl BingTrayLogic {
     pub fn initialize(&mut self) -> Result<()> {
         // Directories are already created in Config::new()
 
+        // Clear ehttp cache on app restart (as per requirements)
+        self.ehttp_cache.clear_all();
+        log::info!("Cleared ehttp cache on app restart");
+
         // Check if we need to download images
         if !self.has_unprocessed_files() {
             log::info!("No unprocessed images found, downloading from Bing...");
@@ -1400,11 +1703,7 @@ impl BingTrayLogic {
 
             if !images.is_empty() {
                 // Sort by modification time (most recent first)
-                images.sort_by_key(|path| {
-                    fs::metadata(path)
-                        .and_then(|m| m.modified())
-                        .ok()
-                });
+                images.sort_by_key(|path| fs::metadata(path).and_then(|m| m.modified()).ok());
 
                 if let Some(latest) = images.last() {
                     self.current_image_path = Some(latest.clone());
@@ -1447,76 +1746,150 @@ impl BingTrayLogic {
         Ok(false)
     }
 
-    /// Retrieve the next unprocessed wallpaper and set it as the desktop background.
+    /// Rotate to the next wallpaper and set it as the desktop background.
     ///
-    /// This method is the core wallpaper-changing function. It looks for the next
-    /// unprocessed image file (sorted alphabetically), sets it as the system wallpaper
-    /// using the platform-specific API, updates the current image tracking, and then
-    /// moves the file from the unprocessed directory to the cached directory. This
-    /// ensures each wallpaper is only used once and maintains a history of displayed
-    /// wallpapers. The database is updated if available (currently MVP-skipped).
-    /// If no unprocessed images are found, it downloads from the next market page.
+    /// This method rotates through unprocessed images without consuming them. It cycles
+    /// through all available unprocessed images in order. If no unprocessed images exist,
+    /// it tries to download from market first, then falls back to historical images if
+    /// market is exhausted. Images are only consumed when explicitly kept or blacklisted.
     ///
     /// # Returns
     /// Ok(true) if a wallpaper was successfully set, Ok(false) if no images available
     pub fn set_next_market_wallpaper(&mut self) -> Result<bool> {
-        // Get next unprocessed image
-        if let Some(image_path) = self.get_next_unprocessed_image()? {
-            api_setwallpaper::set_wallpaper(&image_path)?;
-            self.current_image_path = Some(image_path.clone());
+        // Check if we need to load more images (unprocessed count is 0)
+        let unprocessed_count = self.count_unprocessed_files();
+        log::info!("Current unprocessed images count: {}", unprocessed_count);
 
-            // Move to cached directory
-            let filename = image_path
-                .file_name()
-                .context("No filename")?
-                .to_string_lossy()
-                .to_string();
-            let cached_path = self.config.cached_dir.join(&filename);
+        if unprocessed_count == 0 {
+            log::info!("No unprocessed images, attempting to download more...");
 
-            fs::rename(&image_path, &cached_path)?;
-            log::info!("Set wallpaper and cached: {:?}", cached_path);
-
-            // Update database status if available
-            if let Some(ref _db) = self.db {
-                // Extract URL from filename or metadata
-                // For now, skip database update during MVP
-                log::debug!("Database update skipped for MVP");
-            }
-
-            return Ok(true);
-        }
-
-        // No unprocessed images available - download from next market
-        log::info!("No unprocessed images available, downloading from next market");
-        log::info!("BEFORE DOWNLOAD: market_code={}, offset={}", self.current_market_code, self.current_market_offset);
-        match self.download_from_next_market() {
-            Ok(count) => {
-                log::info!("Successfully downloaded {} images from next market", count);
-                log::info!("AFTER DOWNLOAD: market_code={}, offset={}", self.current_market_code, self.current_market_offset);
-                // Try to set the first downloaded image
-                if let Some(image_path) = self.get_next_unprocessed_image()? {
-                    api_setwallpaper::set_wallpaper(&image_path)?;
-                    self.current_image_path = Some(image_path.clone());
-
-                    let filename = image_path
-                        .file_name()
-                        .context("No filename")?
-                        .to_string_lossy()
-                        .to_string();
-                    let cached_path = self.config.cached_dir.join(&filename);
-
-                    fs::rename(&image_path, &cached_path)?;
-                    log::info!("Set wallpaper and cached: {:?}", cached_path);
-
-                    return Ok(true);
+            // First try to download from market (if not exhausted)
+            if !self.download_exhausted {
+                log::info!("Attempting to download from market...");
+                match self.download_from_next_market() {
+                    Ok(count) => {
+                        log::info!("Downloaded {} market images", count);
+                        // Update current_page_size to the number of images downloaded
+                        self.current_page_size = count;
+                        if let Some(ref db) = self.db {
+                            let _ = db.set_config("current_page_size", &self.current_page_size.to_string());
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to download from market: {}", e);
+                        log::info!("Market exhausted, falling back to historical images");
+                    }
                 }
             }
-            Err(e) => {
-                log::error!("Failed to download from next market: {}", e);
+
+            // If market download failed or exhausted, try historical pages
+            if self.count_unprocessed_files() == 0 {
+                log::info!("Loading historical page...");
+                self.load_next_historical_page()?;
+            }
+
+            // Reset rotation index when loading new images
+            self.current_rotation_index = 0;
+        }
+
+        // Get all unprocessed images sorted
+        let unprocessed_images = self.get_all_unprocessed_images()?;
+        if unprocessed_images.is_empty() {
+            log::warn!("No unprocessed images available");
+            return Ok(false);
+        }
+
+        // Wrap rotation index if it exceeds available images
+        if self.current_rotation_index >= unprocessed_images.len() {
+            self.current_rotation_index = 0;
+        }
+
+        // Get the image at current rotation index
+        let image_path = unprocessed_images[self.current_rotation_index].clone();
+
+        // Set as wallpaper WITHOUT moving it (just rotate, don't consume)
+        api_setwallpaper::set_wallpaper(&image_path)?;
+        self.current_image_path = Some(image_path.clone());
+
+        log::info!("Set wallpaper (rotation {}/{}): {:?}",
+                   self.current_rotation_index + 1,
+                   unprocessed_images.len(),
+                   image_path);
+
+        // Increment rotation index for next time (wrap around)
+        self.current_rotation_index = (self.current_rotation_index + 1) % unprocessed_images.len();
+
+        Ok(true)
+    }
+
+    /// Load the next historical page and download images to unprocessed directory.
+    ///
+    /// This helper method gets the next historical page, loads images from it, downloads
+    /// them to the unprocessed directory, and updates the current_page_size tracking.
+    /// If historical data doesn't exist yet, it downloads it first from GitHub.
+    ///
+    /// # Returns
+    /// Ok(()) if successful, Err if failed to load page
+    fn load_next_historical_page(&mut self) -> Result<()> {
+        log::info!("No unprocessed images available, loading next historical page");
+
+        // First check if historical data exists, if not download it
+        if let Some(ref db) = self.db {
+            let has_historical = db.get_images_by_market_code("historical")
+                .map(|images| !images.is_empty())
+                .unwrap_or(false);
+
+            if !has_historical {
+                log::info!("No historical data in database, downloading from GitHub...");
+                match download_historical_data(&self.config, 0) {
+                    Ok(images) => {
+                        log::info!("Successfully downloaded {} historical images metadata", images.len());
+                    }
+                    Err(e) => {
+                        log::error!("Failed to download historical data: {}", e);
+                        return Err(e);
+                    }
+                }
             }
         }
 
-        Ok(false)
+        // Get next historical page and load images
+        let page = get_next_historical_page(&self.config)?;
+        log::info!("Loading historical page {}", page);
+
+        // Load images from the page
+        let historical_images = load_historical_images_paginated(&self.config, page)?;
+
+        if historical_images.is_empty() {
+            log::warn!("No images found on historical page {}", page);
+            return Err(anyhow::anyhow!("No images found on page {}", page));
+        }
+
+        log::info!("Downloading {} historical images from page {}", historical_images.len(), page);
+
+        // Download and save images to unprocessed directory
+        let mut downloaded_count = 0;
+        for bing_img in historical_images.iter() {
+            match self.download_and_save_image(bing_img) {
+                Ok(image_path) => {
+                    log::info!("Downloaded historical image to unprocessed: {:?}", image_path);
+                    downloaded_count += 1;
+                }
+                Err(e) => {
+                    log::warn!("Failed to download historical image {}: {}", bing_img.title, e);
+                }
+            }
+        }
+
+        log::info!("Successfully downloaded {} images to unprocessed directory", downloaded_count);
+
+        // Update current_page_size and save to database
+        self.current_page_size = downloaded_count;
+        if let Some(ref db) = self.db {
+            db.set_config("current_page_size", &self.current_page_size.to_string())?;
+        }
+
+        Ok(())
     }
 
     /// Save the current wallpaper to the favorites collection for future use.
@@ -1539,28 +1912,41 @@ impl BingTrayLogic {
                 .to_string();
             let keepfavorite_path = self.config.keepfavorite_dir.join(&filename);
 
-            // Check if file still exists (might be in cached dir)
-            if current_path.exists() {
+            // The image should be in unprocessed directory (we don't move it on rotation)
+            let unprocessed_path = self.config.unprocessed_dir.join(&filename);
+
+            if unprocessed_path.exists() {
+                // Move from unprocessed to favorites (consume the image)
+                fs::rename(&unprocessed_path, &keepfavorite_path)?;
+                log::info!("Moved to favorites: {:?}", keepfavorite_path);
+            } else if current_path.exists() {
+                // Fallback: image at current path
                 fs::rename(current_path, &keepfavorite_path)?;
+                log::info!("Moved to favorites: {:?}", keepfavorite_path);
             } else {
-                // Try to find it in cached dir
+                // Try cached dir as last resort
                 let cached_path = self.config.cached_dir.join(&filename);
                 if cached_path.exists() {
                     fs::rename(&cached_path, &keepfavorite_path)?;
+                    log::info!("Moved to favorites: {:?}", keepfavorite_path);
                 } else {
                     anyhow::bail!("Current image file not found");
                 }
             }
 
-            log::info!("Moved to favorites: {:?}", keepfavorite_path);
-
-            // Update database
-            if let Some(ref _db) = self.db {
-                // Update status in database
-                log::debug!("Database update skipped for MVP");
+            // Adjust rotation index (image was removed, so stay at same index for next rotation)
+            if self.current_rotation_index > 0 {
+                self.current_rotation_index -= 1;
             }
 
-            // Try to set next wallpaper
+            // Check if we need to load next page (if unprocessed is exhausted)
+            if self.count_unprocessed_files() == 0 {
+                if let Err(e) = self.load_next_historical_page() {
+                    log::warn!("Failed to load next historical page: {}", e);
+                }
+            }
+
+            // Rotate to next wallpaper (without consuming)
             self.set_next_market_wallpaper()?;
         }
 
@@ -1595,25 +1981,39 @@ impl BingTrayLogic {
             // Write blacklist
             self.write_blacklist(&blacklist)?;
 
-            // Delete the image file
-            if current_path.exists() {
+            // The image should be in unprocessed directory (we don't move it on rotation)
+            let unprocessed_path = self.config.unprocessed_dir.join(&filename);
+
+            if unprocessed_path.exists() {
+                // Delete from unprocessed (consume the image)
+                fs::remove_file(&unprocessed_path)?;
+                log::info!("Blacklisted and deleted from unprocessed: {}", filename);
+            } else if current_path.exists() {
+                // Fallback: delete at current path
                 fs::remove_file(current_path)?;
+                log::info!("Blacklisted and deleted: {}", filename);
             } else {
-                // Try cached dir
+                // Try cached dir as last resort
                 let cached_path = self.config.cached_dir.join(&filename);
                 if cached_path.exists() {
                     fs::remove_file(&cached_path)?;
+                    log::info!("Blacklisted and deleted from cached: {}", filename);
                 }
             }
 
-            log::info!("Blacklisted and deleted: {}", filename);
-
-            // Update database
-            if let Some(ref _db) = self.db {
-                log::debug!("Database update skipped for MVP");
+            // Adjust rotation index (image was removed, so stay at same index for next rotation)
+            if self.current_rotation_index > 0 {
+                self.current_rotation_index -= 1;
             }
 
-            // Try to set next wallpaper
+            // Check if we need to load next page (if unprocessed is exhausted)
+            if self.count_unprocessed_files() == 0 {
+                if let Err(e) = self.load_next_historical_page() {
+                    log::warn!("Failed to load next historical page: {}", e);
+                }
+            }
+
+            // Rotate to next wallpaper (without consuming)
             self.set_next_market_wallpaper()?;
         }
 
@@ -1633,7 +2033,7 @@ impl BingTrayLogic {
     /// Ok(true) if a favorite was set, Ok(false) if no favorites exist
     pub fn set_kept_wallpaper(&mut self) -> Result<bool> {
         let entries = fs::read_dir(&self.config.keepfavorite_dir)?;
-        let images: Vec<PathBuf> = entries
+        let mut images: Vec<PathBuf> = entries
             .filter_map(|entry| entry.ok())
             .map(|entry| entry.path())
             .filter(|path| {
@@ -1649,15 +2049,24 @@ impl BingTrayLogic {
             return Ok(false);
         }
 
-        // Random selection
-        let image_path = images
-            .choose(&mut rand::thread_rng())
-            .context("Failed to select random image")?;
+        // Sort to ensure consistent order
+        images.sort();
+
+        // Rotate through favorite wallpapers using last_kept_index
+        let index = self.last_kept_index % images.len();
+        let image_path = &images[index];
 
         api_setwallpaper::set_wallpaper(image_path)?;
         self.current_image_path = Some(image_path.clone());
 
-        log::info!("Set favorite wallpaper: {:?}", image_path);
+        log::info!("Set favorite wallpaper ({}/{}): {:?}", index + 1, images.len(), image_path);
+
+        // Increment and save the index
+        self.last_kept_index = (self.last_kept_index + 1) % images.len();
+        if let Some(ref db) = self.db {
+            let _ = db.set_config("last_kept_index", &self.last_kept_index.to_string());
+            let _ = db.checkpoint();
+        }
 
         Ok(true)
     }
@@ -1747,7 +2156,9 @@ impl BingTrayLogic {
             entries
                 .filter_map(|entry| entry.ok())
                 .filter(|entry| {
-                    entry.path().extension()
+                    entry
+                        .path()
+                        .extension()
                         .and_then(|ext| ext.to_str())
                         .map(|ext| ext.to_lowercase() == "jpg" || ext.to_lowercase() == "jpeg")
                         .unwrap_or(false)
@@ -1763,7 +2174,9 @@ impl BingTrayLogic {
             let count = entries
                 .filter_map(|entry| entry.ok())
                 .filter(|entry| {
-                    entry.path().extension()
+                    entry
+                        .path()
+                        .extension()
                         .and_then(|ext| ext.to_str())
                         .map(|ext| ext.to_lowercase() == "jpg" || ext.to_lowercase() == "jpeg")
                         .unwrap_or(false)
@@ -1875,7 +2288,86 @@ impl BingTrayLogic {
         }
     }
 
+    /// Get the current wallpaper image path.
+    ///
+    /// Returns the PathBuf of the currently set wallpaper, if any.
+    ///
+    /// # Returns
+    /// Option containing the current image path
+    pub fn get_current_image_path(&self) -> Option<PathBuf> {
+        self.current_image_path.clone()
+    }
+
+    /// Get wallpaper page status information.
+    ///
+    /// Returns a formatted string with current rotation index and total unprocessed images.
+    /// Format: "(Curpage: X/Y, Pages: Z/W)" where:
+    ///   X = current rotation index (which image we're viewing in rotation, 1-based)
+    ///   Y = total unprocessed images available
+    ///   Z = current page number
+    ///   W = total pages
+    ///
+    /// # Returns
+    /// A formatted status string, or empty string if page info is unavailable
+    pub fn get_wallpaper_page_status(&self) -> String {
+        let unprocessed_count = self.count_unprocessed_files();
+
+        // Show rotation index (1-based) and total unprocessed count
+        // When rotating, we show which image in the rotation we're on
+        let current_index = if unprocessed_count > 0 {
+            // Show which image we're currently viewing (rotation index + 1 for 1-based)
+            (self.current_rotation_index % unprocessed_count.max(1)) + 1
+        } else {
+            // No images available
+            0
+        };
+
+        match get_historical_page_info(&self.config) {
+            Ok((current_page, total_pages)) => {
+                format!(
+                    "(Curpage: {}/{}, Pages: {}/{})",
+                    current_index,
+                    unprocessed_count,
+                    current_page + 1,
+                    total_pages
+                )
+            }
+            Err(_) => {
+                // If can't get page info, just show current rotation status
+                format!("(Curpage: {}/{})", current_index, unprocessed_count)
+            }
+        }
+    }
+
     // === Helper methods ===
+
+    /// Get all unprocessed images sorted alphabetically.
+    ///
+    /// This helper method scans the unprocessed directory and returns all jpg/jpeg
+    /// image files sorted alphabetically. Used for rotating through images.
+    ///
+    /// # Returns
+    /// Vec of PathBuf containing all unprocessed images
+    fn get_all_unprocessed_images(&self) -> Result<Vec<PathBuf>> {
+        let entries = fs::read_dir(&self.config.unprocessed_dir)?;
+
+        // Get all .jpg files
+        let mut images: Vec<PathBuf> = entries
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext.to_lowercase() == "jpg" || ext.to_lowercase() == "jpeg")
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        // Sort alphabetically
+        images.sort();
+
+        Ok(images)
+    }
 
     /// Find and return the path to the next wallpaper file to be processed.
     ///
@@ -1925,7 +2417,8 @@ impl BingTrayLogic {
     /// A vector of blacklisted identifiers (URLs or filenames)
     fn read_blacklist(&self) -> Result<Vec<String>> {
         if let Some(ref db) = self.db {
-            return db.get_blacklisted_urls()
+            return db
+                .get_blacklisted_urls()
                 .context("Failed to read blacklist from database");
         }
 
@@ -1953,7 +2446,10 @@ impl BingTrayLogic {
                     record.status = ImageStatus::Blacklisted;
                     db.upsert_image(&record)
                         .context("Failed to update image status to blacklisted")?;
-                    log::info!("Updated image status to blacklisted in database: {}", last_entry);
+                    log::info!(
+                        "Updated image status to blacklisted in database: {}",
+                        last_entry
+                    );
                     return Ok(());
                 } else {
                     // Create a minimal record for unknown images
@@ -1997,7 +2493,11 @@ impl BingTrayLogic {
         let count = 8; // Bing API max
         let offset = 0;
 
-        log::info!("Fetching {} images from Bing API (market: {})", count, market_code);
+        log::info!(
+            "Fetching {} images from Bing API (market: {})",
+            count,
+            market_code
+        );
 
         // Fetch metadata from Bing API
         let images = self.fetch_bing_images_sync(market_code, count, offset)?;
@@ -2038,16 +2538,32 @@ impl BingTrayLogic {
     /// The number of images successfully downloaded
     pub fn download_from_next_market(&mut self) -> Result<usize> {
         log::info!("=== DOWNLOAD_FROM_NEXT_MARKET START ===");
-        log::info!("Current market: {}, offset: {}", self.current_market_code, self.current_market_offset);
+        log::info!(
+            "Current market: {}, offset: {}",
+            self.current_market_code,
+            self.current_market_offset
+        );
 
         // Try to download from current market and offset
         let count = 8; // Bing API max
-        log::info!("Fetching images: market={}, count={}, offset={}", self.current_market_code, count, self.current_market_offset);
-        let images = self.fetch_bing_images_sync(&self.current_market_code, count, self.current_market_offset)?;
+        log::info!(
+            "Fetching images: market={}, count={}, offset={}",
+            self.current_market_code,
+            count,
+            self.current_market_offset
+        );
+        let images = self.fetch_bing_images_sync(
+            &self.current_market_code,
+            count,
+            self.current_market_offset,
+        )?;
 
         if images.is_empty() {
             // No more images at this offset - mark as exhausted
-            log::warn!("No images at offset {}, reached end of available data", self.current_market_offset);
+            log::warn!(
+                "No images at offset {}, reached end of available data",
+                self.current_market_offset
+            );
             self.download_exhausted = true;
             anyhow::bail!("No more images available from Bing API");
         }
@@ -2055,7 +2571,10 @@ impl BingTrayLogic {
         // Check for duplicate downloads (Bing API repeating same images)
         let current_urls: Vec<String> = images.iter().map(|img| img.url.clone()).collect();
         if !self.last_downloaded_urls.is_empty() && current_urls == self.last_downloaded_urls {
-            log::warn!("Detected duplicate images at offset {}. Bing API has no more historical data.", self.current_market_offset);
+            log::warn!(
+                "Detected duplicate images at offset {}. Bing API has no more historical data.",
+                self.current_market_offset
+            );
             self.download_exhausted = true;
             anyhow::bail!("No more unique images available - API is repeating");
         }
@@ -2074,11 +2593,22 @@ impl BingTrayLogic {
         // Download and save images
         let mut downloaded = 0;
         for (i, image) in images.iter().enumerate() {
-            log::info!("Downloading image {}/{}: {}", i + 1, images.len(), image.title);
+            log::info!(
+                "Downloading image {}/{}: {}",
+                i + 1,
+                images.len(),
+                image.title
+            );
             match self.download_and_save_image(image) {
                 Ok(path) => {
                     downloaded += 1;
-                    log::info!("✓ Downloaded {}/{}: {} -> {:?}", i + 1, images.len(), image.title, path);
+                    log::info!(
+                        "✓ Downloaded {}/{}: {} -> {:?}",
+                        i + 1,
+                        images.len(),
+                        image.title,
+                        path
+                    );
                 }
                 Err(e) => {
                     log::warn!("✗ Failed to download {}: {}", image.title, e);
@@ -2091,12 +2621,23 @@ impl BingTrayLogic {
 
         // Increment offset by count to get next non-overlapping page
         let increment = count;
-        log::info!("Incrementing offset from {} to {}", self.current_market_offset, self.current_market_offset + increment);
+        log::info!(
+            "Incrementing offset from {} to {}",
+            self.current_market_offset,
+            self.current_market_offset + increment
+        );
         self.current_market_offset += increment;
         self.save_market_state()?;
 
-        log::info!("Advanced to offset {} for next download", self.current_market_offset);
-        log::info!("=== DOWNLOAD_FROM_NEXT_MARKET END: market={}, offset={} ===", self.current_market_code, self.current_market_offset);
+        log::info!(
+            "Advanced to offset {} for next download",
+            self.current_market_offset
+        );
+        log::info!(
+            "=== DOWNLOAD_FROM_NEXT_MARKET END: market={}, offset={} ===",
+            self.current_market_code,
+            self.current_market_offset
+        );
 
         Ok(downloaded)
     }
@@ -2117,7 +2658,12 @@ impl BingTrayLogic {
     ///
     /// # Returns
     /// A vector of BingImage structs with full URLs and metadata
-    fn fetch_bing_images_sync(&self, market_code: &str, count: u32, offset: u32) -> Result<Vec<BingImage>> {
+    fn fetch_bing_images_sync(
+        &self,
+        market_code: &str,
+        count: u32,
+        offset: u32,
+    ) -> Result<Vec<BingImage>> {
         let url = format!(
             "https://www.bing.com/HPImageArchive.aspx?format=js&idx={}&n={}&mkt={}",
             offset, count, market_code
@@ -2223,7 +2769,8 @@ impl BingTrayLogic {
         }
 
         // Generate filename from URL
-        let filename = image.url
+        let filename = image
+            .url
             .split("th?id=")
             .nth(1)
             .and_then(|s| s.split('_').next())
@@ -2232,10 +2779,19 @@ impl BingTrayLogic {
         // Sanitize filename
         let sanitized = filename
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect::<String>();
 
-        let filepath = self.config.unprocessed_dir.join(format!("{}.jpg", sanitized));
+        let filepath = self
+            .config
+            .unprocessed_dir
+            .join(format!("{}.jpg", sanitized));
 
         // Save to disk
         fs::write(&filepath, &resp.bytes)
@@ -2282,10 +2838,17 @@ impl BingTrayLogic {
             }
 
             if saved_count == images.len() {
-                log::info!("Successfully saved {} image metadata records to database", saved_count);
+                log::info!(
+                    "Successfully saved {} image metadata records to database",
+                    saved_count
+                );
                 return Ok(());
             } else {
-                anyhow::bail!("Failed to save all metadata to database ({}/{})", saved_count, images.len());
+                anyhow::bail!(
+                    "Failed to save all metadata to database ({}/{})",
+                    saved_count,
+                    images.len()
+                );
             }
         }
 
@@ -2342,7 +2905,10 @@ mod tests {
         assert_eq!(sanitize_filename("hello>world.jpg"), "hello_world_jpg");
         assert_eq!(sanitize_filename("hello|world.jpg"), "hello_world_jpg");
         // Each non-allowed character is replaced individually, so "../" becomes "___"
-        assert_eq!(sanitize_filename("hello/../world.jpg"), "hello____world_jpg");
+        assert_eq!(
+            sanitize_filename("hello/../world.jpg"),
+            "hello____world_jpg"
+        );
         assert_eq!(sanitize_filename("hello-world_test"), "hello-world_test");
     }
 
@@ -2487,7 +3053,10 @@ mod tests {
         let _ = config;
 
         let result = find_bing_url_for_cached_image(&config, "test_title").unwrap();
-        assert_eq!(result, Some("/th?id=full_test_title_here&pid=hp".to_string()));
+        assert_eq!(
+            result,
+            Some("/th?id=full_test_title_here&pid=hp".to_string())
+        );
     }
 
     // Integration test for get_market_codes (requires internet)
@@ -2536,13 +3105,16 @@ mod tests {
     #[test]
     #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     fn test_market_state_save_and_load() {
-        let (_config, _temp_dir) = create_test_config();
+        let (config, _temp_dir) = create_test_config();
 
-        println!("\n=== Test: Market State Save and Load ===");
+        println!("\n=== Test: Market State Save and Load (DuckDB) ===");
 
         // Test saving market state
-        let mut logic = BingTrayLogic::new().unwrap();
-        println!("Initial: market={}, offset={}", logic.current_market_code, logic.current_market_offset);
+        let mut logic = BingTrayLogic::from_config(config).unwrap();
+        println!(
+            "Initial: market={}, offset={}",
+            logic.current_market_code, logic.current_market_offset
+        );
         assert_eq!(logic.current_market_code, "en-US");
         assert_eq!(logic.current_market_offset, 0);
 
@@ -2550,15 +3122,24 @@ mod tests {
         logic.current_market_code = "ja-JP".to_string();
         logic.current_market_offset = 5;
         logic.save_market_state().unwrap();
-        println!("Modified: market={}, offset={}", logic.current_market_code, logic.current_market_offset);
+        println!(
+            "Modified: market={}, offset={}",
+            logic.current_market_code, logic.current_market_offset
+        );
 
-        // Verify file exists and has correct content
-        let state_file = logic.config.config_dir.join("market_state.conf");
-        assert!(state_file.exists());
+        // Verify data is in DuckDB
+        if let Some(db) = &logic.db {
+            // Check market code
+            let market_codes = db.get_market_codes().unwrap();
+            assert!(!market_codes.is_empty());
+            assert_eq!(market_codes[0].code, "ja-JP");
+            println!("DB market code: {}", market_codes[0].code);
 
-        let content = fs::read_to_string(&state_file).unwrap();
-        println!("State file content: {}", content);
-        assert_eq!(content, "ja-JP|5");
+            // Check offset
+            let offset = db.get_config("market_offset").unwrap().unwrap();
+            assert_eq!(offset, "5");
+            println!("DB offset: {}", offset);
+        }
 
         // Verify load works
         let (market, offset) = BingTrayLogic::load_market_state(&logic.config).unwrap();
@@ -2570,13 +3151,16 @@ mod tests {
     #[test]
     #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     fn test_market_offset_increments() {
-        let (_config, _temp_dir) = create_test_config();
+        let (config, _temp_dir) = create_test_config();
 
-        let mut logic = BingTrayLogic::new().unwrap();
+        let mut logic = BingTrayLogic::from_config(config).unwrap();
 
-        println!("\n=== Test: Market Offset Increments ===");
-        println!("Initial state: market={}, offset={}", logic.current_market_code, logic.current_market_offset);
-        println!("State file: {:?}", logic.config.config_dir.join("market_state.conf"));
+        println!("\n=== Test: Market Offset Increments (DuckDB) ===");
+        println!(
+            "Initial state: market={}, offset={}",
+            logic.current_market_code, logic.current_market_offset
+        );
+        println!("DB path: {:?}", logic.config.db_path);
 
         let initial_offset = logic.current_market_offset;
 
@@ -2584,17 +3168,22 @@ mod tests {
         logic.current_market_offset += 1;
         logic.save_market_state().unwrap();
 
-        println!("After increment: market={}, offset={}", logic.current_market_code, logic.current_market_offset);
+        println!(
+            "After increment: market={}, offset={}",
+            logic.current_market_code, logic.current_market_offset
+        );
         assert_eq!(logic.current_market_offset, initial_offset + 1);
 
-        // Verify state file was written
-        let state_file = logic.config.config_dir.join("market_state.conf");
-        let content = fs::read_to_string(&state_file).unwrap();
-        println!("State file content: {}", content);
+        // Verify data was written to DuckDB
+        if let Some(db) = &logic.db {
+            let offset_str = db.get_config("market_offset").unwrap().unwrap();
+            println!("DB offset value: {}", offset_str);
+            assert_eq!(offset_str.parse::<u32>().unwrap(), initial_offset + 1);
+        }
 
         // Load in new instance using same config
         let (market, offset) = BingTrayLogic::load_market_state(&logic.config).unwrap();
-        println!("After reload from file: market={}, offset={}", market, offset);
+        println!("After reload from DB: market={}, offset={}", market, offset);
         assert_eq!(offset, initial_offset + 1);
     }
 
@@ -2603,7 +3192,7 @@ mod tests {
     fn test_set_market_code_resets_offset() {
         let (config, _temp_dir) = create_test_config();
 
-        let mut logic = BingTrayLogic::new().unwrap();
+        let mut logic = BingTrayLogic::from_config(config.clone()).unwrap();
 
         // Increment offset
         logic.current_market_offset = 5;
@@ -2617,7 +3206,7 @@ mod tests {
         assert_eq!(logic.current_market_offset, 0);
 
         // Verify it was saved
-        let logic2 = BingTrayLogic::new().unwrap();
+        let logic2 = BingTrayLogic::from_config(config).unwrap();
         assert_eq!(logic2.current_market_code, "de-DE");
         assert_eq!(logic2.current_market_offset, 0);
     }
@@ -2631,7 +3220,10 @@ mod tests {
         let mut logic = BingTrayLogic::new().unwrap();
 
         println!("\n=== Test: Download Next Page ===");
-        println!("Initial: market={}, offset={}", logic.current_market_code, logic.current_market_offset);
+        println!(
+            "Initial: market={}, offset={}",
+            logic.current_market_code, logic.current_market_offset
+        );
 
         let initial_offset = logic.current_market_offset;
 
@@ -2639,7 +3231,10 @@ mod tests {
         match logic.download_from_next_market() {
             Ok(count) => {
                 println!("Downloaded {} images", count);
-                println!("After download: market={}, offset={}", logic.current_market_code, logic.current_market_offset);
+                println!(
+                    "After download: market={}, offset={}",
+                    logic.current_market_code, logic.current_market_offset
+                );
 
                 // Offset should have incremented
                 assert_eq!(logic.current_market_offset, initial_offset + 1);
@@ -2649,7 +3244,10 @@ mod tests {
                 match logic.download_from_next_market() {
                     Ok(count2) => {
                         println!("Downloaded {} more images", count2);
-                        println!("After second download: market={}, offset={}", logic.current_market_code, logic.current_market_offset);
+                        println!(
+                            "After second download: market={}, offset={}",
+                            logic.current_market_code, logic.current_market_offset
+                        );
                         assert_eq!(logic.current_market_offset, second_offset + 1);
                     }
                     Err(e) => {

@@ -259,12 +259,12 @@ clipboard-paste = Paste
 # Tray Menu (Desktop)
 tray-show-app = Show App
 tray-cache-dir = Open Cache Directory
-tray-next-market = Next Market Wallpaper
+tray-next-market = Download & Set Next Wallpaper
 tray-keep-current = Keep Current Image
 tray-keep-with-title = Keep "{ $title }"
 tray-blacklist-current = Blacklist Current Image
 tray-blacklist-with-title = Blacklist "{ $title }"
-tray-random-favorite = Random Favorite
+tray-random-favorite = Random Favorite Wallpaper
 tray-quit = Quit
 
 # Main UI (bingtray.rs)

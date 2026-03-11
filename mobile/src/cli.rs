@@ -8,7 +8,10 @@ use std::io::{self, Write};
 
 /// Run the CLI mode with a REPL loop
 pub fn run_cli_mode(logic: &mut BingTrayLogic) -> Result<()> {
-    println!("🖼️  Bingtray v{} - Bing Wallpaper Manager", env!("CARGO_PKG_VERSION"));
+    println!(
+        "Bingtray v{} - Bing Wallpaper Manager",
+        env!("CARGO_PKG_VERSION")
+    );
     println!("═══════════════════════════════════════════════════════════");
     println!();
 
@@ -102,11 +105,13 @@ pub fn run_cli_mode(logic: &mut BingTrayLogic) -> Result<()> {
                         Err(e) => println!("✗ Error: {}", e),
                     }
                 } else {
-                    println!("⚠ No favorite wallpapers available. Use option 2 to keep some first.");
+                    println!(
+                        "⚠ No favorite wallpapers available. Use option 2 to keep some first."
+                    );
                 }
             }
             "5" | "q" | "quit" | "exit" => {
-                println!("\n👋 Goodbye!");
+                println!("\nGoodbye!");
                 break;
             }
             "" => {
@@ -129,8 +134,15 @@ fn print_menu(logic: &BingTrayLogic) {
     println!("═══════════════════════════════════════════════════════════");
     println!("MENU:");
     println!("  0. Open Cache Directory");
-    println!("  1. Download & Set Next Market Wallpaper{}",
-        if logic.has_next_available() { "" } else { " (downloading...)" });
+    println!(
+        "  1. Download & Set Next Wallpaper{}\n     {}",
+        if logic.has_next_available() {
+            ""
+        } else {
+            " (downloading...)"
+        },
+        logic.get_wallpaper_page_status()
+    );
 
     if logic.can_keep() {
         println!("  2. Keep \"{}\"", logic.get_current_image_title());
@@ -144,8 +156,14 @@ fn print_menu(logic: &BingTrayLogic) {
         println!("  3. Blacklist Current Image (no current image)");
     }
 
-    println!("  4. Random Favorite Wallpaper{}",
-        if logic.has_kept_wallpapers() { "" } else { " (no favorites yet)" });
+    println!(
+        "  4. Random Favorite Wallpaper{}",
+        if logic.has_kept_wallpapers() {
+            ""
+        } else {
+            " (no favorites yet)"
+        }
+    );
     println!("  5. Exit");
     println!("═══════════════════════════════════════════════════════════");
 }
