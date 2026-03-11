@@ -166,7 +166,7 @@ pub fn set_wallpaper<P: AsRef<Path>>(path: P) -> Result<()> {
     }
 }
 
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+#[cfg(target_os = "linux")]
 fn set_wallpaper_linux_fallback(file_path: &Path) -> Result<bool> {
     let file_loc = file_path.to_string_lossy();
     let desktop_env = get_desktop_environment();
@@ -258,7 +258,7 @@ fn set_wallpaper_linux_fallback(file_path: &Path) -> Result<bool> {
 }
 
 /// Try to set wallpaper using custom Wallpaper app
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+#[cfg(target_os = "linux")]
 fn set_wallpaper_custom_app(file_path: &Path) -> Result<bool> {
     let wallpaper_app = "/usr/local/apps/Wallpaper/set_bg";
 
