@@ -2334,11 +2334,15 @@ impl BingtrayApp {
 
     /// Load the current wallpaper from BingTrayLogic into the main panel
     fn load_current_wallpaper_to_main_panel(&mut self) {
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         let current_path = if let Some(ref logic) = self.tray_logic {
             logic.get_current_image_path()
         } else {
             None
         };
+
+        #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+        let current_path: Option<std::path::PathBuf> = None;
 
         if let Some(current_path) = current_path {
             info!("Loading current wallpaper to main panel: {:?}", current_path);
@@ -2346,11 +2350,15 @@ impl BingtrayApp {
             // Read the image file
             match std::fs::read(&current_path) {
                 Ok(image_bytes) => {
+                    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
                     let title = if let Some(ref logic) = self.tray_logic {
                         logic.get_current_image_title()
                     } else {
                         String::from("Current Wallpaper")
                     };
+
+                    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+                    let title = String::from("Current Wallpaper");
 
                     // Create a CarouselImage from the file
                     let carousel_image = CarouselImage {
@@ -2507,9 +2515,9 @@ impl BingtrayApp {
     fn perform_update(&mut self) {
         // Check if we have update info stored from check_for_update()
         if !self.update_available || self.update_download_url.is_empty() {
-            self.install_message = "No update available. Please check for updates first.".to_string();
             #[cfg(not(target_os = "android"))]
             {
+                self.install_message = "No update available. Please check for updates first.".to_string();
                 self.install_dialog_open = true;
             }
             return;
