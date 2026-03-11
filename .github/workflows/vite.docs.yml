@@ -1,8 +1,12 @@
 name: Deploy Documentation
 on:
+  workflow_run:
+    workflows: ["Build and Release"]
+    types:
+      - completed
   push:
-    tags:
-      - v*
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -16,6 +20,8 @@ concurrency:
 
 jobs:
   deploy:
+    # Only run if triggered by successful release workflow, branch push, or manual trigger
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'push' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
