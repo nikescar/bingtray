@@ -24,19 +24,19 @@ jobs:
           # Linux
           - name: Linux x86_64
             target: x86_64-unknown-linux-musl
-            build-args: "--release --features bundled-duckdb"
+            build-args: "--release --features desktop,bundled-duckdb"
 
           # - name: Linux x86
           #   target: i686-unknown-linux-musl
-          #   build-args: "--release --features bundled-duckdb"
+          #   build-args: "--release --features desktop,bundled-duckdb"
 
           - name: Linux aarch64
             target: aarch64-unknown-linux-musl
-            build-args: "--release --features bundled-duckdb"
+            build-args: "--release --features desktop,bundled-duckdb"
 
           - name: Linux armv7hf
             target: armv7-unknown-linux-musleabihf
-            build-args: "--release --features bundled-duckdb"
+            build-args: "--release --features desktop,bundled-duckdb"
 
           # - name: Linux armv6
           #   target: arm-unknown-linux-musleabihf
@@ -53,7 +53,7 @@ jobs:
 
           - name: Android aarch64
             target: aarch64-linux-android
-            build-args: "--release"
+            build-args: "--release --features desktop"
 
           - name: Android APK arm64
             target: aarch64-linux-android
@@ -61,7 +61,7 @@ jobs:
 
           - name: Android armv7
             target: armv7-linux-androideabi
-            build-args: "--release"
+            build-args: "--release --features desktop"
 
           #- name: Linux mips
           #  target: mips-unknown-linux-musl
@@ -73,12 +73,12 @@ jobs:
           - name: MacOS x86_64
             os: macos-latest
             target: x86_64-apple-darwin
-            build-args: "--release --features bundled-duckdb"
+            build-args: "--release --features desktop,bundled-duckdb"
 
           - name: MacOS aarch64
             os: macos-latest
             target: aarch64-apple-darwin
-            build-args: "--release --features bundled-duckdb"
+            build-args: "--release --features desktop,bundled-duckdb"
 
           # - name: iOS x86_64
           #   target: x86_64-apple-ios
@@ -90,7 +90,7 @@ jobs:
           - name: Windows x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            build-args: "--profile release-with-symbols --features bundled-duckdb"
+            build-args: "--profile release-with-symbols --features desktop,bundled-duckdb"
 
           # - name: Windows x86
           #   os: windows-latest
@@ -198,7 +198,7 @@ jobs:
           serviceAccountJsonPlainText: ${{ secrets.SERVICE_ACCOUNT_JSON }}
           packageName: pe.nikescar.bingtray
           releaseFiles: mobile/app/build/outputs/bundle/release/app-release.aab
-          track: alpha # production
+          track: production # production
           status: completed
           inAppUpdatePriority: 2
       
