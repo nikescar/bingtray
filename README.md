@@ -10,8 +10,8 @@ A cross-platform wallpaper manager that downloads and manages Bing's weekly wall
 
 | Arch          | Windows        | MacOS         | Linux        | Android        | IOS         |
 |:--------------|:--------------:|:-------------:|:------------:|:--------------:|--------------:|
-| X86_64(AMD64) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-pc-windows-msvc.tar.gz) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-apple-darwin.tar.gz) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-unknown-linux-musl.tar.gz) [SNAP](https://snapcraft.io/bingtray) | [APK](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk) | - |
-| AARCH64(ARM64)| - | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-apple-darwin.tar.gz) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-linux-android.tar.gz) [SNAP](https://snapcraft.io/bingtray) | [APK](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk) | - |
+| X86_64(AMD64) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray.exe) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-apple-darwin.tar.gz) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-unknown-linux-musl.tar.gz) [SNAP](https://snapcraft.io/bingtray) | [APK](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk) | - |
+| AARCH64(ARM64)| - | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-apple-darwin.tar.gz) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-unknown-linux-musl.tar.gz) [SNAP](https://snapcraft.io/bingtray) | [APK](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk) | - |
 
 [Latest Release](https://github.com/nikescar/bingtray/releases)<br/>
 <br/>
