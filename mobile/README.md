@@ -73,8 +73,10 @@ move it to ```./android/app/```.
 $ cd android/app
 $ wget https://www.gstatic.com/play-apps-publisher-rapid/signing-tool/prod/pepk.jar
 $ java -jar pepk.jar --keystore=release.keystore --alias=upload --output=release-signing-play-generated.zip --include-cert --rsa-aes-encryption --encryption-key-path=encryption_public_key.pem
+$ keytool -export -rfc -keystore release.keystore -alias upload -file upload_certificate.pem
 ```
-upload created ```release-signing-play-generated.zip``` file.
+- upload key reset with created ```upload_certificate.pem``` file.
+- upload app signing with created ```release-signing-play-generated.zip``` file.
 
 ### Submit app to Google Playstore
 1. register google play console
