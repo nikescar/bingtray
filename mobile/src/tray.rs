@@ -154,6 +154,9 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
     // Event loop - poll for tray events
     let menu_channel = MenuEvent::receiver();
 
+    // Flag to indicate menu needs updating (deferred to avoid GTK segfault)
+    let mut needs_menu_update = false;
+
     loop {
         // Process pending GTK events on Linux
         #[cfg(target_os = "linux")]
@@ -161,6 +164,12 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
             while gtk::events_pending() {
                 gtk::main_iteration();
             }
+        }
+
+        // Update menu if needed (outside event handler to avoid GTK reentrancy issues)
+        if needs_menu_update {
+            update_tray_menu(&tray_icon, &app, &mut menu_items);
+            needs_menu_update = false;
         }
 
         // Check for menu events (non-blocking with short timeout)
@@ -184,7 +193,7 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
                 match app.set_next_market_wallpaper() {
                     Ok(true) => {
                         log::info!("Wallpaper set successfully!");
-                        update_tray_menu(&tray_icon, &app, &mut menu_items);
+                        needs_menu_update = true;
                     }
                     Ok(false) => {
                         log::warn!("No wallpapers available. Please download more images.");
@@ -201,7 +210,7 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
                         log::error!("Failed to keep image: {}", e);
                     } else {
                         log::info!("Image moved to favorites!");
-                        update_tray_menu(&tray_icon, &app, &mut menu_items);
+                        needs_menu_update = true;
                     }
                 } else {
                     log::warn!("No current image to keep");
@@ -215,7 +224,7 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
                         log::error!("Failed to blacklist image: {}", e);
                     } else {
                         log::info!("Image blacklisted!");
-                        update_tray_menu(&tray_icon, &app, &mut menu_items);
+                        needs_menu_update = true;
                     }
                 } else {
                     log::warn!("No current image to blacklist");
@@ -227,7 +236,7 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
                     match app.set_kept_wallpaper() {
                         Ok(true) => {
                             log::info!("Favorite wallpaper set!");
-                            update_tray_menu(&tray_icon, &app, &mut menu_items);
+                            needs_menu_update = true;
                         }
                         Ok(false) => {
                             log::warn!("No favorite wallpapers available");
