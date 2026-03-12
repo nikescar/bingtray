@@ -223,7 +223,7 @@ fn install_linux(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String, 
         r#"[Desktop Entry]
 Name=Bingtray {}
 Comment=Universal Android Debloater with Shizuku support
-Exec={}
+Exec={} --tray
 Icon={}
 Terminal=false
 Type=Application
@@ -260,8 +260,9 @@ fn install_macos(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String, 
     fs::create_dir_all(&macos_dir)
         .map_err(|e| format!("Failed to create app bundle: {}", e))?;
 
-    // Copy binary
-    let binary_dest = macos_dir.join(get_versioned_app_name());
+    // Copy binary with actual binary name
+    let versioned_name = get_versioned_app_name();
+    let binary_dest = macos_dir.join(format!("{}-bin", versioned_name));
     fs::copy(current_exe, &binary_dest)
         .map_err(|e| format!("Failed to copy binary: {}", e))?;
 
@@ -277,8 +278,31 @@ fn install_macos(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String, 
             .map_err(|e| format!("Failed to set permissions: {}", e))?;
     }
 
+    // Create wrapper script that launches with --tray
+    let launcher_script = macos_dir.join(&versioned_name);
+    let script_content = format!(
+        r#"#!/bin/bash
+DIR="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
+exec "$DIR/{}-bin" --tray "$@"
+"#,
+        versioned_name
+    );
+    fs::write(&launcher_script, script_content)
+        .map_err(|e| format!("Failed to create launcher script: {}", e))?;
+
+    // Make launcher executable
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(&launcher_script)
+            .map_err(|e| format!("Failed to get launcher permissions: {}", e))?
+            .permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&launcher_script, perms)
+            .map_err(|e| format!("Failed to set launcher permissions: {}", e))?;
+    }
+
     // Create Info.plist
-    let versioned_name = get_versioned_app_name();
     let info_plist = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -362,7 +386,7 @@ fn create_windows_shortcut(target: &PathBuf, shortcut_path: &PathBuf) -> Result<
     use std::process::Command;
 
     let ps_script = format!(
-        r#"$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('{}'); $Shortcut.TargetPath = '{}'; $Shortcut.WorkingDirectory = '{}'; $Shortcut.Description = 'Bingtray - Universal Android Debloater'; $Shortcut.Save()"#,
+        r#"$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('{}'); $Shortcut.TargetPath = '{}'; $Shortcut.Arguments = '--tray'; $Shortcut.WorkingDirectory = '{}'; $Shortcut.Description = 'Bingtray - Universal Android Debloater'; $Shortcut.Save()"#,
         shortcut_path.display(),
         target.display(),
         target.parent().map(|p| p.display().to_string()).unwrap_or_default()
