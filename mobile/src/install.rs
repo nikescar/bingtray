@@ -10,7 +10,7 @@ use crate::install_stt::{GitHubRelease, InstallPaths, InstallResult, InstallStat
 use std::env;
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const APP_NAME: &str = "bingtray";
 const GITHUB_REPO: &str = "nikescar/bingtray";
@@ -19,6 +19,193 @@ const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Get versioned app name (e.g., "bingtray-1.0.0")
 fn get_versioned_app_name() -> String {
     format!("{}-{}", APP_NAME, CURRENT_VERSION)
+}
+
+/// Move a file or directory to trash (cross-platform)
+fn move_to_trash<P: AsRef<Path>>(path: P) -> Result<(), String> {
+    let path = path.as_ref();
+    if !path.exists() {
+        return Ok(()); // Nothing to move
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let trash_dir = dirs::home_dir()
+            .ok_or_else(|| "Failed to get home directory".to_string())?
+            .join(".local/share/Trash/files");
+        fs::create_dir_all(&trash_dir)
+            .map_err(|e| format!("Failed to create trash directory: {}", e))?;
+
+        let file_name = path.file_name()
+            .ok_or_else(|| "Invalid file path".to_string())?;
+        let mut dest = trash_dir.join(file_name);
+
+        // Add timestamp if file already exists in trash
+        if dest.exists() {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            dest = trash_dir.join(format!("{}-{}", file_name.to_string_lossy(), timestamp));
+        }
+
+        fs::rename(path, dest)
+            .map_err(|e| format!("Failed to move to trash: {}", e))?;
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let trash_dir = dirs::home_dir()
+            .ok_or_else(|| "Failed to get home directory".to_string())?
+            .join(".Trash");
+
+        let file_name = path.file_name()
+            .ok_or_else(|| "Invalid file path".to_string())?;
+        let mut dest = trash_dir.join(file_name);
+
+        // Add timestamp if file already exists in trash
+        if dest.exists() {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            dest = trash_dir.join(format!("{}-{}", file_name.to_string_lossy(), timestamp));
+        }
+
+        fs::rename(path, dest)
+            .map_err(|e| format!("Failed to move to trash: {}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+
+        // Use PowerShell to move to Recycle Bin
+        let ps_script = format!(
+            r#"Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{}', 'OnlyErrorDialogs', 'SendToRecycleBin')"#,
+            path.display()
+        );
+
+        let output = Command::new("powershell")
+            .args(["-Command", &ps_script])
+            .output()
+            .map_err(|e| format!("Failed to move to recycle bin: {}", e))?;
+
+        if !output.status.success() {
+            return Err(format!("Failed to move to recycle bin: {:?}", String::from_utf8_lossy(&output.stderr)));
+        }
+    }
+
+    Ok(())
+}
+
+/// Remove old versions of binaries and shortcuts
+fn cleanup_old_installations(paths: &InstallPaths) -> Result<(), String> {
+    let current_version = get_versioned_app_name();
+
+    // Clean up old binaries in bin_dir
+    if paths.bin_dir.exists() {
+        if let Ok(entries) = fs::read_dir(&paths.bin_dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let file_name = entry.file_name();
+                let name_str = file_name.to_string_lossy();
+
+                // Check if it's an old version of our app
+                #[cfg(target_os = "windows")]
+                let is_old_binary = name_str.starts_with(&format!("{}-", APP_NAME))
+                    && name_str.ends_with(".exe")
+                    && !name_str.starts_with(&current_version);
+
+                #[cfg(not(target_os = "windows"))]
+                let is_old_binary = name_str.starts_with(&format!("{}-", APP_NAME))
+                    && !name_str.starts_with(&current_version)
+                    && !name_str.contains("-bin"); // Don't remove the -bin helper on macOS
+
+                if is_old_binary {
+                    let _ = move_to_trash(&path);
+                }
+            }
+        }
+    }
+
+    // Clean up old shortcuts
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Clean start menu shortcuts
+        if let Some(ref start_menu) = paths.start_menu_entry {
+            if let Some(parent) = start_menu.parent() {
+                if parent.exists() {
+                    if let Ok(entries) = fs::read_dir(parent) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            let file_name = entry.file_name();
+                            let name_str = file_name.to_string_lossy();
+
+                            #[cfg(target_os = "linux")]
+                            let is_old_shortcut = name_str == format!("{}.desktop", APP_NAME);
+
+                            #[cfg(target_os = "windows")]
+                            let is_old_shortcut = name_str == format!("{}.lnk", APP_NAME);
+
+                            if is_old_shortcut && path != *start_menu {
+                                let _ = move_to_trash(&path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Clean desktop shortcuts
+        if let Some(ref desktop) = paths.desktop_shortcut {
+            if let Some(parent) = desktop.parent() {
+                if parent.exists() {
+                    if let Ok(entries) = fs::read_dir(parent) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            let file_name = entry.file_name();
+                            let name_str = file_name.to_string_lossy();
+
+                            #[cfg(target_os = "linux")]
+                            let is_old_shortcut = name_str == format!("{}.desktop", APP_NAME);
+
+                            #[cfg(target_os = "windows")]
+                            let is_old_shortcut = name_str == format!("{}.lnk", APP_NAME);
+
+                            if is_old_shortcut && path != *desktop {
+                                let _ = move_to_trash(&path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Clean up old macOS app bundles
+    #[cfg(target_os = "macos")]
+    {
+        if paths.bin_dir.exists() {
+            if let Ok(entries) = fs::read_dir(&paths.bin_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let file_name = entry.file_name();
+                    let name_str = file_name.to_string_lossy();
+
+                    let is_old_app = name_str.starts_with(&format!("{}-", APP_NAME))
+                        && name_str.ends_with(".app")
+                        && !name_str.starts_with(&current_version);
+
+                    if is_old_app {
+                        let _ = move_to_trash(&path);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Get platform-specific installation paths
@@ -192,6 +379,9 @@ pub fn do_install() -> InstallResult {
 
 #[cfg(target_os = "linux")]
 fn install_linux(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String, String> {
+    // Clean up old installations
+    cleanup_old_installations(paths)?;
+
     let binary_dest = paths.bin_dir.join(get_versioned_app_name());
 
     // Copy binary
@@ -252,6 +442,9 @@ Keywords=android;debloat;shizuku;adb;
 
 #[cfg(target_os = "macos")]
 fn install_macos(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String, String> {
+    // Clean up old installations
+    cleanup_old_installations(paths)?;
+
     let app_bundle = paths.bin_dir.join(format!("{}.app", get_versioned_app_name()));
     let contents_dir = app_bundle.join("Contents");
     let macos_dir = contents_dir.join("MacOS");
@@ -339,6 +532,9 @@ exec "$DIR/{}-bin" --tray "$@"
 #[cfg(target_os = "windows")]
 fn install_windows(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String, String> {
     use std::process::Command;
+
+    // Clean up old installations
+    cleanup_old_installations(paths)?;
 
     let binary_dest = paths.bin_dir.join(format!("{}.exe", get_versioned_app_name()));
 
