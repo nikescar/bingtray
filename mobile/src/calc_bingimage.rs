@@ -1491,6 +1491,72 @@ impl CalcBingimage {
         Ok(())
     }
 
+    /// Mark a specific image as favorite (keepfavorite) by its URL.
+    ///
+    /// This method updates the database status for the given image URL to 'keepfavorite'.
+    /// Unlike keep_current_image(), this works with any image URL, not just the current wallpaper.
+    ///
+    /// # Arguments
+    /// * `url` - The full URL of the image to mark as favorite
+    ///
+    /// # Errors
+    /// Returns an error if the database is not available or the update fails
+    pub fn keep_image_by_url(&self, url: &str) -> Result<()> {
+        if let Some(ref database) = self.db {
+            use crate::duckdb_bingimage::ImageStatus;
+            database.update_image_status(url, ImageStatus::KeepFavorite)
+                .context("Failed to update image status to keepfavorite")?;
+            log::info!("Marked image as favorite in database: {}", url);
+            Ok(())
+        } else {
+            anyhow::bail!("Database not available")
+        }
+    }
+
+    /// Mark a specific image as blacklisted by its URL.
+    ///
+    /// This method updates the database status for the given image URL to 'blacklisted'.
+    /// Unlike blacklist_current_image(), this works with any image URL, not just the current wallpaper.
+    ///
+    /// # Arguments
+    /// * `url` - The full URL of the image to mark as blacklisted
+    ///
+    /// # Errors
+    /// Returns an error if the database is not available or the update fails
+    pub fn blacklist_image_by_url(&self, url: &str) -> Result<()> {
+        if let Some(ref database) = self.db {
+            use crate::duckdb_bingimage::ImageStatus;
+            database.update_image_status(url, ImageStatus::Blacklisted)
+                .context("Failed to update image status to blacklisted")?;
+            log::info!("Marked image as blacklisted in database: {}", url);
+            Ok(())
+        } else {
+            anyhow::bail!("Database not available")
+        }
+    }
+
+    /// Unmark a specific image (set to cached status) by its URL.
+    ///
+    /// This method updates the database status for the given image URL to 'cached',
+    /// effectively removing it from favorites or blacklist.
+    ///
+    /// # Arguments
+    /// * `url` - The full URL of the image to unmark
+    ///
+    /// # Errors
+    /// Returns an error if the database is not available or the update fails
+    pub fn unmark_image_by_url(&self, url: &str) -> Result<()> {
+        if let Some(ref database) = self.db {
+            use crate::duckdb_bingimage::ImageStatus;
+            database.update_image_status(url, ImageStatus::Cached)
+                .context("Failed to update image status to cached")?;
+            log::info!("Unmarked image (set to cached) in database: {}", url);
+            Ok(())
+        } else {
+            anyhow::bail!("Database not available")
+        }
+    }
+
     /// Select and display a random wallpaper from the favorites collection.
     ///
     /// This method scans the keepfavorite directory for all saved favorite wallpapers,

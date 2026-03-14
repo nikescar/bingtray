@@ -24,6 +24,9 @@ use egui_material3::material_symbol::{
     ICON_SETTINGS,
     ICON_MENU,
     ICON_INFO,
+    ICON_STAR,
+    ICON_STAR_OUTLINE,
+    ICON_BLOCK,
 };
 use eframe::egui::{Color32};
 // Theme loading is done in main.rs, not here
@@ -1214,7 +1217,107 @@ impl BingtrayApp {
             let main_image = self.main_panel_image.as_ref().unwrap().clone();
 
             ui.separator();
-            ui.label(tr!("image-title-label", { title: &main_image.title }));
+
+            // Add favorite and blacklist toggle switches at the right-top
+            ui.horizontal(|ui| {
+                ui.label(tr!("image-title-label", { title: &main_image.title }));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    // Determine current status
+                    let mut is_favorite = main_image.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false);
+                    let mut is_blacklisted = main_image.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false);
+
+                    // Blacklist switch
+                    let blacklist_switch = switch(&mut is_blacklisted)
+                        .with_icons(ICON_BLOCK, ICON_BLOCK)
+                        .show_track_outline(true);
+                    if ui.add(blacklist_switch).changed() {
+                        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+                        if let Some(ref tray_logic) = self.tray_logic {
+                            if is_blacklisted {
+                                if let Err(e) = tray_logic.blacklist_image_by_url(&main_image.full_url) {
+                                    error!("Failed to blacklist image: {}", e);
+                                } else {
+                                    // Update the status in main_panel_image
+                                    if let Some(ref mut panel_img) = self.main_panel_image {
+                                        panel_img.status = Some("blacklisted".to_string());
+                                    }
+                                    // Update in carousel_images too
+                                    for carousel_img in &mut self.carousel_images {
+                                        if carousel_img.full_url == main_image.full_url {
+                                            carousel_img.status = Some("blacklisted".to_string());
+                                            break;
+                                        }
+                                    }
+                                }
+                            } else {
+                                if let Err(e) = tray_logic.unmark_image_by_url(&main_image.full_url) {
+                                    error!("Failed to unmark image: {}", e);
+                                } else {
+                                    // Update the status in main_panel_image
+                                    if let Some(ref mut panel_img) = self.main_panel_image {
+                                        panel_img.status = Some("cached".to_string());
+                                    }
+                                    // Update in carousel_images too
+                                    for carousel_img in &mut self.carousel_images {
+                                        if carousel_img.full_url == main_image.full_url {
+                                            carousel_img.status = Some("cached".to_string());
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ui.label(tr!("switch-blacklist"));
+
+                    ui.add_space(10.0);
+
+                    // Favorite switch
+                    let favorite_switch = switch(&mut is_favorite)
+                        .with_icons(ICON_STAR, ICON_STAR_OUTLINE)
+                        .show_track_outline(true);
+                    if ui.add(favorite_switch).changed() {
+                        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+                        if let Some(ref tray_logic) = self.tray_logic {
+                            if is_favorite {
+                                if let Err(e) = tray_logic.keep_image_by_url(&main_image.full_url) {
+                                    error!("Failed to mark as favorite: {}", e);
+                                } else {
+                                    // Update the status in main_panel_image
+                                    if let Some(ref mut panel_img) = self.main_panel_image {
+                                        panel_img.status = Some("keepfavorite".to_string());
+                                    }
+                                    // Update in carousel_images too
+                                    for carousel_img in &mut self.carousel_images {
+                                        if carousel_img.full_url == main_image.full_url {
+                                            carousel_img.status = Some("keepfavorite".to_string());
+                                            break;
+                                        }
+                                    }
+                                }
+                            } else {
+                                if let Err(e) = tray_logic.unmark_image_by_url(&main_image.full_url) {
+                                    error!("Failed to unmark image: {}", e);
+                                } else {
+                                    // Update the status in main_panel_image
+                                    if let Some(ref mut panel_img) = self.main_panel_image {
+                                        panel_img.status = Some("cached".to_string());
+                                    }
+                                    // Update in carousel_images too
+                                    for carousel_img in &mut self.carousel_images {
+                                        if carousel_img.full_url == main_image.full_url {
+                                            carousel_img.status = Some("cached".to_string());
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    ui.label(tr!("switch-favorite"));
+                });
+            });
+
             // show copyright if available
             if !main_image.copyright.is_empty() {
                 ui.label(tr!("image-copyright-label", { copyright: &main_image.copyright }));

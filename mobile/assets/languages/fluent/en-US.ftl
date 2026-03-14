@@ -286,3 +286,5 @@ status-filter = Image Filter
 status-all = All
 status-keep-private = Keep Private
 status-blacklisted = Blacklisted
+switch-favorite = Favorite
+switch-blacklist = Blacklist

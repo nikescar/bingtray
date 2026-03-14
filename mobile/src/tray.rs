@@ -1,6 +1,10 @@
 //! System tray interface for Bingtray (Desktop only)
 //!
 //! Provides a system tray icon with menu for managing Bing wallpapers
+//! 
+//! For tray interface, since there is no ui, set/keep/black operation 
+//! is based on current wallpaper image on desktop.
+//! 
 
 use crate::calc_bingimage::CalcBingimage;
 use anyhow::Result;

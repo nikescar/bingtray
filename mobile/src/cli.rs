@@ -1,6 +1,10 @@
 //! CLI interface for Bingtray (Desktop only)
 //!
 //! Provides a simple menu-driven REPL for managing Bing wallpapers
+//! 
+//! For CLI interface, since there is no ui, set/keep/black operation 
+//! is based on current wallpaper image on desktop.
+//! 
 
 use crate::calc_bingimage::CalcBingimage;
 use anyhow::Result;
