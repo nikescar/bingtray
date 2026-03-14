@@ -2,7 +2,7 @@
 //!
 //! Provides a system tray icon with menu for managing Bing wallpapers
 
-use crate::calc_bingimage::BingTrayLogic;
+use crate::calc_bingimage::CalcBingimage;
 use anyhow::Result;
 use egui_i18n::tr;
 use std::sync::{Arc, Mutex};
@@ -41,7 +41,7 @@ fn load_icon() -> Icon {
 }
 
 /// Create the tray menu based on current application state
-fn create_tray_menu(logic: &BingTrayLogic) -> (Menu, MenuItems) {
+fn create_tray_menu(logic: &CalcBingimage) -> (Menu, MenuItems) {
     let menu = Menu::new();
 
     let show_app = MenuItem::new(format!("{}", tr!("tray-show-app")), true, None);
@@ -101,7 +101,7 @@ fn create_tray_menu(logic: &BingTrayLogic) -> (Menu, MenuItems) {
 /// Update the tray menu with new state
 fn update_tray_menu(
     tray_icon: &TrayIcon,
-    logic: &BingTrayLogic,
+    logic: &CalcBingimage,
     menu_items: &mut MenuItems,
 ) {
     let (new_menu, new_menu_items) = create_tray_menu(logic);
@@ -131,7 +131,7 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
     init_gtk();
 
     // Create application logic
-    let mut app = BingTrayLogic::new()?;
+    let mut app = CalcBingimage::new()?;
     app.initialize()?;
 
     // Create tray icon and menu

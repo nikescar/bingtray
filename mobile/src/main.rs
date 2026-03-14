@@ -1,7 +1,7 @@
 //! Desktop entry point for Bingtray
 //!
 //! Detects whether the application is running in a terminal or GUI environment:
-//! - Terminal: Runs CLI mode with BingTrayLogic
+//! - Terminal: Runs CLI mode with CalcBingimage
 //! - GUI: Runs system tray mode
 
 #![cfg(not(target_os = "android"))]
@@ -77,7 +77,7 @@ fn main() -> Result<()> {
         // CLI mode
         log::info!("Running in CLI mode");
 
-        let mut logic = bingtray::calc_bingimage::BingTrayLogic::new()?;
+        let mut logic = bingtray::calc_bingimage::CalcBingimage::new()?;
         logic.initialize()?;
 
         bingtray::cli::run_cli_mode(&mut logic)?;

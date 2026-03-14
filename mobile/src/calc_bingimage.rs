@@ -34,11 +34,11 @@
 //! ## Desktop-Only Components
 //! Available only on Linux, macOS, and Windows (excluded on Android and WASM).
 //!
-//! - [`BingTrayLogic`] - Main orchestrator struct for desktop wallpaper operations
-//!   - [`set_next_market_wallpaper()`](BingTrayLogic::set_next_market_wallpaper) - Download and set next unprocessed wallpaper from Bing
-//!   - [`set_kept_wallpaper()`](BingTrayLogic::set_kept_wallpaper) - Set random wallpaper from favorites collection
-//!   - [`keep_current_image()`](BingTrayLogic::keep_current_image) - Move current wallpaper to favorites (keep) directory
-//!   - [`blacklist_current_image()`](BingTrayLogic::blacklist_current_image) - Blacklist and delete current wallpaper, then set next
+//! - [`CalcBingimage`] - Main orchestrator struct for desktop wallpaper operations
+//!   - [`set_next_market_wallpaper()`](CalcBingimage::set_next_market_wallpaper) - Download and set next unprocessed wallpaper from Bing
+//!   - [`set_kept_wallpaper()`](CalcBingimage::set_kept_wallpaper) - Set random wallpaper from favorites collection
+//!   - [`keep_current_image()`](CalcBingimage::keep_current_image) - Move current wallpaper to favorites (keep) directory
+//!   - [`blacklist_current_image()`](CalcBingimage::blacklist_current_image) - Blacklist and delete current wallpaper, then set next
 //!
 //! ## Testing
 //! Comprehensive test suite with 19 tests covering all public functions:
@@ -127,42 +127,6 @@ pub fn get_market_codes() -> Result<Vec<String>> {
     Ok(codes.iter().map(|s| s.to_string()).collect())
 }
 
-/// Load Bing images from database cache for a specific market code
-pub fn load_bing_images_from_cache(
-    config: &Config,
-    market_code: &str,
-    count: usize,
-) -> Result<Vec<BingImage>> {
-    log::info!(
-        "Loading Bing images from database cache for market: {}",
-        market_code
-    );
-
-    let db = BingImageDb::new(config.db_path.clone()).context("Failed to open database")?;
-
-    let records = db
-        .get_images_by_market_code(market_code)
-        .context("Failed to load images from database")?;
-
-    if records.is_empty() {
-        anyhow::bail!("No images in cache for market code: {}", market_code);
-    }
-
-    let bing_images: Vec<BingImage> = records
-        .into_iter()
-        .take(count)
-        .map(|record| BingImage {
-            url: record.url,
-            title: record.title,
-            copyright: record.copyright,
-            copyright_link: record.copyright_link,
-        })
-        .collect();
-
-    log::info!("Loaded {} Bing images from cache", bing_images.len());
-    Ok(bing_images)
-}
-
 /// Save Bing images to database cache
 fn save_bing_images_to_cache(
     db: &BingImageDb,
@@ -215,47 +179,6 @@ fn save_bing_images_to_cache(
     // at appropriate times. Manual checkpoints should only be done at app shutdown.
 
     Ok(())
-}
-
-/// Fetch Bing images with caching support (checks 7-day cache before downloading)
-pub fn get_bing_images_manifest_cached(
-    config: Option<&Config>,
-    market_code: &str,
-    count: u32,
-    offset: u32,
-) -> Result<Vec<BingImage>> {
-    // Check if we should use cache
-    if let Some(cfg) = config {
-        if let Ok(db) = BingImageDb::new(cfg.db_path.clone()) {
-            if offset == 0 && !db.should_download_manifest(market_code) {
-                log::info!(
-                    "Bing images for {} are fresh (< 7 days), loading from cache",
-                    market_code
-                );
-                match load_bing_images_from_cache(cfg, market_code, count as usize) {
-                    Ok(images) => return Ok(images),
-                    Err(e) => {
-                        log::warn!("Failed to load from cache: {}, downloading fresh data", e);
-                    }
-                }
-            }
-        }
-    }
-
-    // Download fresh data
-    let images = get_bing_images_manifest(market_code, count, offset)?;
-
-    // Save to cache if we have config and this is the first page
-    if offset == 0 {
-        if let Some(cfg) = config {
-            if let Ok(db) = BingImageDb::new(cfg.db_path.clone()) {
-                save_bing_images_to_cache(&db, market_code, &images)
-                    .unwrap_or_else(|e| log::warn!("Failed to cache Bing images: {}", e));
-            }
-        }
-    }
-
-    Ok(images)
 }
 
 /// Download image metadata from Bing's HPImageArchive API for a specific market.
@@ -392,446 +315,6 @@ pub fn sanitize_filename(filename: &str) -> String {
 /// * `config` - Configuration containing file paths
 /// * `_starting_index` - Reserved for future pagination support (currently unused)
 ///
-/// Load historical images from database cache (without downloading)
-///
-/// # Arguments
-/// * `config` - Configuration containing database path
-/// * `count` - Number of images to return
-///
-/// # Returns
-/// A vector of BingImage structs from cached data
-pub fn load_historical_from_cache(config: &Config, count: usize) -> Result<Vec<BingImage>> {
-    log::info!("Loading historical images from database cache");
-
-    let db = BingImageDb::new(config.db_path.clone()).context("Failed to open database")?;
-
-    let (_, historical_images) = load_historical_metadata_with_db(config, Some(&db))?;
-
-    if historical_images.is_empty() {
-        anyhow::bail!("No historical images in cache");
-    }
-
-    let bing_images: Vec<BingImage> = historical_images
-        .iter()
-        .take(count)
-        .map(|img| BingImage {
-            url: img.url.clone(),
-            title: img.title.clone(),
-            copyright: Some(img.copyright.clone()),
-            copyright_link: Some(img.copyrightlink.clone()).filter(|s| !s.is_empty()),
-        })
-        .collect();
-
-    log::info!("Loaded {} historical images from cache", bing_images.len());
-    Ok(bing_images)
-}
-
-/// Download historical wallpaper data from GitHub and return first page of images.
-///
-/// This function checks if download is needed (>7 days since last download).
-/// If data is fresh (< 7 days), it loads from cache instead.
-///
-/// # Returns
-/// A vector of BingImage structs for carousel display (up to 8 images)
-pub fn download_historical_data(config: &Config, _starting_index: usize) -> Result<Vec<BingImage>> {
-    // Check if we need to download
-    let db = BingImageDb::new(config.db_path.clone()).ok();
-    if let Some(ref database) = db {
-        if !database.should_download_manifest("historical") {
-            log::info!("Historical data is fresh (< 7 days), loading from cache");
-            return load_historical_from_cache(config, 8);
-        }
-    }
-
-    log::info!("Downloading historical data from GitHub");
-
-    let url =
-        "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
-
-    // Create request with User-Agent
-    let mut request = ehttp::Request::get(url);
-    request.headers.insert(
-        "User-Agent".to_string(),
-        format!("bingtray/{}", env!("CARGO_PKG_VERSION")),
-    );
-
-    // Create channel for synchronous fetch
-    let (tx, rx) = std::sync::mpsc::channel();
-
-    // Fetch asynchronously
-    ehttp::fetch(request, move |response| {
-        let _ = tx.send(response);
-    });
-
-    // Wait for response with timeout
-    let response = rx
-        .recv_timeout(std::time::Duration::from_secs(30))
-        .context("Timeout waiting for historical data from GitHub")?;
-
-    let resp = response.map_err(|e| anyhow::anyhow!("Network error: {}", e))?;
-
-    if !resp.ok {
-        anyhow::bail!("HTTP {}: {}", resp.status, resp.status_text);
-    }
-
-    // Parse markdown content
-    let text = resp.text().context("Invalid UTF-8 in response")?;
-    let mut historical_images = Vec::new();
-
-    for line in text.lines() {
-        // Skip empty lines and headers
-        if line.trim().is_empty() || line.starts_with('#') {
-            continue;
-        }
-
-        // Parse format: "2026-03-03 | [Title (© Copyright)](URL)"
-        if let Some((date_part, rest)) = line.split_once('|') {
-            let date = date_part.trim();
-            let rest = rest.trim();
-
-            // Extract markdown link: [text](url)
-            if let Some(link_start) = rest.find('[') {
-                if let Some(link_end) = rest.find("](") {
-                    if let Some(url_end) = rest.rfind(')') {
-                        let content = &rest[link_start + 1..link_end];
-                        let url = &rest[link_end + 2..url_end];
-
-                        // Split content into title and copyright
-                        let (title, copyright) = if let Some(copyright_start) = content.find("(©")
-                        {
-                            let title = content[..copyright_start].trim();
-                            let copyright =
-                                content[copyright_start + 1..].trim_end_matches(')').trim();
-                            (title, copyright)
-                        } else {
-                            (content, "")
-                        };
-
-                        // Convert date from YYYY-MM-DD to YYYYMMDD0000
-                        let fullstartdate = date.replace('-', "") + "0000";
-
-                        // Change cn.bing.com to www.bing.com
-                        let normalized_url = url.replace("cn.bing.com", "www.bing.com");
-
-                        // Generate copyright link
-                        let title_query = title.to_lowercase().replace(' ', "+");
-                        let startdate = &fullstartdate[..8]; // Extract YYYYMMDD
-                        let copyrightlink = format!(
-                            "https://www.bing.com/search?q={}&form=hpcapt&filters=HpDate%3A%22{}_0700%22",
-                            title_query, startdate
-                        );
-
-                        historical_images.push(HistoricalImage {
-                            fullstartdate,
-                            url: normalized_url,
-                            copyright: copyright.to_string(),
-                            copyrightlink,
-                            title: title.to_string(),
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    log::info!(
-        "Parsed {} historical images from GitHub",
-        historical_images.len()
-    );
-
-    if historical_images.is_empty() {
-        anyhow::bail!("No historical images found in downloaded data");
-    }
-
-    // Open database and save to storage
-    log::debug!("Opening database at: {:?}", config.db_path);
-    let db = match BingImageDb::new(config.db_path.clone()) {
-        Ok(db) => {
-            log::debug!("Successfully opened database");
-            Some(db)
-        }
-        Err(e) => {
-            log::error!("Failed to open database at {:?}: {}", config.db_path, e);
-            None
-        }
-    };
-    save_historical_metadata_with_db(config, 0, &historical_images, db.as_ref())?;
-
-    // Return first page (up to 8 images) as BingImage structs for carousel
-    let bing_images: Vec<BingImage> = historical_images
-        .iter()
-        .take(8)
-        .map(|img| BingImage {
-            url: img.url.clone(),
-            title: img.title.clone(),
-            copyright: Some(img.copyright.clone()),
-            copyright_link: Some(img.copyrightlink.clone()).filter(|s| !s.is_empty()),
-        })
-        .collect();
-
-    log::info!(
-        "Returning {} images for carousel display",
-        bing_images.len()
-    );
-    Ok(bing_images)
-}
-
-/// Download historical data with progress updates for UI
-///
-/// This is similar to download_historical_data but accepts a progress status
-/// to update the UI during the long-running save operation.
-pub fn download_historical_data_with_progress(
-    config: &Config,
-    _starting_index: usize,
-    progress_status: std::sync::Arc<std::sync::Mutex<String>>,
-    ctx: egui::Context,
-) -> Result<Vec<BingImage>> {
-    // Check if we need to download
-    let db = BingImageDb::new(config.db_path.clone()).ok();
-    if let Some(ref database) = db {
-        if !database.should_download_manifest("historical") {
-            log::info!("Historical data is fresh (< 7 days), loading from cache");
-            return load_historical_from_cache(config, 8);
-        }
-    }
-
-    // Update progress
-    if let Ok(mut status) = progress_status.lock() {
-        *status = "Downloading historical data from GitHub...".to_string();
-    }
-    ctx.request_repaint();
-
-    log::info!("Downloading historical data from GitHub");
-
-    let url =
-        "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
-
-    // Create request with User-Agent
-    let mut request = ehttp::Request::get(url);
-    request.headers.insert(
-        "User-Agent".to_string(),
-        format!("bingtray/{}", env!("CARGO_PKG_VERSION")),
-    );
-
-    // Create channel for synchronous fetch
-    let (tx, rx) = std::sync::mpsc::channel();
-
-    // Fetch asynchronously
-    ehttp::fetch(request, move |response| {
-        let _ = tx.send(response);
-    });
-
-    // Wait for response with timeout
-    let response = rx
-        .recv_timeout(std::time::Duration::from_secs(30))
-        .context("Timeout waiting for historical data from GitHub")?;
-
-    let resp = response.map_err(|e| anyhow::anyhow!("Network error: {}", e))?;
-
-    if !resp.ok {
-        anyhow::bail!("HTTP {}: {}", resp.status, resp.status_text);
-    }
-
-    // Update progress
-    if let Ok(mut status) = progress_status.lock() {
-        *status = "Parsing historical data...".to_string();
-    }
-    ctx.request_repaint();
-
-    // Parse markdown content
-    let text = resp.text().context("Invalid UTF-8 in response")?;
-    let mut historical_images = Vec::new();
-
-    for line in text.lines() {
-        // Skip empty lines and headers
-        if line.trim().is_empty() || line.starts_with('#') {
-            continue;
-        }
-
-        // Parse format: "2026-03-03 | [Title (© Copyright)](URL)"
-        if let Some((date_part, rest)) = line.split_once('|') {
-            let date = date_part.trim();
-            let rest = rest.trim();
-
-            // Extract markdown link: [text](url)
-            if let Some(link_start) = rest.find('[') {
-                if let Some(link_end) = rest.find("](") {
-                    if let Some(url_end) = rest.rfind(')') {
-                        let content = &rest[link_start + 1..link_end];
-                        let url = &rest[link_end + 2..url_end];
-
-                        // Split content into title and copyright
-                        let (title, copyright) = if let Some(copyright_start) = content.find("(©")
-                        {
-                            let title = content[..copyright_start].trim();
-                            let copyright =
-                                content[copyright_start + 1..].trim_end_matches(')').trim();
-                            (title, copyright)
-                        } else {
-                            (content, "")
-                        };
-
-                        // Convert date from YYYY-MM-DD to YYYYMMDD0000
-                        let fullstartdate = date.replace('-', "") + "0000";
-
-                        // Change cn.bing.com to www.bing.com
-                        let normalized_url = url.replace("cn.bing.com", "www.bing.com");
-
-                        // Generate copyright link
-                        let title_query = title.to_lowercase().replace(' ', "+");
-                        let startdate = &fullstartdate[..8]; // Extract YYYYMMDD
-                        let copyrightlink = format!(
-                            "https://www.bing.com/search?q={}&form=hpcapt&filters=HpDate%3A%22{}_0700%22",
-                            title_query, startdate
-                        );
-
-                        historical_images.push(HistoricalImage {
-                            fullstartdate,
-                            url: normalized_url,
-                            copyright: copyright.to_string(),
-                            copyrightlink,
-                            title: title.to_string(),
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    log::info!(
-        "Parsed {} historical images from GitHub",
-        historical_images.len()
-    );
-
-    if historical_images.is_empty() {
-        anyhow::bail!("No historical images found in downloaded data");
-    }
-
-    // Update progress
-    if let Ok(mut status) = progress_status.lock() {
-        *status = format!("Saving {} images to database...", historical_images.len());
-    }
-    ctx.request_repaint();
-
-    // Open database and save to storage
-    log::debug!("Opening database at: {:?}", config.db_path);
-    let db = match BingImageDb::new(config.db_path.clone()) {
-        Ok(db) => {
-            log::debug!("Successfully opened database");
-            Some(db)
-        }
-        Err(e) => {
-            log::error!("Failed to open database at {:?}: {}", config.db_path, e);
-            None
-        }
-    };
-    save_historical_metadata_with_progress(
-        config,
-        0,
-        &historical_images,
-        db.as_ref(),
-        progress_status.clone(),
-        ctx.clone(),
-    )?;
-
-    // Return first page (up to 8 images) as BingImage structs for carousel
-    let bing_images: Vec<BingImage> = historical_images
-        .iter()
-        .take(8)
-        .map(|img| BingImage {
-            url: img.url.clone(),
-            title: img.title.clone(),
-            copyright: Some(img.copyright.clone()),
-            copyright_link: Some(img.copyrightlink.clone()).filter(|s| !s.is_empty()),
-        })
-        .collect();
-
-    log::info!(
-        "Returning {} images for carousel display",
-        bing_images.len()
-    );
-    Ok(bing_images)
-}
-
-/// Advance to the next page of historical images and return the current page number.
-///
-/// This function implements pagination for browsing historical Bing wallpapers.
-/// It loads the current page number from metadata, validates that more pages exist
-/// (checking if the start index would exceed available images), then increments
-/// the page counter and saves it back to disk. Each page contains 8 images.
-/// If no more pages are available or if metadata doesn't exist, it returns an error.
-///
-/// # Arguments
-/// * `config` - Configuration containing metadata file path
-///
-/// # Returns
-/// The page number that was just loaded (before incrementing)
-///
-/// # Errors
-/// Returns an error if no historical data exists or if already at the last page
-pub fn get_next_historical_page(config: &Config) -> Result<usize> {
-    let db = match BingImageDb::new(config.db_path.clone()) {
-        Ok(db) => Some(db),
-        Err(e) => {
-            log::warn!("Failed to open database in get_next_historical_page: {}", e);
-            None
-        }
-    };
-    let (current_page, all_images) = load_historical_metadata_with_db(config, db.as_ref())?;
-
-    if all_images.is_empty() {
-        log::info!("No historical metadata available yet");
-        return Err(anyhow::anyhow!(
-            "No historical data available - call download_historical_data first"
-        ));
-    }
-
-    let start_idx = current_page * 8;
-
-    if start_idx >= all_images.len() {
-        log::info!("No more historical pages available");
-        return Err(anyhow::anyhow!("No more historical data available"));
-    }
-
-    // Update page number only (don't re-save images that are already in database)
-    if let Some(database) = db.as_ref() {
-        database
-            .set_historical_page(current_page + 1)
-            .context("Failed to save historical page to database")?;
-        log::debug!("Updated historical page number to {}", current_page + 1);
-    }
-
-    log::info!("Returning historical page number {}", current_page);
-    Ok(current_page)
-}
-
-/// Retrieve pagination information for historical image browsing.
-///
-/// This function loads the historical metadata and calculates both the current
-/// page number and the total number of pages available. The total page count
-/// is computed by dividing the total image count by 8 (images per page) and
-/// rounding up to ensure partial pages are counted. This information is useful
-/// for displaying UI elements like "Page 2 of 15" or enabling/disabling
-/// navigation buttons.
-///
-/// # Arguments
-/// * `config` - Configuration containing metadata file path
-///
-/// # Returns
-/// A tuple of (current_page, total_pages) where both are zero-indexed counts
-pub fn get_historical_page_info(config: &Config) -> Result<(usize, usize)> {
-    let db = match BingImageDb::new(config.db_path.clone()) {
-        Ok(db) => Some(db),
-        Err(e) => {
-            log::warn!("Failed to open database in get_historical_page_info: {}", e);
-            None
-        }
-    };
-    let (current_page, all_images) = load_historical_metadata_with_db(config, db.as_ref())?;
-    let total_pages = (all_images.len() + 7) / 8; // Round up
-    Ok((current_page, total_pages))
-}
-
 /// Read and parse the historical metadata file from disk.
 ///
 /// This internal helper function loads the historical metadata file which stores
@@ -940,7 +423,7 @@ fn load_historical_metadata_with_db(
         // Sort by date (most recent first)
         images.sort_by(|a, b| b.fullstartdate.cmp(&a.fullstartdate));
 
-        log::info!(
+        log::debug!(
             "Successfully loaded {} historical images from bing_images table",
             images.len()
         );
@@ -1287,38 +770,6 @@ pub fn load_cached_images_paginated(config: &Config, page: usize) -> Result<Vec<
 /// * `page` - Zero-indexed page number for pagination
 ///
 /// # Returns
-/// A vector of up to 8 BingImage structs for the requested page
-pub fn load_historical_images_paginated(config: &Config, page: usize) -> Result<Vec<BingImage>> {
-    let db = BingImageDb::new(config.db_path.clone())
-        .context("Failed to open database in load_historical_images_paginated")?;
-
-    // Load only 3 images per page to prevent ANR (reduced from 8)
-    // egui decodes images synchronously on main thread - loading 8 at once causes 5s freeze
-    let limit = 3;
-    let offset = page * 3;
-    let records = db
-        .get_images_by_market_code_paginated("historical", limit, offset)
-        .context("Failed to load paginated historical images from database")?;
-
-    log::info!(
-        "Successfully loaded {} historical images from bing_images table",
-        records.len()
-    );
-
-    // Convert BingImageRecord to BingImage
-    let bing_images: Vec<BingImage> = records
-        .into_iter()
-        .map(|record| BingImage {
-            url: record.url,
-            title: record.title,
-            copyright: record.copyright,
-            copyright_link: record.copyright_link,
-        })
-        .collect();
-
-    Ok(bing_images)
-}
-
 /// Search for the original Bing URL of a cached image using its title.
 ///
 /// This function attempts to locate the original Bing URL for a locally cached
@@ -1424,13 +875,13 @@ impl DesktopWallpaperSetter {
 }
 
 // ============================================================================
-// Desktop-Only BingTrayLogic Struct
+// Desktop-Only CalcBingimage Struct
 // ============================================================================
 
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 
 /// Core business logic for Bing wallpaper management
-pub struct BingTrayLogic {
+pub struct CalcBingimage {
     config: Config,
     current_image_path: Option<PathBuf>,
     db: Option<BingImageDb>,
@@ -1445,8 +896,8 @@ pub struct BingTrayLogic {
 }
 
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-impl BingTrayLogic {
-    /// Create a new BingTrayLogic instance with initialized configuration and database.
+impl CalcBingimage {
+    /// Create a new CalcBingimage instance with initialized configuration and database.
     ///
     /// This constructor initializes the core wallpaper management logic by creating
     /// a new Config object (which sets up all necessary directories) and attempting
@@ -1456,18 +907,28 @@ impl BingTrayLogic {
     /// can function even without database support.
     ///
     /// # Returns
-    /// A new BingTrayLogic instance ready for wallpaper operations
+    /// A new CalcBingimage instance ready for wallpaper operations
     pub fn new() -> Result<Self> {
         let config = Config::new()?;
         Self::from_config(config)
     }
 
-    /// Create a new BingTrayLogic instance with a custom configuration.
+    /// Create a new CalcBingimage instance with a custom configuration.
     /// Primarily used for testing with temporary directories.
     #[cfg(test)]
     pub fn from_config(config: Config) -> Result<Self> {
         // Initialize database
-        let db = BingImageDb::new(config.db_path.clone()).ok();
+        log::info!("Initializing database at: {:?}", config.db_path);
+        let db = match BingImageDb::new(config.db_path.clone()) {
+            Ok(database) => {
+                log::info!("Database opened successfully");
+                Some(database)
+            }
+            Err(e) => {
+                log::error!("Failed to open database: {}", e);
+                None
+            }
+        };
 
         // Load market state (default to en-US, offset 0)
         let (current_market_code, current_market_offset) =
@@ -1518,12 +979,22 @@ impl BingTrayLogic {
         })
     }
 
-    /// Create a new BingTrayLogic instance with a custom configuration.
+    /// Create a new CalcBingimage instance with a custom configuration.
     /// Used in production when Config is already created.
     #[cfg(not(test))]
     fn from_config(config: Config) -> Result<Self> {
         // Initialize database
-        let db = BingImageDb::new(config.db_path.clone()).ok();
+        log::info!("Initializing database at: {:?}", config.db_path);
+        let db = match BingImageDb::new(config.db_path.clone()) {
+            Ok(database) => {
+                log::info!("Database opened successfully");
+                Some(database)
+            }
+            Err(e) => {
+                log::error!("Failed to open database: {}", e);
+                None
+            }
+        };
 
         // Load market state (default to en-US, offset 0)
         let (current_market_code, current_market_offset) =
@@ -1841,7 +1312,7 @@ impl BingTrayLogic {
 
             if !has_historical {
                 log::info!("No historical data in database, downloading from GitHub...");
-                match download_historical_data(&self.config, 0) {
+                match self.download_historical_data(0) {
                     Ok(images) => {
                         log::info!("Successfully downloaded {} historical images metadata", images.len());
                     }
@@ -1854,11 +1325,11 @@ impl BingTrayLogic {
         }
 
         // Get next historical page and load images
-        let page = get_next_historical_page(&self.config)?;
+        let page = self.get_next_historical_page()?;
         log::info!("Loading historical page {}", page);
 
         // Load images from the page
-        let historical_images = load_historical_images_paginated(&self.config, page)?;
+        let historical_images = self.load_historical_images_paginated(page)?;
 
         if historical_images.is_empty() {
             log::warn!("No images found on historical page {}", page);
@@ -2322,7 +1793,7 @@ impl BingTrayLogic {
             0
         };
 
-        match get_historical_page_info(&self.config) {
+        match self.get_historical_page_info() {
             Ok((current_page, total_pages)) => {
                 format!(
                     "(Curpage: {}/{}, Pages: {}/{})",
@@ -2854,12 +2325,455 @@ impl BingTrayLogic {
 
         anyhow::bail!("Database not available")
     }
+
+    /// Load Bing images from database cache for a specific market code
+    pub fn load_bing_images_from_cache(
+        &self,
+        market_code: &str,
+        count: usize,
+    ) -> Result<Vec<BingImage>> {
+        log::info!(
+            "Loading Bing images from database cache for market: {}",
+            market_code
+        );
+
+        let db = self.db.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Database not available"))?;
+
+        let records = db
+            .get_images_by_market_code(market_code)
+            .context("Failed to load images from database")?;
+
+        if records.is_empty() {
+            anyhow::bail!("No images in cache for market code: {}", market_code);
+        }
+
+        let bing_images: Vec<BingImage> = records
+            .into_iter()
+            .take(count)
+            .map(|record| BingImage {
+                url: record.url,
+                title: record.title,
+                copyright: record.copyright,
+                copyright_link: record.copyright_link,
+            })
+            .collect();
+
+        log::info!("Loaded {} Bing images from cache", bing_images.len());
+        Ok(bing_images)
+    }
+
+    /// Fetch Bing images with caching support (checks 7-day cache before downloading)
+    pub fn get_bing_images_manifest_cached(
+        &self,
+        market_code: &str,
+        count: u32,
+        offset: u32,
+    ) -> Result<Vec<BingImage>> {
+        // Check if we should use cache
+        if let Some(db) = &self.db {
+            if offset == 0 && !db.should_download_manifest(market_code) {
+                log::info!(
+                    "Bing images for {} are fresh (< 7 days), loading from cache",
+                    market_code
+                );
+                match self.load_bing_images_from_cache(market_code, count as usize) {
+                    Ok(images) => return Ok(images),
+                    Err(e) => {
+                        log::warn!("Failed to load from cache: {}, downloading fresh data", e);
+                    }
+                }
+            }
+        }
+
+        // Download fresh data
+        let images = get_bing_images_manifest(market_code, count, offset)?;
+
+        // Save to cache if this is the first page
+        if offset == 0 {
+            if let Some(db) = &self.db {
+                save_bing_images_to_cache(db, market_code, &images)
+                    .unwrap_or_else(|e| log::warn!("Failed to cache Bing images: {}", e));
+            }
+        }
+
+        Ok(images)
+    }
+
+    /// Load historical images from database cache (without downloading)
+    pub fn load_historical_from_cache(&self, count: usize) -> Result<Vec<BingImage>> {
+        log::info!("Loading historical images from database cache");
+
+        let db = self.db.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Database not available"))?;
+
+        let (_, historical_images) = load_historical_metadata_with_db(&self.config, Some(db))?;
+
+        if historical_images.is_empty() {
+            anyhow::bail!("No historical images in cache");
+        }
+
+        let bing_images: Vec<BingImage> = historical_images
+            .iter()
+            .take(count)
+            .map(|img| BingImage {
+                url: img.url.clone(),
+                title: img.title.clone(),
+                copyright: Some(img.copyright.clone()),
+                copyright_link: Some(img.copyrightlink.clone()).filter(|s| !s.is_empty()),
+            })
+            .collect();
+
+        log::info!("Loaded {} historical images from cache", bing_images.len());
+        Ok(bing_images)
+    }
+
+    /// Download historical wallpaper data from GitHub and return first page of images.
+    pub fn download_historical_data(&self, _starting_index: usize) -> Result<Vec<BingImage>> {
+        // Check if database is available (required for saving)
+        if self.db.is_none() {
+            log::error!("Cannot download historical data: Database not available");
+            anyhow::bail!("Database not available - cannot save historical data");
+        }
+
+        // Check if we need to download
+        if let Some(database) = &self.db {
+            if !database.should_download_manifest("historical") {
+                log::info!("Historical data is fresh (< 7 days), loading from cache");
+                return self.load_historical_from_cache(8);
+            }
+        }
+
+        log::info!("Downloading historical data from GitHub");
+
+        let url =
+            "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
+
+        // Create request with User-Agent
+        let mut request = ehttp::Request::get(url);
+        request.headers.insert(
+            "User-Agent".to_string(),
+            format!("bingtray/{}", env!("CARGO_PKG_VERSION")),
+        );
+
+        // Create channel for synchronous fetch
+        let (tx, rx) = mpsc::channel();
+
+        // Fetch asynchronously
+        ehttp::fetch(request, move |response| {
+            let _ = tx.send(response);
+        });
+
+        // Wait for response with timeout
+        let response = rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .context("Timeout waiting for historical data from GitHub")?;
+
+        let resp = response.map_err(|e| anyhow::anyhow!("Network error: {}", e))?;
+
+        if !resp.ok {
+            anyhow::bail!("HTTP {}: {}", resp.status, resp.status_text);
+        }
+
+        // Parse markdown content
+        let text = resp.text().context("Invalid UTF-8 in response")?;
+        let historical_images = self.parse_historical_markdown(text)?;
+
+        log::info!(
+            "Parsed {} historical images from GitHub",
+            historical_images.len()
+        );
+
+        if historical_images.is_empty() {
+            anyhow::bail!("No historical images found in downloaded data");
+        }
+
+        // Save to database
+        save_historical_metadata_with_db(&self.config, 0, &historical_images, self.db.as_ref())?;
+
+        // Return first page (up to 8 images) as BingImage structs for carousel
+        let bing_images: Vec<BingImage> = historical_images
+            .iter()
+            .take(8)
+            .map(|img| BingImage {
+                url: img.url.clone(),
+                title: img.title.clone(),
+                copyright: Some(img.copyright.clone()),
+                copyright_link: Some(img.copyrightlink.clone()).filter(|s| !s.is_empty()),
+            })
+            .collect();
+
+        log::info!(
+            "Returning {} images for carousel display",
+            bing_images.len()
+        );
+        Ok(bing_images)
+    }
+
+    /// Download historical data with progress updates for UI
+    pub fn download_historical_data_with_progress(
+        &self,
+        _starting_index: usize,
+        progress_status: std::sync::Arc<std::sync::Mutex<String>>,
+        ctx: egui::Context,
+    ) -> Result<Vec<BingImage>> {
+        // Check if database is available (required for saving)
+        if self.db.is_none() {
+            log::error!("Cannot download historical data: Database not available");
+            anyhow::bail!("Database not available - cannot save historical data");
+        }
+
+        // Check if we need to download
+        if let Some(database) = &self.db {
+            if !database.should_download_manifest("historical") {
+                log::info!("Historical data is fresh (< 7 days), loading from cache");
+                return self.load_historical_from_cache(8);
+            }
+        }
+
+        // Update progress
+        if let Ok(mut status) = progress_status.lock() {
+            *status = "Downloading historical data from GitHub...".to_string();
+        }
+        ctx.request_repaint();
+
+        log::info!("Downloading historical data from GitHub");
+
+        let url =
+            "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
+
+        // Create request with User-Agent
+        let mut request = ehttp::Request::get(url);
+        request.headers.insert(
+            "User-Agent".to_string(),
+            format!("bingtray/{}", env!("CARGO_PKG_VERSION")),
+        );
+
+        // Create channel for synchronous fetch
+        let (tx, rx) = mpsc::channel();
+
+        // Fetch asynchronously
+        ehttp::fetch(request, move |response| {
+            let _ = tx.send(response);
+        });
+
+        // Wait for response with timeout
+        let response = rx
+            .recv_timeout(std::time::Duration::from_secs(30))
+            .context("Timeout waiting for historical data from GitHub")?;
+
+        let resp = response.map_err(|e| anyhow::anyhow!("Network error: {}", e))?;
+
+        if !resp.ok {
+            anyhow::bail!("HTTP {}: {}", resp.status, resp.status_text);
+        }
+
+        // Update progress
+        if let Ok(mut status) = progress_status.lock() {
+            *status = "Parsing historical data...".to_string();
+        }
+        ctx.request_repaint();
+
+        // Parse markdown content
+        let text = resp.text().context("Invalid UTF-8 in response")?;
+        let historical_images = self.parse_historical_markdown(text)?;
+
+        log::info!(
+            "Parsed {} historical images from GitHub",
+            historical_images.len()
+        );
+
+        if historical_images.is_empty() {
+            anyhow::bail!("No historical images found in downloaded data");
+        }
+
+        // Update progress
+        if let Ok(mut status) = progress_status.lock() {
+            *status = format!("Saving {} images to database...", historical_images.len());
+        }
+        ctx.request_repaint();
+
+        // Save to database with progress
+        save_historical_metadata_with_progress(
+            &self.config,
+            0,
+            &historical_images,
+            self.db.as_ref(),
+            progress_status.clone(),
+            ctx.clone(),
+        )?;
+
+        // Return first page (up to 8 images) as BingImage structs for carousel
+        let bing_images: Vec<BingImage> = historical_images
+            .iter()
+            .take(8)
+            .map(|img| BingImage {
+                url: img.url.clone(),
+                title: img.title.clone(),
+                copyright: Some(img.copyright.clone()),
+                copyright_link: Some(img.copyrightlink.clone()).filter(|s| !s.is_empty()),
+            })
+            .collect();
+
+        log::info!(
+            "Returning {} images for carousel display",
+            bing_images.len()
+        );
+        Ok(bing_images)
+    }
+
+    /// Parse historical markdown content into HistoricalImage structs
+    fn parse_historical_markdown(&self, text: &str) -> Result<Vec<HistoricalImage>> {
+        let mut historical_images = Vec::new();
+
+        for line in text.lines() {
+            // Skip empty lines and headers
+            if line.trim().is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            // Parse format: "2026-03-03 | [Title (© Copyright)](URL)"
+            if let Some((date_part, rest)) = line.split_once('|') {
+                let date = date_part.trim();
+                let rest = rest.trim();
+
+                // Extract markdown link: [text](url)
+                if let Some(link_start) = rest.find('[') {
+                    if let Some(link_end) = rest.find("](") {
+                        if let Some(url_end) = rest.rfind(')') {
+                            let content = &rest[link_start + 1..link_end];
+                            let url = &rest[link_end + 2..url_end];
+
+                            // Split content into title and copyright
+                            let (title, copyright) = if let Some(copyright_start) = content.find("(©")
+                            {
+                                let title = content[..copyright_start].trim();
+                                let copyright =
+                                    content[copyright_start + 1..].trim_end_matches(')').trim();
+                                (title, copyright)
+                            } else {
+                                (content, "")
+                            };
+
+                            // Convert date from YYYY-MM-DD to YYYYMMDD0000
+                            let fullstartdate = date.replace('-', "") + "0000";
+
+                            // Change cn.bing.com to www.bing.com
+                            let normalized_url = url.replace("cn.bing.com", "www.bing.com");
+
+                            // Generate copyright link
+                            let title_query = title.to_lowercase().replace(' ', "+");
+                            let startdate = &fullstartdate[..8]; // Extract YYYYMMDD
+                            let copyrightlink = format!(
+                                "https://www.bing.com/search?q={}&form=hpcapt&filters=HpDate%3A%22{}_0700%22",
+                                title_query, startdate
+                            );
+
+                            historical_images.push(HistoricalImage {
+                                fullstartdate,
+                                url: normalized_url,
+                                copyright: copyright.to_string(),
+                                copyrightlink,
+                                title: title.to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(historical_images)
+    }
+
+    /// Advance to the next page of historical images and return the current page number.
+    pub fn get_next_historical_page(&self) -> Result<usize> {
+        let (current_page, all_images) = load_historical_metadata_with_db(&self.config, self.db.as_ref())?;
+
+        if all_images.is_empty() {
+            log::info!("No historical metadata available yet");
+            return Err(anyhow::anyhow!(
+                "No historical data available - call download_historical_data first"
+            ));
+        }
+
+        let start_idx = current_page * 8;
+
+        if start_idx >= all_images.len() {
+            log::info!("No more historical pages available");
+            return Err(anyhow::anyhow!("No more historical data available"));
+        }
+
+        // Update page number only (don't re-save images that are already in database)
+        if let Some(database) = self.db.as_ref() {
+            database
+                .set_historical_page(current_page + 1)
+                .context("Failed to save historical page to database")?;
+            log::debug!("Updated historical page number to {}", current_page + 1);
+        }
+
+        log::info!("Returning historical page number {}", current_page);
+        Ok(current_page)
+    }
+
+    /// Retrieve pagination information for historical image browsing.
+    pub fn get_historical_page_info(&self) -> Result<(usize, usize)> {
+        let (current_page, all_images) = load_historical_metadata_with_db(&self.config, self.db.as_ref())?;
+        let total_pages = (all_images.len() + 7) / 8; // Round up
+        Ok((current_page, total_pages))
+    }
+
+    /// Load historical images paginated (3 items per page to prevent ANR)
+    pub fn load_historical_images_paginated(&self, page: usize) -> Result<Vec<BingImage>> {
+        let db = self.db.as_ref()
+            .ok_or_else(|| {
+                log::error!("Database not available - cannot load historical images");
+                anyhow::anyhow!("Database not available - failed to initialize database connection")
+            })?;
+
+        // Load only 3 images per page to prevent ANR (reduced from 8)
+        // egui decodes images synchronously on main thread - loading 8 at once causes 5s freeze
+        let limit = 3;
+        let offset = page * 3;
+
+        log::debug!("Loading historical images: page={}, limit={}, offset={}", page, limit, offset);
+
+        // Check total historical images in database for debugging
+        let all_historical = db.get_images_by_market_code("historical")
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to query total historical images: {}", e);
+                Vec::new()
+            });
+        log::info!("Total historical images in database: {}", all_historical.len());
+
+        let records = db
+            .get_images_by_market_code_paginated("historical", limit, offset)
+            .context("Failed to load paginated historical images from database")?;
+
+        log::debug!(
+            "Successfully loaded {} historical images from bing_images table (page={}, offset={})",
+            records.len(),
+            page,
+            offset
+        );
+
+        // Convert BingImageRecord to BingImage
+        let bing_images: Vec<BingImage> = records
+            .into_iter()
+            .map(|record| BingImage {
+                url: record.url,
+                title: record.title,
+                copyright: record.copyright,
+                copyright_link: record.copyright_link,
+            })
+            .collect();
+
+        Ok(bing_images)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashMap;
     use std::fs;
     use tempfile::TempDir;
 
@@ -2874,16 +2788,19 @@ mod tests {
         let unprocessed_dir = cache_dir.join("unprocessed");
         let keepfavorite_dir = cache_dir.join("keepfavorite");
         let cached_dir = cache_dir.join("cached");
+        let image_cached_dir = cache_dir.join("image_cached");
 
         fs::create_dir_all(&unprocessed_dir).unwrap();
         fs::create_dir_all(&keepfavorite_dir).unwrap();
         fs::create_dir_all(&cached_dir).unwrap();
+        fs::create_dir_all(&image_cached_dir).unwrap();
 
         let config = Config {
             config_dir: config_dir.clone(),
             unprocessed_dir,
             keepfavorite_dir,
             cached_dir,
+            image_cached_dir,
             db_path: config_dir.join("bingtray.db"),
         };
 
@@ -2916,7 +2833,8 @@ mod tests {
     fn test_get_next_historical_page_no_file() {
         let (config, _temp_dir) = create_test_config();
 
-        let result = get_next_historical_page(&config);
+        let calc_bing = CalcBingimage::from_config(config).unwrap();
+        let result = calc_bing.get_next_historical_page();
         // Without file, should return error or default to 1
         match result {
             Ok(page) => assert_eq!(page, 1),
@@ -2932,9 +2850,9 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
 
         // Test disabled: file-based historical metadata storage removed
-        let _ = config;
+        let calc_bing = CalcBingimage::from_config(config).unwrap();
 
-        let result = get_next_historical_page(&config);
+        let result = calc_bing.get_next_historical_page();
         match result {
             Ok(page) => assert!(page >= 1),
             Err(_) => {
@@ -2949,9 +2867,9 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
 
         // Test disabled: file-based historical metadata storage removed
-        let _ = config;
+        let calc_bing = CalcBingimage::from_config(config).unwrap();
 
-        let result = get_historical_page_info(&config).unwrap();
+        let result = calc_bing.get_historical_page_info().unwrap();
         assert_eq!(result, (0, 0));
     }
 
@@ -2961,9 +2879,9 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
 
         // Test disabled: file-based historical metadata storage removed
-        let _ = config;
+        let calc_bing = CalcBingimage::from_config(config).unwrap();
 
-        let result = get_historical_page_info(&config).unwrap();
+        let result = calc_bing.get_historical_page_info().unwrap();
         assert_eq!(result.0, 2); // current page
         assert_eq!(result.1, 4); // total pages = ceil(25 / 8) = 4
     }
@@ -2999,9 +2917,9 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
 
         // Test disabled: file-based historical metadata storage removed
-        let _ = config;
+        let calc_bing = CalcBingimage::from_config(config).unwrap();
 
-        let result = load_historical_images_paginated(&config, 0).unwrap();
+        let result = calc_bing.load_historical_images_paginated(0).unwrap();
         assert_eq!(result.len(), 0);
     }
 
@@ -3011,9 +2929,9 @@ mod tests {
         let (config, _temp_dir) = create_test_config();
 
         // Test disabled: file-based historical metadata storage removed
-        let _ = config;
+        let calc_bing = CalcBingimage::from_config(config).unwrap();
 
-        let result = load_historical_images_paginated(&config, 0).unwrap();
+        let result = calc_bing.load_historical_images_paginated(0).unwrap();
         assert_eq!(result.len(), 3);
         assert_eq!(result[0].title, "Title 1");
         assert_eq!(result[1].title, "Title 2");
@@ -3110,7 +3028,7 @@ mod tests {
         println!("\n=== Test: Market State Save and Load (DuckDB) ===");
 
         // Test saving market state
-        let mut logic = BingTrayLogic::from_config(config).unwrap();
+        let mut logic = CalcBingimage::from_config(config).unwrap();
         println!(
             "Initial: market={}, offset={}",
             logic.current_market_code, logic.current_market_offset
@@ -3142,7 +3060,7 @@ mod tests {
         }
 
         // Verify load works
-        let (market, offset) = BingTrayLogic::load_market_state(&logic.config).unwrap();
+        let (market, offset) = CalcBingimage::load_market_state(&logic.config).unwrap();
         println!("Loaded: market={}, offset={}", market, offset);
         assert_eq!(market, "ja-JP");
         assert_eq!(offset, 5);
@@ -3153,7 +3071,7 @@ mod tests {
     fn test_market_offset_increments() {
         let (config, _temp_dir) = create_test_config();
 
-        let mut logic = BingTrayLogic::from_config(config).unwrap();
+        let mut logic = CalcBingimage::from_config(config).unwrap();
 
         println!("\n=== Test: Market Offset Increments (DuckDB) ===");
         println!(
@@ -3182,7 +3100,7 @@ mod tests {
         }
 
         // Load in new instance using same config
-        let (market, offset) = BingTrayLogic::load_market_state(&logic.config).unwrap();
+        let (market, offset) = CalcBingimage::load_market_state(&logic.config).unwrap();
         println!("After reload from DB: market={}, offset={}", market, offset);
         assert_eq!(offset, initial_offset + 1);
     }
@@ -3192,7 +3110,7 @@ mod tests {
     fn test_set_market_code_resets_offset() {
         let (config, _temp_dir) = create_test_config();
 
-        let mut logic = BingTrayLogic::from_config(config.clone()).unwrap();
+        let mut logic = CalcBingimage::from_config(config.clone()).unwrap();
 
         // Increment offset
         logic.current_market_offset = 5;
@@ -3206,7 +3124,7 @@ mod tests {
         assert_eq!(logic.current_market_offset, 0);
 
         // Verify it was saved
-        let logic2 = BingTrayLogic::from_config(config).unwrap();
+        let logic2 = CalcBingimage::from_config(config).unwrap();
         assert_eq!(logic2.current_market_code, "de-DE");
         assert_eq!(logic2.current_market_offset, 0);
     }
@@ -3217,7 +3135,7 @@ mod tests {
     fn test_download_next_page_increments_offset() {
         let (_config, _temp_dir) = create_test_config();
 
-        let mut logic = BingTrayLogic::new().unwrap();
+        let mut logic = CalcBingimage::new().unwrap();
 
         println!("\n=== Test: Download Next Page ===");
         println!(

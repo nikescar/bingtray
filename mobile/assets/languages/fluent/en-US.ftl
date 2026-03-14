@@ -249,8 +249,11 @@ close = Close
 # About Dialog
 about = About
 about-description = Remove bloat apps selectively, scan installed apps with VirusTotal/HybridAnalysis, and install FOSS apps through Obtainium.
+about-version = Version
 about-website = Website
 about-credits = Credits
+about-reference-projects = Reference Projects
+about-rust-libraries = Rust Libraries
 
 # Clipboard
 clipboard-copy = Copy

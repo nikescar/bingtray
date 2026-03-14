@@ -159,9 +159,9 @@ impl BingImageDb {
     /// Automatically handles corrupted database files by recreating them
     pub fn new(db_path: PathBuf) -> Result<Self> {
         // Check for obvious corruption before attempting to open
-        if Self::is_database_corrupted(&db_path) {
-            Self::recover_corrupted_database(&db_path)?;
-        }
+        // if Self::is_database_corrupted(&db_path) {
+        //     Self::recover_corrupted_database(&db_path)?;
+        // }
 
         // Attempt to open the database
         let conn = match Connection::open(&db_path) {

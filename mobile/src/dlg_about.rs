@@ -52,7 +52,7 @@ impl DlgAbout {
                     .max_size([ctx.content_rect().width() - 40.0, ctx.content_rect().height() - 40.0])
             })
             .show(ctx, |ui| {
-                ui.heading("Bingtray");
+                ui.heading(tr!("app-title"));
                 ui.add_space(8.0);
 
                 let max_height = ui.available_height() - 50.0;
@@ -62,7 +62,7 @@ impl DlgAbout {
                     .max_height(max_height)
                     .show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
-                            ui.label(format!("Version: {}", version));
+                            ui.label(format!("{}: {}", tr!("about-version"), version));
 
                             ui.add_space(8.0);
 
@@ -104,7 +104,7 @@ impl DlgAbout {
                         ui.label(egui::RichText::new(&credits_label).strong());
                         ui.add_space(4.0);
 
-                        ui.heading("Reference Projects");
+                        ui.heading(tr!("about-reference-projects"));
                         ui.add_space(4.0);
                         ui.label("• bevy_game_template");
                         ui.label("  Template for Bevy game projects");
@@ -119,7 +119,7 @@ impl DlgAbout {
                         ui.label("  License: MIT/Apache-2.0");
 
                         ui.add_space(12.0);
-                        ui.heading("Rust Libraries");
+                        ui.heading(tr!("about-rust-libraries"));
                         ui.add_space(4.0);
                         ui.add(egui::Label::new("• egui - Immediate mode GUI library (MIT/Apache-2.0)").wrap());
                         ui.add(egui::Label::new("• directories - Platform-specific directory paths (MIT/Apache-2.0)").wrap());

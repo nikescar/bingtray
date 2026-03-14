@@ -180,13 +180,12 @@ impl DlgSettings {
 
                             if selected_lang != settings.language {
                                 settings.language = selected_lang.clone();
-                                // TODO: apply language
-                                // let language_to_apply = if selected_lang == "Auto" {
-                                //     Self::detect_system_language()
-                                // } else {
-                                //     selected_lang
-                                // };
-                                // egui_i18n::set_language(&language_to_apply);
+                                // Apply language change immediately
+                                if let Err(e) = crate::i18n::set_language(&selected_lang) {
+                                    log::error!("Failed to set language: {}", e);
+                                }
+                                // Request repaint to update UI with new language
+                                ctx.request_repaint();
                             }
 
                             ui.add_space(8.0);

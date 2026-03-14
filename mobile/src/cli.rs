@@ -2,12 +2,12 @@
 //!
 //! Provides a simple menu-driven REPL for managing Bing wallpapers
 
-use crate::calc_bingimage::BingTrayLogic;
+use crate::calc_bingimage::CalcBingimage;
 use anyhow::Result;
 use std::io::{self, Write};
 
 /// Run the CLI mode with a REPL loop
-pub fn run_cli_mode(logic: &mut BingTrayLogic) -> Result<()> {
+pub fn run_cli_mode(logic: &mut CalcBingimage) -> Result<()> {
     println!(
         "Bingtray v{} - Bing Wallpaper Manager",
         env!("CARGO_PKG_VERSION")
@@ -130,7 +130,7 @@ pub fn run_cli_mode(logic: &mut BingTrayLogic) -> Result<()> {
 }
 
 /// Print the menu with current state
-fn print_menu(logic: &BingTrayLogic) {
+fn print_menu(logic: &CalcBingimage) {
     println!("═══════════════════════════════════════════════════════════");
     println!("MENU:");
     println!("  0. Open Cache Directory");

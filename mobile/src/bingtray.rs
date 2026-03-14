@@ -6,12 +6,13 @@
 use crate::{BingImage, Config, Settings};
 pub use crate::dlg_settings_stt::DlgSettings;
 use crate::calc_bingimage::sanitize_filename;
+use crate::duckdb_bingimage::BingImageDb;
 use image;
 use crate::install;
 
 // Desktop-only imports
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-use crate::calc_bingimage::BingTrayLogic;
+use crate::calc_bingimage::CalcBingimage;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use crate::api_setwallpaper::check_user_mismatch;
 use eframe::egui;
@@ -196,7 +197,7 @@ pub struct BingtrayApp {
     cached_page_index: usize,
     #[cfg_attr(feature = "serde", serde(skip))]
     #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-    tray_logic: Option<BingTrayLogic>,
+    tray_logic: Option<CalcBingimage>,
     // User mismatch warning
     #[cfg_attr(feature = "serde", serde(skip))]
     user_mismatch_warning: Option<String>,
@@ -247,6 +248,9 @@ pub struct BingtrayApp {
     // HTTP cache
     #[cfg_attr(feature = "serde", serde(skip))]
     ehttp_cache: Option<Arc<crate::ehttp_cache::EhttpCache>>,
+    // Database
+    #[cfg_attr(feature = "serde", serde(skip))]
+    db: Option<BingImageDb>,
 }
 
 impl Default for BingtrayApp {
@@ -313,6 +317,13 @@ impl Default for BingtrayApp {
             )))
         };
 
+        // Initialize database before moving config
+        let db = config.as_ref().and_then(|cfg| {
+            BingImageDb::new(cfg.db_path.clone())
+                .inspect_err(|e| warn!("Failed to open database: {}", e))
+                .ok()
+        });
+
         Self {
             title: "BingtrayApp Window".to_owned(),
             title_bar: false,
@@ -371,7 +382,7 @@ impl Default for BingtrayApp {
             },
             screen_size_provider: None,
             #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-            tray_logic: BingTrayLogic::new().ok(),
+            tray_logic: CalcBingimage::new().ok(),
             user_mismatch_warning,
             // Menu state
             menu_open: false,
@@ -402,6 +413,8 @@ impl Default for BingtrayApp {
             update_latest_version: String::new(),
             // HTTP cache
             ehttp_cache,
+            // Database
+            db,
         }
     }
 }
@@ -430,6 +443,7 @@ impl eframe::App for BingtrayApp {
         self.dlg_settings.show(ctx, &mut self.settings);
         // Handle save and theme changes from settings dialog
         if self.dlg_settings.save_clicked {
+            self.dlg_settings.save_clicked = false; // Reset flag after processing
             // TODO: save settings to file
             log::info!("Settings saved");
         }
@@ -462,11 +476,10 @@ impl BingtrayApp {
 
         // Load initial images if carousel is empty and we have config
         if self.carousel_images.is_empty() && self.bing_api_promise.is_none() {
-            if let Some(ref cfg) = self.config {
+            if let Some(ref _cfg) = self.config {
                 // PRIORITY 1: Try loading Bing images from current market (with 7-day cache)
                 if !self.current_market_codes.is_empty() {
                     let market_code = self.current_market_codes[0].clone();
-                    let cfg_clone = cfg.clone();
 
                     info!("Loading Bing images for market: {} (checking 7-day cache)", market_code);
                     self.showing_historical = true;
@@ -484,9 +497,18 @@ impl BingtrayApp {
                     let (sender, promise) = Promise::new();
 
                     std::thread::spawn(move || {
+                        // Create CalcBingimage instance for this thread
+                        let calc_bing = match CalcBingimage::new() {
+                            Ok(cb) => cb,
+                            Err(e) => {
+                                warn!("Failed to create CalcBingimage: {}", e);
+                                sender.send(Ok(Vec::new()));
+                                return;
+                            }
+                        };
+
                         // First get Bing images
-                        let mut combined_images = match crate::calc_bingimage::get_bing_images_manifest_cached(
-                            Some(&cfg_clone),
+                        let mut combined_images = match calc_bing.get_bing_images_manifest_cached(
                             &market_code,
                             8,
                             0
@@ -508,7 +530,7 @@ impl BingtrayApp {
                         ctx.request_repaint();
 
                         // Then append historical images
-                        match crate::calc_bingimage::download_historical_data_with_progress(&cfg_clone, 0, progress_status_clone.clone(), ctx.clone()) {
+                        match calc_bing.download_historical_data_with_progress(0, progress_status_clone.clone(), ctx.clone()) {
                             Ok(historical_images) => {
                                 info!("Appending {} historical images to {} Bing images", historical_images.len(), combined_images.len());
                                 combined_images.extend(historical_images);
@@ -728,6 +750,7 @@ impl BingtrayApp {
                             });
                         }
 
+                        ui.add_space(5.0);
                         // Show status icon if available
                         if let Some(ref status_str) = status {
                             let status_icon = match status_str.as_str() {
@@ -737,13 +760,22 @@ impl BingtrayApp {
                                 "blacklisted" => "🚫",
                                 _ => "",
                             };
+                            trace!("Rendering carousel item {} with status: {} -> icon: {}", idx, status_str, status_icon);
                             if !status_icon.is_empty() {
-                                ui.label(status_icon);
+                                ui.horizontal(|ui| {
+                                    ui.label(status_icon);
+                                    ui.label(&title);
+                                });
+                            }else{
+                                ui.label(&title);
                             }
+                        } else {
+                            ui.label(&title);
+                            trace!("Carousel item {} has no status", idx);
                         }
 
-                        ui.add_space(5.0);
-                        ui.label(&title);
+                        
+                        
                     });
                 }));
             }
@@ -852,41 +884,44 @@ impl BingtrayApp {
                 info!("Carousel scrolled to right end (offset: {:.0}, trigger: {:.0}), loading more images",
                       self.carousel_scroll_offset, scroll_trigger_point);
 
-                if let Some(ref cfg) = self.config {
-                    self.loading_more = true;
+                self.loading_more = true;
 
-                    if self.showing_historical {
-                        // Load next historical page
-                        match crate::calc_bingimage::get_next_historical_page(cfg) {
-                            Ok(page_num) => {
-                                info!("Loading historical page {}", page_num);
+                if self.showing_historical {
+                    // Load next historical page
+                    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+                    if let Some(ref tray_logic) = self.tray_logic {
+                            match tray_logic.get_next_historical_page() {
+                                Ok(page_num) => {
+                                    info!("Loading historical page {}", page_num);
 
-                                // Open loading dialog
-                                self.bing_loading_dialog_open = true;
-                                self.bing_loading_status = tr!("status-loading-page", { page: page_num });
+                                    // Open loading dialog
+                                    self.bing_loading_dialog_open = true;
+                                    self.bing_loading_status = tr!("status-loading-page", { page: page_num });
 
-                                // Fetch next page of historical images
-                                let config_clone = cfg.clone();
-                                let ctx = ui.ctx().clone();
-                                let (sender, promise) = Promise::new();
+                                    // Fetch next page of historical images
+                                    let ctx = ui.ctx().clone();
+                                    let (sender, promise) = Promise::new();
 
-                                std::thread::spawn(move || {
-                                    let result = crate::calc_bingimage::load_historical_images_paginated(&config_clone, page_num);
-                                    let bing_images = result.map_err(|e| e.to_string());
-                                    ctx.request_repaint();
-                                    sender.send(bing_images);
-                                });
+                                    std::thread::spawn(move || {
+                                        let result = match CalcBingimage::new() {
+                                            Ok(calc_bing) => calc_bing.load_historical_images_paginated(page_num),
+                                            Err(e) => Err(e),
+                                        };
+                                        let bing_images = result.map_err(|e| e.to_string());
+                                        ctx.request_repaint();
+                                        sender.send(bing_images);
+                                    });
 
-                                self.bing_api_promise = Some(promise);
-                            }
-                            Err(e) => {
-                                warn!("No more historical pages: {}", e);
-                                self.loading_more = false;
+                                    self.bing_api_promise = Some(promise);
+                                }
+                                Err(e) => {
+                                    warn!("No more historical pages: {}", e);
+                                    self.loading_more = false;
+                                }
                             }
                         }
-                    } 
+                    }
                 }
-            }
 
             ui.add_space(10.0);
         }
@@ -1028,6 +1063,29 @@ impl BingtrayApp {
                                 _ => generated_link,
                             };
 
+                            // Fetch status from database using base_url (not full_url with size params)
+                            let status = self.db.as_ref().and_then(|db| {
+                                match db.get_image(&base_url) {
+                                    Ok(Some(record)) => {
+                                        let status_str = record.status.as_str().to_string();
+                                        info!("Found status for {}: {}", display_title, status_str);
+                                        Some(status_str)
+                                    }
+                                    Ok(None) => {
+                                        info!("No status found in DB for: {} (URL: {})", display_title, base_url);
+                                        None
+                                    }
+                                    Err(e) => {
+                                        warn!("Error querying status for {}: {}", display_title, e);
+                                        None
+                                    }
+                                }
+                            });
+
+                            if self.db.is_none() {
+                                warn!("Database is not initialized - status icons will not be available");
+                            }
+
                             let carousel_image = CarouselImage {
                                 title: display_title.clone(),
                                 copyright: copyright_text,
@@ -1035,7 +1093,7 @@ impl BingtrayApp {
                                 thumbnail_url: thumbnail_url.clone(),
                                 full_url: full_url.clone(),
                                 image_bytes: None,
-                                status: None, // Status will be fetched from DB later if needed
+                                status,
                             };
                             
                             self.carousel_images.push(carousel_image.clone());
@@ -1145,8 +1203,8 @@ impl BingtrayApp {
 
             // Add wallpaper button for images
             ui.horizontal(|ui| {
-                
-                if ui.button("Set this Wallpaper").clicked() {
+
+                if ui.button(tr!("button-set-wallpaper")).clicked() {
                     if let Some(bytes) = &main_image.image_bytes {
                         if !bytes.is_empty() {
                             let image_data = bytes.clone();
@@ -1188,9 +1246,9 @@ impl BingtrayApp {
                         self.wallpaper_start_time = Some(SystemTime::now());
                     }
                 }
-                
+
                 // Add cropped wallpaper button
-                if ui.button("Set Cropped Wallpaper").clicked() {
+                if ui.button(tr!("button-set-cropped-wallpaper")).clicked() {
                     if let Some(bytes) = &main_image.image_bytes {
                         if !bytes.is_empty() {
                             let image_data = bytes.clone();
@@ -1749,23 +1807,27 @@ impl BingtrayApp {
         }
 
         // Get current state from tray_logic for enabling/disabling menu items
+        // Cache these values to avoid calling expensive methods on every frame
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-        let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title) =
+        let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status) =
             if let Some(ref logic) = self.tray_logic {
+                // Only call these methods once per menu render, not per menu item
+                let status = logic.get_wallpaper_page_status();
                 (
                     logic.has_next_available(),
                     logic.can_keep(),
                     logic.can_blacklist(),
                     logic.has_kept_wallpapers(),
                     logic.get_current_image_title(),
+                    status,
                 )
             } else {
-                (false, false, false, false, String::new())
+                (false, false, false, false, String::new(), String::new())
             };
 
         #[cfg(any(target_os = "android", target_arch = "wasm32"))]
-        let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title) =
-            (false, false, false, false, String::new());
+        let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status) =
+            (false, false, false, false, String::new(), String::new());
 
         let cache_dir_item = menu_item(&format!("{}", tr!("tray-cache-dir")))
             .leading_icon("folder_open")
@@ -1776,11 +1838,7 @@ impl BingtrayApp {
         let next_market_text = {
             #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
             {
-                if let Some(ref logic) = self.tray_logic {
-                    format!("{}\n{}", tr!("tray-next-market"), logic.get_wallpaper_page_status())
-                } else {
-                    format!("{}", tr!("tray-next-market"))
-                }
+                format!("{}\n{}", tr!("tray-next-market"), wallpaper_status)
             }
             #[cfg(any(target_os = "android", target_arch = "wasm32"))]
             {
@@ -2332,7 +2390,7 @@ impl BingtrayApp {
         }
     }
 
-    /// Load the current wallpaper from BingTrayLogic into the main panel
+    /// Load the current wallpaper from CalcBingimage into the main panel
     fn load_current_wallpaper_to_main_panel(&mut self) {
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         let current_path = if let Some(ref logic) = self.tray_logic {
@@ -2388,9 +2446,10 @@ impl BingtrayApp {
     }
 
     fn has_next_wallpaper_available(&self) -> bool {
-        if let Some(config) = &self.config {
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        if let Some(ref tray_logic) = self.tray_logic {
             // Market code functions removed - check historical data availability
-            if let Ok((current_page, total_pages)) = crate::calc_bingimage::get_historical_page_info(config) {
+            if let Ok((current_page, total_pages)) = tray_logic.get_historical_page_info() {
                 // If no historical metadata file exists yet, we can still download initial historical data
                 if current_page == 0 && total_pages == 0 {
                     return true; // We can download initial historical data
@@ -2401,7 +2460,7 @@ impl BingtrayApp {
                 return true;
             }
         }
-        
+
         false
     }
     

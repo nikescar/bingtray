@@ -249,8 +249,11 @@ close = 닫기
 # About Dialog
 about = 정보
 about-description = 블로트웨어를 선택적으로 제거하고, 설치된 앱을 VirusTotal/HybridAnalysis로 검사하며, Obtainium을 통해 FOSS 앱을 설치합니다.
+about-version = 버전
 about-website = 웹사이트
 about-credits = 크레딧
+about-reference-projects = 참고 프로젝트
+about-rust-libraries = Rust 라이브러리
 
 # Clipboard
 clipboard-copy = 복사
