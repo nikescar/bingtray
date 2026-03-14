@@ -282,3 +282,7 @@ button-set-wallpaper = Set this Wallpaper
 button-set-cropped-wallpaper = Set Cropped Wallpaper
 button-more-info = More Info
 dialog-loading-images = Loading Images
+status-filter = Image Filter
+status-all = All
+status-keep-private = Keep Private
+status-blacklisted = Blacklisted

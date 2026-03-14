@@ -282,3 +282,7 @@ button-set-wallpaper = 이 배경화면 설정
 button-set-cropped-wallpaper = 잘린 배경화면 설정
 button-more-info = 추가 정보
 dialog-loading-images = 이미지 로드 중
+status-filter = 이미지 필터
+status-all = 전체
+status-keep-private = 즐겨찾기
+status-blacklisted = 차단된 항목

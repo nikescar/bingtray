@@ -251,6 +251,8 @@ pub struct BingtrayApp {
     // Database
     #[cfg_attr(feature = "serde", serde(skip))]
     db: Option<BingImageDb>,
+    // Carousel filter state
+    carousel_filter: Option<usize>,
 }
 
 impl Default for BingtrayApp {
@@ -415,6 +417,8 @@ impl Default for BingtrayApp {
             ehttp_cache,
             // Database
             db,
+            // Carousel filter (0: All, 1: Keep Private, 2: Blacklisted)
+            carousel_filter: Some(0),
         }
     }
 }
@@ -551,7 +555,7 @@ impl BingtrayApp {
 
         // ##################### TOP APP BAR #####################
         let prev_url = self.url.clone();
-        let trigger_fetch = ui_mainpanel(ui, &mut self.menu_anchor_rect);
+        let trigger_fetch = ui_mainpanel(ui, &mut self.menu_anchor_rect, &mut self.carousel_filter);
 
         // Check menu toggle flag set by top app bar callback
         if MENU_TOGGLE.swap(false, Ordering::Relaxed) {
@@ -716,6 +720,20 @@ impl BingtrayApp {
 
             ui.add_space(10.0);
 
+            // Filter carousel images based on selected filter
+            let filtered_images: Vec<(usize, &CarouselImage)> = self.carousel_images
+                .iter()
+                .enumerate()
+                .filter(|(_, img)| {
+                    match self.carousel_filter {
+                        Some(0) => true, // All images
+                        Some(1) => img.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false), // Keep Private
+                        Some(2) => img.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false), // Blacklisted
+                        _ => true, // Default to all if filter is None
+                    }
+                })
+                .collect();
+
             let mut carousel_widget = carousel(&mut self.carousel_scroll_offset)
                 .id_salt("bing_carousel")
                 .item_extent(200.0)
@@ -723,8 +741,9 @@ impl BingtrayApp {
                 .height(180.0)
                 .item_snapping(true);
 
-            // Add carousel items from carousel_images
-            for (idx, carousel_img) in self.carousel_images.iter().enumerate() {
+            // Add carousel items from filtered carousel_images
+            for (idx, carousel_img) in filtered_images.iter() {
+                let idx = *idx; // Dereference the index
                 let thumbnail_url = carousel_img.thumbnail_url.clone();
                 let title = carousel_img.title.clone();
                 let full_url = carousel_img.full_url.clone();
@@ -1746,6 +1765,7 @@ fn open_directory(path: &std::path::Path) -> Result<(), String> {
 fn ui_mainpanel(
     ui: &mut egui::Ui,
     menu_anchor_rect: &mut Option<Rect>,
+    carousel_filter: &mut Option<usize>,
 ) -> bool {
     let trigger_fetch = false;
 
@@ -1775,6 +1795,21 @@ fn ui_mainpanel(
         response.rect.left_top(),
         egui::vec2(56.0, 64.0),
     ));
+
+    // Add filter select box
+    ui.add_space(10.0);
+    ui.horizontal(|ui| {
+        ui.label(tr!("filter"));
+        let filter_select = select(carousel_filter)
+            .variant(SelectVariant::Filled)
+            .label(tr!("status-filter"))
+            .option(0, tr!("status-all"))
+            .option(1, tr!("status-keep-private"))
+            .option(2, tr!("status-blacklisted"))
+            .width(200.0);
+        ui.add(filter_select);
+    });
+    ui.add_space(10.0);
 
     trigger_fetch
 }
