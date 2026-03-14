@@ -286,5 +286,6 @@ status-filter = 이미지 필터
 status-all = 전체
 status-keep-private = 즐겨찾기
 status-blacklisted = 차단된 항목
+status-unprocessed = 미처리
 switch-favorite = 즐겨찾기
 switch-blacklist = 차단

@@ -17,7 +17,6 @@ pub enum ImageStatus {
     Unprocessed,
     KeepFavorite,
     Blacklisted,
-    Cached,
 }
 
 impl ImageStatus {
@@ -26,16 +25,14 @@ impl ImageStatus {
             ImageStatus::Unprocessed => "unprocessed",
             ImageStatus::KeepFavorite => "keepfavorite",
             ImageStatus::Blacklisted => "blacklisted",
-            ImageStatus::Cached => "cached",
         }
     }
 
     pub fn from_str(s: &str) -> Option<Self> {
         match s {
-            "unprocessed" => Some(ImageStatus::Unprocessed),
+            "unprocessed" | "cached" => Some(ImageStatus::Unprocessed), // Map "cached" to Unprocessed for backward compatibility
             "keepfavorite" => Some(ImageStatus::KeepFavorite),
             "blacklisted" => Some(ImageStatus::Blacklisted),
-            "cached" => Some(ImageStatus::Cached),
             _ => None,
         }
     }

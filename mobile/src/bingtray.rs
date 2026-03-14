@@ -76,7 +76,7 @@ pub struct CarouselImage {
     pub full_url: String,
     #[cfg_attr(feature = "serde", serde(skip))]
     pub image_bytes: Option<Vec<u8>>,
-    pub status: Option<String>, // Image status: "unprocessed", "cached", "keepfavorite", "blacklisted"
+    pub status: Option<String>, // Image status: "unprocessed", "keepfavorite", "blacklisted"
 }
 
 /// Resource for handling HTTP responses
@@ -732,6 +732,7 @@ impl BingtrayApp {
                         Some(0) => true, // All images
                         Some(1) => img.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false), // Keep Private
                         Some(2) => img.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false), // Blacklisted
+                        Some(3) => img.status.as_ref().map(|s| s == "unprocessed").unwrap_or(false), // Unprocessed
                         _ => true, // Default to all if filter is None
                     }
                 })
@@ -777,7 +778,6 @@ impl BingtrayApp {
                         if let Some(ref status_str) = status {
                             let status_icon = match status_str.as_str() {
                                 "unprocessed" => "🆕",
-                                "cached" => "💾",
                                 "keepfavorite" => "⭐",
                                 "blacklisted" => "🚫",
                                 _ => "",
@@ -1255,12 +1255,12 @@ impl BingtrayApp {
                                 } else {
                                     // Update the status in main_panel_image
                                     if let Some(ref mut panel_img) = self.main_panel_image {
-                                        panel_img.status = Some("cached".to_string());
+                                        panel_img.status = Some("unprocessed".to_string());
                                     }
                                     // Update in carousel_images too
                                     for carousel_img in &mut self.carousel_images {
                                         if carousel_img.full_url == main_image.full_url {
-                                            carousel_img.status = Some("cached".to_string());
+                                            carousel_img.status = Some("unprocessed".to_string());
                                             break;
                                         }
                                     }
@@ -1301,12 +1301,12 @@ impl BingtrayApp {
                                 } else {
                                     // Update the status in main_panel_image
                                     if let Some(ref mut panel_img) = self.main_panel_image {
-                                        panel_img.status = Some("cached".to_string());
+                                        panel_img.status = Some("unprocessed".to_string());
                                     }
                                     // Update in carousel_images too
                                     for carousel_img in &mut self.carousel_images {
                                         if carousel_img.full_url == main_image.full_url {
-                                            carousel_img.status = Some("cached".to_string());
+                                            carousel_img.status = Some("unprocessed".to_string());
                                             break;
                                         }
                                     }
@@ -1909,6 +1909,7 @@ fn ui_mainpanel(
             .option(0, tr!("status-all"))
             .option(1, tr!("status-keep-private"))
             .option(2, tr!("status-blacklisted"))
+            .option(3, tr!("status-unprocessed"))
             .width(200.0);
         ui.add(filter_select);
     });

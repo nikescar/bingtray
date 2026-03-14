@@ -503,7 +503,7 @@ fn save_historical_metadata_with_db(
                 copyright_link: Some(img.copyrightlink.clone()).filter(|s| !s.is_empty()),
                 market_code: "historical".to_string(), // Special market code for historical images
                 fetched_at: timestamp,
-                status: ImageStatus::Cached, // Mark as cached/historical
+                status: ImageStatus::Unprocessed, // Mark as unprocessed/historical
             };
 
             match database.upsert_image(&record) {
@@ -617,7 +617,7 @@ fn save_historical_metadata_with_progress(
                 copyright_link: Some(img.copyrightlink.clone()).filter(|s| !s.is_empty()),
                 market_code: "historical".to_string(),
                 fetched_at: timestamp,
-                status: ImageStatus::Cached,
+                status: ImageStatus::Unprocessed,
             });
         }
 
@@ -1535,9 +1535,9 @@ impl CalcBingimage {
         }
     }
 
-    /// Unmark a specific image (set to cached status) by its URL.
+    /// Unmark a specific image (set to unprocessed status) by its URL.
     ///
-    /// This method updates the database status for the given image URL to 'cached',
+    /// This method updates the database status for the given image URL to 'unprocessed',
     /// effectively removing it from favorites or blacklist.
     ///
     /// # Arguments
@@ -1548,9 +1548,9 @@ impl CalcBingimage {
     pub fn unmark_image_by_url(&self, url: &str) -> Result<()> {
         if let Some(ref database) = self.db {
             use crate::duckdb_bingimage::ImageStatus;
-            database.update_image_status(url, ImageStatus::Cached)
-                .context("Failed to update image status to cached")?;
-            log::info!("Unmarked image (set to cached) in database: {}", url);
+            database.update_image_status(url, ImageStatus::Unprocessed)
+                .context("Failed to update image status to unprocessed")?;
+            log::info!("Unmarked image (set to unprocessed) in database: {}", url);
             Ok(())
         } else {
             anyhow::bail!("Database not available")
