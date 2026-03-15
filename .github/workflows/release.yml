@@ -201,7 +201,7 @@ jobs:
           track: production # production
           status: completed
           inAppUpdatePriority: 2
-          changesNotSentForReview: true
+          changesNotSentForReview: false
       
       - name: Build Binary for ${{ matrix.platform.name }} (non-Android)
         if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64') && !contains(matrix.platform.target, 'android')
