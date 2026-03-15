@@ -485,6 +485,8 @@ impl BingtrayApp {
         if self.carousel_images.is_empty() && self.bing_api_promise.is_none() {
             if let Some(ref _cfg) = self.config {
                 // PRIORITY 1: Try loading Bing images from current market (with 7-day cache)
+                // Desktop only - uses CalcBingimage
+                #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
                 if !self.current_market_codes.is_empty() {
                     let market_code = self.current_market_codes[0].clone();
 

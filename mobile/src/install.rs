@@ -148,6 +148,9 @@ fn cleanup_old_installations(paths: &InstallPaths) -> Result<(), String> {
                             #[cfg(target_os = "windows")]
                             let is_old_shortcut = name_str == format!("{}.lnk", APP_NAME);
 
+                            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                            let is_old_shortcut = false;
+
                             if is_old_shortcut && path != *start_menu {
                                 let _ = move_to_trash(&path);
                             }
@@ -172,6 +175,9 @@ fn cleanup_old_installations(paths: &InstallPaths) -> Result<(), String> {
 
                             #[cfg(target_os = "windows")]
                             let is_old_shortcut = name_str == format!("{}.lnk", APP_NAME);
+
+                            #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                            let is_old_shortcut = false;
 
                             if is_old_shortcut && path != *desktop {
                                 let _ = move_to_trash(&path);
