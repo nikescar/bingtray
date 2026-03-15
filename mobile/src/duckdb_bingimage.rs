@@ -280,6 +280,8 @@ impl BingImageDb {
     pub fn upsert_image(&self, record: &BingImageRecord) -> Result<()> {
         let conn = self.conn.lock().unwrap();
 
+        // Only update status if it's not the default "unprocessed"
+        // This preserves user-set statuses (keepfavorite, blacklisted) when re-fetching images
         conn.execute(
             "INSERT INTO bing_images (url, title, copyright, copyright_link, market_code, fetched_at, status)
              VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -289,7 +291,10 @@ impl BingImageDb {
                 copyright_link = excluded.copyright_link,
                 market_code = excluded.market_code,
                 fetched_at = excluded.fetched_at,
-                status = excluded.status",
+                status = CASE
+                    WHEN excluded.status = 'unprocessed' THEN bing_images.status
+                    ELSE excluded.status
+                END",
             params![
                 &record.url,
                 &record.title,
@@ -325,7 +330,10 @@ impl BingImageDb {
                     copyright_link = excluded.copyright_link,
                     market_code = excluded.market_code,
                     fetched_at = excluded.fetched_at,
-                    status = excluded.status",
+                    status = CASE
+                        WHEN excluded.status = 'unprocessed' THEN bing_images.status
+                        ELSE excluded.status
+                    END",
                 params![
                     &record.url,
                     &record.title,

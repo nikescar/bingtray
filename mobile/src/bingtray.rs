@@ -1226,6 +1226,13 @@ impl BingtrayApp {
                     let mut is_favorite = main_image.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false);
                     let mut is_blacklisted = main_image.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false);
 
+                    // Extract base URL (remove size parameters) for database operations
+                    // The database stores using base URLs without &w=1920&h=1080 parameters
+                    let base_url = main_image.full_url
+                        .split("&w=").next()
+                        .unwrap_or(&main_image.full_url)
+                        .to_string();
+
                     // Blacklist switch
                     let blacklist_switch = switch(&mut is_blacklisted)
                         .with_icons(ICON_BLOCK, ICON_BLOCK)
@@ -1234,7 +1241,7 @@ impl BingtrayApp {
                         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
                         if let Some(ref tray_logic) = self.tray_logic {
                             if is_blacklisted {
-                                if let Err(e) = tray_logic.blacklist_image_by_url(&main_image.full_url) {
+                                if let Err(e) = tray_logic.blacklist_image_by_url(&base_url) {
                                     error!("Failed to blacklist image: {}", e);
                                 } else {
                                     // Update the status in main_panel_image
@@ -1250,7 +1257,7 @@ impl BingtrayApp {
                                     }
                                 }
                             } else {
-                                if let Err(e) = tray_logic.unmark_image_by_url(&main_image.full_url) {
+                                if let Err(e) = tray_logic.unmark_image_by_url(&base_url) {
                                     error!("Failed to unmark image: {}", e);
                                 } else {
                                     // Update the status in main_panel_image
@@ -1280,7 +1287,7 @@ impl BingtrayApp {
                         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
                         if let Some(ref tray_logic) = self.tray_logic {
                             if is_favorite {
-                                if let Err(e) = tray_logic.keep_image_by_url(&main_image.full_url) {
+                                if let Err(e) = tray_logic.keep_image_by_url(&base_url) {
                                     error!("Failed to mark as favorite: {}", e);
                                 } else {
                                     // Update the status in main_panel_image
@@ -1296,7 +1303,7 @@ impl BingtrayApp {
                                     }
                                 }
                             } else {
-                                if let Err(e) = tray_logic.unmark_image_by_url(&main_image.full_url) {
+                                if let Err(e) = tray_logic.unmark_image_by_url(&base_url) {
                                     error!("Failed to unmark image: {}", e);
                                 } else {
                                     // Update the status in main_panel_image
