@@ -148,6 +148,14 @@ fn print_menu(logic: &CalcBingimage) {
         logic.get_wallpaper_page_status()
     );
 
+    // Display current wallpaper title
+    let current_title = logic.get_current_image_title();
+    if !current_title.is_empty() {
+        println!("     📷 Current: \"{}\"", current_title);
+    } else {
+        println!("     📷 Current: (no wallpaper set)");
+    }
+
     if logic.can_keep() {
         println!("  2. Keep \"{}\"", logic.get_current_image_title());
     } else {

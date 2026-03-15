@@ -268,6 +268,7 @@ tray-keep-with-title = Keep "{ $title }"
 tray-blacklist-current = Blacklist Current Image
 tray-blacklist-with-title = Blacklist "{ $title }"
 tray-random-favorite = Random Favorite Wallpaper
+tray-no-wallpaper = No wallpaper set
 tray-quit = Quit
 
 # Main UI (bingtray.rs)

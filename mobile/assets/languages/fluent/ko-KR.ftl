@@ -268,6 +268,7 @@ tray-keep-with-title = "{ $title }" 보관
 tray-blacklist-current = 현재 이미지 차단
 tray-blacklist-with-title = "{ $title }" 차단
 tray-random-favorite = 랜덤 즐겨찾기 배경화면
+tray-no-wallpaper = 배경화면 미설정
 tray-quit = 종료
 
 # Main UI (bingtray.rs)

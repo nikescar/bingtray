@@ -234,11 +234,25 @@ impl BingImageDb {
                 copyright_link TEXT,
                 market_code TEXT NOT NULL,
                 fetched_at BIGINT NOT NULL,
-                status TEXT NOT NULL
+                status TEXT NOT NULL DEFAULT 'unprocessed'
             )",
             [],
         )
         .context("Failed to create bing_images table")?;
+
+        // ALWAYS run migration to fix NULL or empty status values
+        // This runs every time the database is opened, not just on table creation
+        match conn.execute(
+            "UPDATE bing_images SET status = 'unprocessed' WHERE status IS NULL OR status = '' OR status NOT IN ('unprocessed', 'keepfavorite', 'blacklisted')",
+            [],
+        ) {
+            Ok(count) => {
+                if count > 0 {
+                    log::info!("Migrated {} images with invalid status to 'unprocessed'", count);
+                }
+            }
+            Err(e) => log::warn!("Failed to migrate status values: {}", e),
+        }
 
         // Create market_codes table
         conn.execute(
@@ -282,6 +296,7 @@ impl BingImageDb {
 
         // Only update status if it's not the default "unprocessed"
         // This preserves user-set statuses (keepfavorite, blacklisted) when re-fetching images
+        // Use COALESCE with NULLIF to handle NULL and empty string status
         conn.execute(
             "INSERT INTO bing_images (url, title, copyright, copyright_link, market_code, fetched_at, status)
              VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -292,7 +307,7 @@ impl BingImageDb {
                 market_code = excluded.market_code,
                 fetched_at = excluded.fetched_at,
                 status = CASE
-                    WHEN excluded.status = 'unprocessed' THEN bing_images.status
+                    WHEN excluded.status = 'unprocessed' THEN COALESCE(NULLIF(bing_images.status, ''), excluded.status)
                     ELSE excluded.status
                 END",
             params![
@@ -331,7 +346,7 @@ impl BingImageDb {
                     market_code = excluded.market_code,
                     fetched_at = excluded.fetched_at,
                     status = CASE
-                        WHEN excluded.status = 'unprocessed' THEN bing_images.status
+                        WHEN excluded.status = 'unprocessed' THEN COALESCE(NULLIF(bing_images.status, ''), excluded.status)
                         ELSE excluded.status
                     END",
                 params![
@@ -386,8 +401,10 @@ impl BingImageDb {
             .context("Failed to execute get_image query")?;
 
         if let Some(row) = rows.next().context("Failed to fetch row")? {
-            let status_str: String = row.get(6)?;
-            let status = ImageStatus::from_str(&status_str)
+            // Handle NULL status by using Option<String>
+            let status_str: Option<String> = row.get(6).ok();
+            let status = status_str
+                .and_then(|s| ImageStatus::from_str(&s))
                 .unwrap_or(ImageStatus::Unprocessed);
 
             Ok(Some(BingImageRecord {
@@ -414,8 +431,10 @@ impl BingImageDb {
 
         let rows = stmt
             .query_map(params![status.as_str()], |row| {
-                let status_str: String = row.get(6)?;
-                let status = ImageStatus::from_str(&status_str)
+                // Handle NULL status by using Option<String>
+                let status_str: Option<String> = row.get(6).ok();
+                let status = status_str
+                    .and_then(|s| ImageStatus::from_str(&s))
                     .unwrap_or(ImageStatus::Unprocessed);
 
                 Ok(BingImageRecord {
@@ -448,8 +467,10 @@ impl BingImageDb {
 
         let rows = stmt
             .query_map(params![market_code], |row| {
-                let status_str: String = row.get(6)?;
-                let status = ImageStatus::from_str(&status_str)
+                // Handle NULL status by using Option<String>
+                let status_str: Option<String> = row.get(6).ok();
+                let status = status_str
+                    .and_then(|s| ImageStatus::from_str(&s))
                     .unwrap_or(ImageStatus::Unprocessed);
 
                 Ok(BingImageRecord {
@@ -482,8 +503,10 @@ impl BingImageDb {
 
         let rows = stmt
             .query_map(params![market_code, limit, offset], |row| {
-                let status_str: String = row.get(6)?;
-                let status = ImageStatus::from_str(&status_str)
+                // Handle NULL status by using Option<String>
+                let status_str: Option<String> = row.get(6).ok();
+                let status = status_str
+                    .and_then(|s| ImageStatus::from_str(&s))
                     .unwrap_or(ImageStatus::Unprocessed);
 
                 Ok(BingImageRecord {

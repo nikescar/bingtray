@@ -28,6 +28,7 @@ struct MenuItems {
     show_app: MenuId,
     cache_dir: MenuId,
     next_market: MenuId,
+    current_title: MenuId,  // Display current wallpaper title
     keep_current: MenuId,
     blacklist_current: MenuId,
     random_favorite: MenuId,
@@ -56,7 +57,16 @@ fn create_tray_menu(logic: &CalcBingimage) -> (Menu, MenuItems) {
         None
     );
 
-    let current_title = logic.get_current_image_title();
+    // Display current wallpaper title (non-clickable)
+    let current_title_text = logic.get_current_image_title();
+    let current_title_display = if !current_title_text.is_empty() {
+        format!("📷 {}", current_title_text)
+    } else {
+        format!("📷 {}", tr!("tray-no-wallpaper"))
+    };
+    let current_title_item = MenuItem::new(current_title_display, false, None); // disabled = not clickable
+
+    let current_title = current_title_text;
     let keep_text = if logic.can_keep() {
         format!("{}", tr!("tray-keep-with-title", { title: current_title.clone() }))
     } else {
@@ -83,6 +93,7 @@ fn create_tray_menu(logic: &CalcBingimage) -> (Menu, MenuItems) {
         show_app: show_app.id().clone(),
         cache_dir: cache_dir.id().clone(),
         next_market: next_market.id().clone(),
+        current_title: current_title_item.id().clone(),
         keep_current: keep_current.id().clone(),
         blacklist_current: blacklist_current.id().clone(),
         random_favorite: random_favorite.id().clone(),
@@ -93,6 +104,7 @@ fn create_tray_menu(logic: &CalcBingimage) -> (Menu, MenuItems) {
     menu.append(&MenuItem::new("", false, None)).ok(); // Separator
     menu.append(&cache_dir).ok();
     menu.append(&next_market).ok();
+    menu.append(&current_title_item).ok(); // Current wallpaper title
     menu.append(&keep_current).ok();
     menu.append(&blacklist_current).ok();
     menu.append(&random_favorite).ok();

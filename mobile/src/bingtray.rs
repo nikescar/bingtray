@@ -2003,6 +2003,16 @@ impl BingtrayApp {
                 .enabled(false)
         };
 
+        // Display current wallpaper title (non-clickable)
+        let current_title_display = if !current_title.is_empty() {
+            format!("📷 {}", current_title)
+        } else {
+            format!("📷 {}", tr!("tray-no-wallpaper"))
+        };
+        let current_title_item = menu_item(&current_title_display)
+            .leading_icon("image")
+            .enabled(false); // Non-clickable, for display only
+
         let keep_text = if can_keep && !current_title.is_empty() {
             format!("{}", tr!("tray-keep-with-title", { title: current_title.clone() }))
         } else {
@@ -2072,6 +2082,7 @@ impl BingtrayApp {
         let mut menu_builder = menu("topappbar_nav_menu", &mut self.menu_open)
             .item(cache_dir_item)
             .item(next_market_item)
+            .item(current_title_item) // Current wallpaper title
             .item(keep_current_item)
             .item(blacklist_current_item)
             .item(random_favorite_item);
@@ -2551,6 +2562,13 @@ impl BingtrayApp {
         if let Some(current_path) = current_path {
             info!("Loading current wallpaper to main panel: {:?}", current_path);
 
+            // Extract filename stem (without extension) to match with carousel images
+            let filename_stem = current_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
+
             // Read the image file
             match std::fs::read(&current_path) {
                 Ok(image_bytes) => {
@@ -2564,22 +2582,59 @@ impl BingtrayApp {
                     #[cfg(any(target_os = "android", target_arch = "wasm32"))]
                     let title = String::from("Current Wallpaper");
 
-                    // Create a CarouselImage from the file
-                    let carousel_image = CarouselImage {
-                        title: title.clone(),
-                        copyright: String::new(),
-                        copyright_link: String::new(),
-                        thumbnail_url: String::new(),
-                        full_url: format!("file://{}", current_path.display()),
-                        image_bytes: Some(image_bytes.clone()),
-                        status: None,
+                    // Try to find the matching carousel image by extracting the ID from URL
+                    // Filename is generated from URL: url.split("th?id=").nth(1).and_then(|s| s.split('_').next())
+                    // So we match carousel images by extracting the same ID pattern
+                    let matching_carousel = self.carousel_images.iter()
+                        .find(|img| {
+                            // Extract ID from carousel image's full_url
+                            let carousel_id = img.full_url
+                                .split("th?id=")
+                                .nth(1)
+                                .and_then(|s| s.split('_').next())
+                                .or_else(|| img.full_url.split("th?id=").nth(1).and_then(|s| s.split('&').next()));
+
+                            // Check if the extracted ID matches the filename stem
+                            if let Some(id) = carousel_id {
+                                id == filename_stem
+                            } else {
+                                false
+                            }
+                        });
+
+                    let carousel_image = if let Some(carousel_img) = matching_carousel {
+                        // Use the carousel image's HTTP URLs for caching
+                        // This prevents duplicate downloads when clicking the carousel image
+                        info!("Found matching carousel image for '{}', using HTTP URL for cache: {}", filename_stem, carousel_img.full_url);
+                        CarouselImage {
+                            title: carousel_img.title.clone(),
+                            copyright: carousel_img.copyright.clone(),
+                            copyright_link: carousel_img.copyright_link.clone(),
+                            thumbnail_url: carousel_img.thumbnail_url.clone(),
+                            full_url: carousel_img.full_url.clone(),
+                            image_bytes: Some(image_bytes.clone()),
+                            status: carousel_img.status.clone(),
+                        }
+                    } else {
+                        // Fallback: create from file if no matching carousel image found
+                        info!("No matching carousel image found for '{}', using file:// URL", filename_stem);
+                        CarouselImage {
+                            title: title.clone(),
+                            copyright: String::new(),
+                            copyright_link: String::new(),
+                            thumbnail_url: String::new(),
+                            full_url: format!("file://{}", current_path.display()),
+                            image_bytes: Some(image_bytes.clone()),
+                            status: None,
+                        }
                     };
 
                     // Set it as the main panel image
                     self.main_panel_image = Some(carousel_image.clone());
                     self.reset_rectangle_for_new_image = true;
 
-                    // Cache it
+                    // Cache it with the HTTP URL (or file:// URL if no match found)
+                    // This allows carousel clicks to use the cached image instead of downloading again
                     self.image_cache.insert(carousel_image.full_url.clone(), carousel_image);
 
                     info!("Current wallpaper loaded to main panel: {}", title);
