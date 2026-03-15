@@ -53,9 +53,9 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::SystemTime;
 
-// DuckDB is available on both desktop and Android, but not WASM
+// DataFusion is available on both desktop and Android, but not WASM
 #[cfg(not(target_arch = "wasm32"))]
-use crate::duckdb_bingimage::*;
+use crate::datafusion_bingimage::*;
 
 // Desktop-only imports (wallpaper setting, channels)
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
@@ -964,6 +964,10 @@ impl CalcBingimage {
             8
         };
 
+        // Don't reset historical page here - it's reset by the GUI after initial load
+        // Resetting here causes issues because CalcBingimage is created multiple times
+        // in background threads, which would reset the counter on every scroll
+
         Ok(Self {
             config,
             current_image_path: None,
@@ -1029,6 +1033,10 @@ impl CalcBingimage {
         } else {
             8
         };
+
+        // Don't reset historical page here - it's reset by the GUI after initial load
+        // Resetting here causes issues because CalcBingimage is created multiple times
+        // in background threads, which would reset the counter on every scroll
 
         Ok(Self {
             config,
@@ -1306,8 +1314,8 @@ impl CalcBingimage {
 
         // First check if historical data exists, if not download it
         if let Some(ref db) = self.db {
-            let has_historical = db.get_images_by_market_code("historical")
-                .map(|images| !images.is_empty())
+            let has_historical = db.count_by_market_code("historical")
+                .map(|count| count > 0)
                 .unwrap_or(false);
 
             if !has_historical {
@@ -1503,7 +1511,7 @@ impl CalcBingimage {
     /// Returns an error if the database is not available or the update fails
     pub fn keep_image_by_url(&self, url: &str) -> Result<()> {
         if let Some(ref database) = self.db {
-            use crate::duckdb_bingimage::ImageStatus;
+            use crate::datafusion_bingimage::ImageStatus;
             database.update_image_status(url, ImageStatus::KeepFavorite)
                 .context("Failed to update image status to keepfavorite")?;
             log::info!("Marked image as favorite in database: {}", url);
@@ -1525,7 +1533,7 @@ impl CalcBingimage {
     /// Returns an error if the database is not available or the update fails
     pub fn blacklist_image_by_url(&self, url: &str) -> Result<()> {
         if let Some(ref database) = self.db {
-            use crate::duckdb_bingimage::ImageStatus;
+            use crate::datafusion_bingimage::ImageStatus;
             database.update_image_status(url, ImageStatus::Blacklisted)
                 .context("Failed to update image status to blacklisted")?;
             log::info!("Marked image as blacklisted in database: {}", url);
@@ -1547,7 +1555,7 @@ impl CalcBingimage {
     /// Returns an error if the database is not available or the update fails
     pub fn unmark_image_by_url(&self, url: &str) -> Result<()> {
         if let Some(ref database) = self.db {
-            use crate::duckdb_bingimage::ImageStatus;
+            use crate::datafusion_bingimage::ImageStatus;
             database.update_image_status(url, ImageStatus::Unprocessed)
                 .context("Failed to update image status to unprocessed")?;
             log::info!("Unmarked image (set to unprocessed) in database: {}", url);
@@ -2751,11 +2759,36 @@ impl CalcBingimage {
         Ok(historical_images)
     }
 
+    /// Reset the historical page counter to a specific value.
+    /// Used by GUI after initial load to set the starting page for scrolling.
+    pub fn reset_historical_page(&self, page: usize) -> Result<()> {
+        let db = self.db.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Database not available"))?;
+
+        db.set_historical_page(page)
+            .context("Failed to reset historical page")?;
+        db.checkpoint()
+            .context("Failed to checkpoint after resetting historical page")?;
+
+        log::info!("Reset historical page to {}", page);
+        Ok(())
+    }
+
     /// Advance to the next page of historical images and return the current page number.
     pub fn get_next_historical_page(&self) -> Result<usize> {
-        let (current_page, all_images) = load_historical_metadata_with_db(&self.config, self.db.as_ref())?;
+        let db = self.db.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Database not available"))?;
 
-        if all_images.is_empty() {
+        let current_page = db
+            .get_historical_page()
+            .context("Failed to load historical page from database")?;
+
+        // Use efficient count query instead of loading all images
+        let total_count = db
+            .count_by_market_code("historical")
+            .context("Failed to count historical images")?;
+
+        if total_count == 0 {
             log::info!("No historical metadata available yet");
             return Err(anyhow::anyhow!(
                 "No historical data available - call download_historical_data first"
@@ -2764,18 +2797,15 @@ impl CalcBingimage {
 
         let start_idx = current_page * 8;
 
-        if start_idx >= all_images.len() {
+        if start_idx >= total_count {
             log::info!("No more historical pages available");
             return Err(anyhow::anyhow!("No more historical data available"));
         }
 
         // Update page number only (don't re-save images that are already in database)
-        if let Some(database) = self.db.as_ref() {
-            database
-                .set_historical_page(current_page + 1)
-                .context("Failed to save historical page to database")?;
-            log::debug!("Updated historical page number to {}", current_page + 1);
-        }
+        db.set_historical_page(current_page + 1)
+            .context("Failed to save historical page to database")?;
+        log::debug!("Updated historical page number to {}", current_page + 1);
 
         log::info!("Returning historical page number {}", current_page);
         Ok(current_page)
@@ -2783,8 +2813,19 @@ impl CalcBingimage {
 
     /// Retrieve pagination information for historical image browsing.
     pub fn get_historical_page_info(&self) -> Result<(usize, usize)> {
-        let (current_page, all_images) = load_historical_metadata_with_db(&self.config, self.db.as_ref())?;
-        let total_pages = (all_images.len() + 7) / 8; // Round up
+        let db = self.db.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Database not available"))?;
+
+        let current_page = db
+            .get_historical_page()
+            .context("Failed to load historical page from database")?;
+
+        // Use efficient count query instead of loading all images
+        let total_count = db
+            .count_by_market_code("historical")
+            .context("Failed to count historical images")?;
+
+        let total_pages = (total_count + 7) / 8; // Round up
         Ok((current_page, total_pages))
     }
 
@@ -2803,14 +2844,7 @@ impl CalcBingimage {
 
         log::debug!("Loading historical images: page={}, limit={}, offset={}", page, limit, offset);
 
-        // Check total historical images in database for debugging
-        let all_historical = db.get_images_by_market_code("historical")
-            .unwrap_or_else(|e| {
-                log::warn!("Failed to query total historical images: {}", e);
-                Vec::new()
-            });
-        log::info!("Total historical images in database: {}", all_historical.len());
-
+        // Query paginated results directly (no wasteful full scan)
         let records = db
             .get_images_by_market_code_paginated("historical", limit, offset)
             .context("Failed to load paginated historical images from database")?;

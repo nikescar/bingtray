@@ -100,8 +100,13 @@ fn move_to_trash<P: AsRef<Path>>(path: P) -> Result<(), String> {
 }
 
 /// Remove old versions of binaries and shortcuts
-fn cleanup_old_installations(paths: &InstallPaths) -> Result<(), String> {
-    let current_version = get_versioned_app_name();
+/// If `keep_version` is provided, keep that version instead of the current running version
+fn cleanup_old_installations(paths: &InstallPaths, keep_version: Option<&str>) -> Result<(), String> {
+    let version_to_keep = if let Some(ver) = keep_version {
+        format!("{}-{}", APP_NAME, ver)
+    } else {
+        get_versioned_app_name()
+    };
 
     // Clean up old binaries in bin_dir
     if paths.bin_dir.exists() {
@@ -115,11 +120,11 @@ fn cleanup_old_installations(paths: &InstallPaths) -> Result<(), String> {
                 #[cfg(target_os = "windows")]
                 let is_old_binary = name_str.starts_with(&format!("{}-", APP_NAME))
                     && name_str.ends_with(".exe")
-                    && !name_str.starts_with(&current_version);
+                    && !name_str.starts_with(&version_to_keep);
 
                 #[cfg(not(target_os = "windows"))]
                 let is_old_binary = name_str.starts_with(&format!("{}-", APP_NAME))
-                    && !name_str.starts_with(&current_version)
+                    && !name_str.starts_with(&version_to_keep)
                     && !name_str.contains("-bin"); // Don't remove the -bin helper on macOS
 
                 if is_old_binary {
@@ -201,7 +206,7 @@ fn cleanup_old_installations(paths: &InstallPaths) -> Result<(), String> {
 
                     let is_old_app = name_str.starts_with(&format!("{}-", APP_NAME))
                         && name_str.ends_with(".app")
-                        && !name_str.starts_with(&current_version);
+                        && !name_str.starts_with(&version_to_keep);
 
                     if is_old_app {
                         let _ = move_to_trash(&path);
@@ -386,7 +391,7 @@ pub fn do_install() -> InstallResult {
 #[cfg(target_os = "linux")]
 fn install_linux(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String, String> {
     // Clean up old installations
-    cleanup_old_installations(paths)?;
+    cleanup_old_installations(paths, None)?;
 
     let binary_dest = paths.bin_dir.join(get_versioned_app_name());
 
@@ -449,7 +454,7 @@ Keywords=android;debloat;shizuku;adb;
 #[cfg(target_os = "macos")]
 fn install_macos(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String, String> {
     // Clean up old installations
-    cleanup_old_installations(paths)?;
+    cleanup_old_installations(paths, None)?;
 
     let app_bundle = paths.bin_dir.join(format!("{}.app", get_versioned_app_name()));
     let contents_dir = app_bundle.join("Contents");
@@ -540,7 +545,7 @@ fn install_windows(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String
     use std::process::Command;
 
     // Clean up old installations
-    cleanup_old_installations(paths)?;
+    cleanup_old_installations(paths, None)?;
 
     let binary_dest = paths.bin_dir.join(format!("{}.exe", get_versioned_app_name()));
 
@@ -730,29 +735,40 @@ pub fn check_update() -> Result<UpdateInfo, String> {
         GITHUB_REPO
     );
 
-    let request = ehttp::Request::get(&url);
-    let response = ehttp::fetch_blocking(&request)
+    log::info!("Checking for updates from: {}", url);
+
+    let response = ureq::get(&url)
+        .timeout(std::time::Duration::from_secs(30))
+        .call()
         .map_err(|e| format!("Failed to check for updates: {}", e))?;
 
-    let body = response.text()
-        .ok_or_else(|| "Failed to read response".to_string())?;
+    let body = response.into_string()
+        .map_err(|e| format!("Failed to read response: {}", e))?;
 
-    let release: GitHubRelease = serde_json::from_str(body)
+    let release: GitHubRelease = serde_json::from_str(&body)
         .map_err(|e| format!("Failed to parse release info: {}", e))?;
 
     let latest_version = release.tag_name.trim_start_matches('v').to_string();
     let current_version = CURRENT_VERSION.to_string();
 
-    // Find appropriate download URL based on platform
-    let download_url = find_platform_asset(&release.assets);
+    // Construct direct download URL based on platform and architecture
+    let download_url = get_platform_download_url()
+        .ok_or_else(|| {
+            log::error!("No compatible release for platform {} arch {}",
+                std::env::consts::OS, std::env::consts::ARCH);
+            "No compatible release found for your platform".to_string()
+        })?;
 
     let available = is_newer_version(&current_version, &latest_version);
+
+    log::info!("Update check: current={}, latest={}, available={}, url={}",
+        current_version, latest_version, available, download_url);
 
     Ok(UpdateInfo {
         available,
         current_version,
         latest_version,
-        download_url: download_url.unwrap_or_default(),
+        download_url,
         release_notes: release.body.unwrap_or_default(),
     })
 }
@@ -768,44 +784,69 @@ fn is_newer_version(current: &str, latest: &str) -> bool {
     let current_parts = parse_version(current);
     let latest_parts = parse_version(latest);
 
+    log::debug!("Version comparison: current={} ({:?}) vs latest={} ({:?})",
+        current, current_parts, latest, latest_parts);
+
     for (c, l) in current_parts.iter().zip(latest_parts.iter()) {
         if l > c {
+            log::info!("Update available: {} > {}", latest, current);
             return true;
         } else if c > l {
+            log::info!("Current version is newer: {} > {}", current, latest);
             return false;
         }
     }
 
-    latest_parts.len() > current_parts.len()
+    let result = latest_parts.len() > current_parts.len();
+    log::info!("Version comparison result: {} (length check)", result);
+    result
 }
 
-/// Find the appropriate asset for the current platform
-fn find_platform_asset(assets: &[crate::install_stt::GitHubAsset]) -> Option<String> {
-    #[cfg(target_os = "linux")]
-    let patterns = ["linux", "Linux", "x86_64-unknown-linux"];
+/// Get the direct download URL for the current platform and architecture
+fn get_platform_download_url() -> Option<String> {
+    let target_arch = std::env::consts::ARCH; // "x86_64", "aarch64", etc.
+    let target_os = std::env::consts::OS;
 
-    #[cfg(target_os = "macos")]
-    let patterns = ["macos", "darwin", "osx", "apple"];
+    log::debug!("Constructing download URL for OS: {}, Architecture: {}", target_os, target_arch);
 
-    #[cfg(target_os = "windows")]
-    let patterns = ["windows", "Windows", "win64", "x86_64-pc-windows"];
+    // Build filename based on platform and architecture
+    let filename = match (target_os, target_arch) {
+        // Windows x86_64: bingtray.exe
+        ("windows", "x86_64") => "bingtray.exe",
 
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    let patterns: [&str; 0] = [];
+        // macOS x86_64: bingtray-x86_64-apple-darwin.tar.gz
+        ("macos", "x86_64") => "bingtray-x86_64-apple-darwin.tar.gz",
 
-    for asset in assets {
-        for pattern in &patterns {
-            if asset.name.contains(pattern) {
-                return Some(asset.browser_download_url.clone());
-            }
+        // macOS aarch64: bingtray-aarch64-apple-darwin.tar.gz
+        ("macos", "aarch64") => "bingtray-aarch64-apple-darwin.tar.gz",
+
+        // Linux x86_64: bingtray-x86_64-unknown-linux-musl.tar.gz
+        ("linux", "x86_64") => "bingtray-x86_64-unknown-linux-musl.tar.gz",
+
+        // Linux aarch64: bingtray-aarch64-unknown-linux-musl.tar.gz
+        ("linux", "aarch64") => "bingtray-aarch64-unknown-linux-musl.tar.gz",
+
+        // Android: bingtray-all-signed.apk
+        ("android", _) => "bingtray-all-signed.apk",
+
+        // Unsupported platform
+        (os, arch) => {
+            log::warn!("Unsupported platform: {} {}", os, arch);
+            return None;
         }
-    }
+    };
 
-    None
+    let download_url = format!(
+        "https://github.com/{}/releases/latest/download/{}",
+        GITHUB_REPO, filename
+    );
+
+    log::info!("Constructed download URL: {}", download_url);
+    Some(download_url)
 }
 
 /// Download and apply update
-pub fn do_update(download_url: &str, tmp_dir: &PathBuf) -> InstallResult {
+pub fn do_update(download_url: &str, latest_version: &str, tmp_dir: &PathBuf) -> InstallResult {
     let paths = get_install_paths();
 
     // Download the update
@@ -817,16 +858,31 @@ pub fn do_update(download_url: &str, tmp_dir: &PathBuf) -> InstallResult {
     // Extract if archive
     #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     let binary_path = if downloaded_file.extension().is_some_and(|ext| ext == "gz" || ext == "tar") {
+        log::info!("Extracting tar.gz archive: {}", downloaded_file.display());
         match extract_tar_gz(&downloaded_file, tmp_dir) {
-            Ok(path) => path,
-            Err(e) => return InstallResult::Error(format!("Extraction failed: {}", e)),
+            Ok(path) => {
+                log::info!("Extraction successful, binary at: {}", path.display());
+                path
+            }
+            Err(e) => {
+                log::error!("Extraction failed: {}", e);
+                return InstallResult::Error(format!("Extraction failed: {}", e));
+            }
         }
     } else if downloaded_file.extension().is_some_and(|ext| ext == "zip") {
+        log::info!("Extracting zip archive: {}", downloaded_file.display());
         match extract_zip(&downloaded_file, tmp_dir) {
-            Ok(path) => path,
-            Err(e) => return InstallResult::Error(format!("Extraction failed: {}", e)),
+            Ok(path) => {
+                log::info!("Extraction successful, binary at: {}", path.display());
+                path
+            }
+            Err(e) => {
+                log::error!("Extraction failed: {}", e);
+                return InstallResult::Error(format!("Extraction failed: {}", e));
+            }
         }
     } else {
+        log::info!("No extraction needed, using downloaded file directly: {}", downloaded_file.display());
         downloaded_file
     };
 
@@ -834,7 +890,7 @@ pub fn do_update(download_url: &str, tmp_dir: &PathBuf) -> InstallResult {
     let binary_path = downloaded_file;
 
     // Replace current binary
-    match replace_binary(&binary_path, &paths) {
+    match replace_binary(&binary_path, &paths, Some(latest_version)) {
         Ok(msg) => InstallResult::Success(msg),
         Err(e) => InstallResult::Error(e),
     }
@@ -844,12 +900,52 @@ fn download_update(url: &str, tmp_dir: &PathBuf) -> Result<PathBuf, String> {
     let filename = url.split('/').last().unwrap_or("update");
     let dest_path = tmp_dir.join(filename);
 
-    let request = ehttp::Request::get(url);
-    let response = ehttp::fetch_blocking(&request)
+    // Create tmp directory if it doesn't exist
+    fs::create_dir_all(tmp_dir)
+        .map_err(|e| format!("Failed to create tmp directory: {}", e))?;
+
+    log::info!("Starting download from: {}", url);
+    log::info!("Download destination: {}", dest_path.display());
+
+    // Use ureq with streaming to handle large files
+    let response = ureq::get(url)
+        .timeout(std::time::Duration::from_secs(300)) // 5 minute timeout for large files
+        .call()
         .map_err(|e| format!("Download request failed: {}", e))?;
 
-    fs::write(&dest_path, &response.bytes)
+    // Check response status
+    let status = response.status();
+    if status != 200 {
+        return Err(format!("Download failed with status: {}", status));
+    }
+
+    // Get content length for progress tracking
+    let content_length = response.header("content-length")
+        .and_then(|s| s.parse::<u64>().ok());
+
+    if let Some(size) = content_length {
+        log::info!("Download size: {} bytes ({:.2} MB)", size, size as f64 / 1024.0 / 1024.0);
+    }
+
+    // Stream the response to file instead of loading into memory
+    let mut reader = response.into_reader();
+    let mut file = fs::File::create(&dest_path)
+        .map_err(|e| format!("Failed to create file: {}", e))?;
+
+    let bytes_written = io::copy(&mut reader, &mut file)
         .map_err(|e| format!("Failed to write file: {}", e))?;
+
+    log::info!("Download completed: {} bytes written", bytes_written);
+
+    // Verify file size if content-length was provided
+    if let Some(expected_size) = content_length {
+        if bytes_written != expected_size {
+            return Err(format!(
+                "Download incomplete: expected {} bytes, got {} bytes",
+                expected_size, bytes_written
+            ));
+        }
+    }
 
     Ok(dest_path)
 }
@@ -887,19 +983,28 @@ fn extract_zip(archive_path: &PathBuf, dest_dir: &PathBuf) -> Result<PathBuf, St
 }
 
 fn find_binary_in_dir(dir: &PathBuf) -> Result<PathBuf, String> {
+    // GitHub release binaries don't include version in filename
     #[cfg(target_os = "windows")]
-    let binary_name = format!("{}.exe", get_versioned_app_name());
+    let binary_name = format!("{}.exe", APP_NAME);
     #[cfg(not(target_os = "windows"))]
-    let binary_name = get_versioned_app_name();
+    let binary_name = APP_NAME;
+
+    log::info!("Searching for binary '{}' in directory: {}", binary_name, dir.display());
 
     for entry in walkdir(dir) {
         if let Ok(entry) = entry {
-            if entry.file_name().to_string_lossy() == binary_name {
-                return Ok(entry.path().to_path_buf());
+            let file_name_os = entry.file_name();
+            let file_name = file_name_os.to_string_lossy();
+            log::debug!("Checking file: {}", file_name);
+            if file_name == binary_name {
+                let found_path = entry.path().to_path_buf();
+                log::info!("Found binary at: {}", found_path.display());
+                return Ok(found_path);
             }
         }
     }
 
+    log::error!("Binary '{}' not found in archive", binary_name);
     Err(format!("Binary '{}' not found in archive", binary_name))
 }
 
@@ -923,27 +1028,52 @@ fn walkdir(dir: &PathBuf) -> impl Iterator<Item = Result<fs::DirEntry, io::Error
     })
 }
 
-fn replace_binary(new_binary: &PathBuf, paths: &InstallPaths) -> Result<String, String> {
-    #[cfg(target_os = "windows")]
-    let dest = paths.bin_dir.join(format!("{}.exe", get_versioned_app_name()));
-    #[cfg(not(target_os = "windows"))]
-    let dest = paths.bin_dir.join(get_versioned_app_name());
+fn replace_binary(new_binary: &PathBuf, paths: &InstallPaths, version: Option<&str>) -> Result<String, String> {
+    // Always install to the standard installation directory (e.g., ~/.local/bin on Linux)
+    // Use versioned naming - use provided version (for updates) or current version (for installs)
+    let versioned_name = if let Some(ver) = version {
+        format!("{}-{}", APP_NAME, ver)
+    } else {
+        get_versioned_app_name()
+    };
 
-    // On Windows, rename current binary before replacing
     #[cfg(target_os = "windows")]
-    {
-        let backup = dest.with_extension("exe.old");
-        if dest.exists() {
-            let _ = fs::rename(&dest, &backup);
+    let dest = paths.bin_dir.join(format!("{}.exe", versioned_name));
+    #[cfg(not(target_os = "windows"))]
+    let dest = paths.bin_dir.join(versioned_name);
+
+    log::info!("Installing binary from {} to {}", new_binary.display(), dest.display());
+
+    // Ensure bin directory exists
+    if let Some(parent) = dest.parent() {
+        if !parent.exists() {
+            log::info!("Creating bin directory: {}", parent.display());
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Failed to create bin directory: {}", e))?;
         }
     }
 
+    // Rename current binary before replacing (works on both Windows and Unix)
+    // This allows updating a running executable
+    if dest.exists() {
+        #[cfg(target_os = "windows")]
+        let backup = dest.with_extension("exe.old");
+        #[cfg(not(target_os = "windows"))]
+        let backup = dest.with_extension("old");
+
+        log::info!("Backing up existing binary to {}", backup.display());
+        fs::rename(&dest, &backup)
+            .map_err(|e| format!("Failed to backup existing binary: {}", e))?;
+    }
+
+    log::info!("Copying new binary...");
     fs::copy(new_binary, &dest)
         .map_err(|e| format!("Failed to copy new binary: {}", e))?;
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        log::info!("Setting executable permissions...");
         let mut perms = fs::metadata(&dest)
             .map_err(|e| format!("Failed to get permissions: {}", e))?
             .permissions();
@@ -952,6 +1082,13 @@ fn replace_binary(new_binary: &PathBuf, paths: &InstallPaths) -> Result<String, 
             .map_err(|e| format!("Failed to set permissions: {}", e))?;
     }
 
+    // Clean up old installations if we're installing a specific version (i.e., during update)
+    if let Some(ver) = version {
+        log::info!("Cleaning up old installations, keeping version: {}", ver);
+        let _ = cleanup_old_installations(paths, Some(ver));
+    }
+
+    log::info!("Binary installed successfully to: {}", dest.display());
     Ok(format!("Successfully updated to new version. Please restart the application."))
 }
 

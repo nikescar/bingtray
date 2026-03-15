@@ -6,7 +6,7 @@
 use crate::{BingImage, Config, Settings};
 pub use crate::dlg_settings_stt::DlgSettings;
 use crate::calc_bingimage::sanitize_filename;
-use crate::duckdb_bingimage::BingImageDb;
+use crate::datafusion_bingimage::BingImageDb;
 use image;
 use crate::install;
 
@@ -420,7 +420,7 @@ impl Default for BingtrayApp {
             ehttp_cache,
             // Database
             db,
-            // Carousel filter (0: All, 1: Keep Private, 2: Blacklisted)
+            // Carousel filter (0: All, 1: Favorite, 2: Blacklisted)
             carousel_filter: Some(0),
         }
     }
@@ -732,7 +732,7 @@ impl BingtrayApp {
                 .filter(|(_, img)| {
                     match self.carousel_filter {
                         Some(0) => true, // All images
-                        Some(1) => img.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false), // Keep Private
+                        Some(1) => img.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false), // Keep Favorite
                         Some(2) => img.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false), // Blacklisted
                         Some(3) => img.status.as_ref().map(|s| s == "unprocessed").unwrap_or(false), // Unprocessed
                         _ => true, // Default to all if filter is None
@@ -999,6 +999,20 @@ impl BingtrayApp {
 
                     // Clear the Bing API promise immediately to re-enable the button
                     self.bing_api_promise = None;
+
+                    // Reset historical page to 3 after INITIAL load only (16 images = 8 Bing + 8 historical)
+                    // This ensures subsequent scrolling starts from page 3 instead of repeating pages 0-2
+                    // Don't reset for scroll loads (which have only 3 images)
+                    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+                    if bing_images.len() > 10 {  // Initial load has 16 images, scroll loads have 3
+                        if let Some(ref tray_logic) = self.tray_logic {
+                            if let Err(e) = tray_logic.reset_historical_page(3) {
+                                warn!("Failed to reset historical page after initial load: {}", e);
+                            } else {
+                                info!("Reset historical page to 3 after initial load of {} images", bing_images.len());
+                            }
+                        }
+                    }
 
                     // Close loading dialog and clear progress
                     self.bing_loading_dialog_open = false;
@@ -1916,7 +1930,7 @@ fn ui_mainpanel(
             .variant(SelectVariant::Filled)
             .label(tr!("status-filter"))
             .option(0, tr!("status-all"))
-            .option(1, tr!("status-keep-private"))
+            .option(1, tr!("status-keep-favorite"))
             .option(2, tr!("status-blacklisted"))
             .option(3, tr!("status-unprocessed"))
             .width(200.0);
@@ -2775,12 +2789,26 @@ impl BingtrayApp {
 
     /// Perform update
     fn perform_update(&mut self) {
+        // Clear the dialog flag first to prevent repeated calls
+        self.dlg_about.do_perform_update = false;
+
         // Check if we have update info stored from check_for_update()
         if !self.update_available || self.update_download_url.is_empty() {
             #[cfg(not(target_os = "android"))]
             {
-                self.install_message = "No update available. Please check for updates first.".to_string();
-                self.install_dialog_open = true;
+                // Only show error dialog if this is a genuine attempt (dialog still open)
+                // Don't warn if state was just cleared from a successful update
+                if self.dlg_about.open {
+                    let msg = if !self.update_available {
+                        "No update available. Please check for updates first.".to_string()
+                    } else {
+                        format!("Update information incomplete (missing download URL). Please check for updates again.\nStatus: {}", self.update_status)
+                    };
+                    log::warn!("Update aborted: update_available={}, download_url_empty={}",
+                        self.update_available, self.update_download_url.is_empty());
+                    self.install_message = msg;
+                    self.install_dialog_open = true;
+                }
             }
             return;
         }
@@ -2795,9 +2823,13 @@ impl BingtrayApp {
                 std::path::PathBuf::from("./tmp")
             };
 
-            // Use the stored download URL from check_for_update()
-            match crate::install::do_update(&self.update_download_url, &tmp_dir) {
+            log::info!("Starting update download from: {}", self.update_download_url);
+            log::info!("Temporary directory: {}", tmp_dir.display());
+
+            // Use the stored download URL and version from check_for_update()
+            match crate::install::do_update(&self.update_download_url, &self.update_latest_version, &tmp_dir) {
                 InstallResult::Success(msg) => {
+                    log::info!("Update successful: {}", msg);
                     self.install_message = msg;
                     self.update_available = false;
                     self.update_status.clear();
@@ -2805,6 +2837,7 @@ impl BingtrayApp {
                     self.dlg_about.close();
                 }
                 InstallResult::Error(err) => {
+                    log::error!("Update failed: {}", err);
                     self.install_message = format!("Error: {}", err);
                 }
             }
