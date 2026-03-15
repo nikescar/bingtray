@@ -1,4 +1,28 @@
 ## What's Changed
+* fix. add current title of setted desktop wallpaper on cli, tray, eframe menu. by @nikescar
+* bump by @nikescar
+* fix. remove cached status. by @nikescar
+* feat. image filter and set toggle on main panel. by @nikescar
+* feat. image carousel filter select box. by @nikescar
+* fix. translations. by @nikescar
+* fix. move old bins to trash on installation. by @nikescar
+* docs. update download links. by @nikescar
+* fix. add --tray params on desktop, startup shortcuts. by @nikescar
+* fix.menu_update. by @nikescar
+* docs. add google play signing key instructions. by @nikescar
+
+## What's Changed in 0.0.8
+* chore. fix virustotal 409 retry error. by @nikescar
+* fix. windows type check error. by @nikescar
+* chore. google play push to production, fix. desktop builds. by @nikescar
+* fix: make Linux wallpaper functions Linux-only for macOS builds by @nikescar
+* fix: make X11-specific functions Linux-only for Windows builds by @nikescar
+* chore. cargo lint. by @nikescar
+* chore. separate rust desktop and lib builds. by @nikescar
+* chore. remove armv6 and linux x86 arch for dangerous type of release. by @nikescar
+* chrore. fix duckdb bundle build error. by @nikescar
+* chore. link release-desktop to run after relase. by @nikescar
+* release. v0.0.8 by @nikescar
 * fix. monolothic menu logic across cli, tray, eframe menus. by @nikescar
 * docs. update creadits. by @nikescar
 * feat. desktop installer and auto-updater. by @nikescar

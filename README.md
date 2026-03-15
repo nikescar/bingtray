@@ -66,16 +66,8 @@ After starting the application, you'll see a tray icon with the following option
 <summary> Todos </summary>
 
 ## Todos
-* add version to app and check update
 * download progress on gui
 * remove windws i686 build due to virustotal detected - https://www.virustotal.com/gui/file-analysis/MTVlM2Q3MzFmMzNlMWM4MGVjNmNhNTNmM2Q3MjZjMzE6MTc1MzI1NzA0OA==
-* initial bingtray, on long running workflow, tray menu is not well initialized. put menu into different thread.
-* windows exe signing 
-```
-'$SignTool = Get-ChildItem -Path "C:\\Program Files*\\Windows Kits\\*\\bin\\*\\x64\\signtool.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1',
-"$SignToolPath = $SignTool.FullName",
-"& $SignToolPath verify /pa /v target\\release\\test.exe",
-```
 * android widgets.
 * ios widgets.
 * snapcraft https://github.com/marketplace/actions/snapcraft-action
