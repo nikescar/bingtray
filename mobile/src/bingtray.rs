@@ -26,6 +26,8 @@ use egui_material3::material_symbol::{
     ICON_STAR,
     ICON_STAR_OUTLINE,
     ICON_BLOCK,
+    ICON_ARROW_BACK,
+    ICON_ARROW_FORWARD,
 };
 use eframe::egui::{Color32};
 // Theme loading is done in main.rs, not here
@@ -255,6 +257,12 @@ pub struct BingtrayApp {
     db: Option<Arc<BingImageDb>>,
     // Carousel filter state
     carousel_filter: Option<usize>,
+    // Track if we've loaded cached main panel image
+    #[cfg_attr(feature = "serde", serde(skip))]
+    cached_image_loaded: bool,
+    // Page navigation input
+    #[cfg_attr(feature = "serde", serde(skip))]
+    page_input: String,
 }
 
 impl Default for BingtrayApp {
@@ -422,12 +430,91 @@ impl Default for BingtrayApp {
             db,
             // Carousel filter (0: All, 1: Favorite, 2: Blacklisted)
             carousel_filter: Some(0),
+            // Track if cached image has been loaded
+            cached_image_loaded: false,
+            // Page navigation
+            page_input: String::from("1"),
         }
     }
 }
 
 impl eframe::App for BingtrayApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Load cached main panel image on first run
+        if !self.cached_image_loaded {
+            self.cached_image_loaded = true;
+            if let Some(ref config) = self.config {
+                if let Some(cached_image) = crate::calc_bingimage::load_main_panel_selection(config) {
+                    info!("Restoring last selected main panel image: {}", cached_image.title);
+
+                    // Create a CarouselImage from the cached data
+                    let carousel_image = CarouselImage {
+                        title: cached_image.title,
+                        copyright: cached_image.copyright,
+                        copyright_link: cached_image.copyright_link,
+                        thumbnail_url: cached_image.thumbnail_url.clone(),
+                        full_url: cached_image.full_url.clone(),
+                        image_bytes: None,
+                        status: cached_image.status,
+                    };
+
+                    // Set as selected image
+                    self.selected_carousel_image = Some(carousel_image.clone());
+
+                    // Fetch the full resolution image
+                    let ctx_clone = ctx.clone();
+                    let full_url = cached_image.full_url;
+
+                    let (sender, promise) = Promise::new();
+                    let request = ehttp::Request::get(&full_url);
+
+                    let cache = self.ehttp_cache.clone();
+                    let carousel_image_clone = carousel_image.clone();
+
+                    let fetch_fn = move |response: Result<ehttp::Response, String>| {
+                        ctx_clone.request_repaint();
+                        let result = response.map(|response| {
+                            if response.status != 200 {
+                                error!("Failed to fetch cached full image: status={}", response.status);
+                                return CarouselImage {
+                                    title: carousel_image_clone.title.clone(),
+                                    copyright: carousel_image_clone.copyright.clone(),
+                                    copyright_link: carousel_image_clone.copyright_link.clone(),
+                                    thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
+                                    full_url: carousel_image_clone.full_url.clone(),
+                                    image_bytes: None,
+                                    status: carousel_image_clone.status.clone(),
+                                };
+                            }
+
+                            let image_bytes = response.bytes.to_vec();
+                            ctx_clone.include_bytes(response.url.clone(), response.bytes.clone());
+                            ctx_clone.request_repaint();
+
+                            CarouselImage {
+                                title: carousel_image_clone.title.clone(),
+                                copyright: carousel_image_clone.copyright.clone(),
+                                copyright_link: carousel_image_clone.copyright_link.clone(),
+                                thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
+                                full_url: carousel_image_clone.full_url.clone(),
+                                image_bytes: Some(image_bytes),
+                                status: carousel_image_clone.status.clone(),
+                            }
+                        });
+                        sender.send(result);
+                    };
+
+                    if let Some(cache_ref) = cache {
+                        cache_ref.fetch(request, Some(7 * 24 * 3600), fetch_fn);
+                    } else {
+                        ehttp::fetch(request, fetch_fn);
+                    }
+
+                    self.main_panel_promise = Some(promise);
+                }
+            }
+        }
+
         // Apply theme based on settings
         self.apply_theme(ctx);
 
@@ -568,7 +655,7 @@ impl BingtrayApp {
 
         // ##################### TOP APP BAR #####################
         let prev_url = self.url.clone();
-        let trigger_fetch = ui_mainpanel(ui, &mut self.menu_anchor_rect, &mut self.carousel_filter);
+        let trigger_fetch = ui_mainpanel(ui, &mut self.menu_anchor_rect, &mut self.carousel_filter, &mut self.carousel_scroll_offset, &mut self.page_input, &self.carousel_images);
 
         // Check menu toggle flag set by top app bar callback
         if MENU_TOGGLE.swap(false, Ordering::Relaxed) {
@@ -752,7 +839,7 @@ impl BingtrayApp {
                 .id_salt("bing_carousel")
                 .item_extent(200.0)
                 .shrink_extent(120.0)
-                .height(180.0)
+                .height(180.0)  // Increased height for wrapped text
                 .item_snapping(true);
 
             // Add carousel items from filtered carousel_images
@@ -765,7 +852,7 @@ impl BingtrayApp {
 
                 carousel_widget = carousel_widget.item(Box::new(move |ui: &mut egui::Ui, _rect| {
                     ui.vertical_centered(|ui| {
-                        ui.add_space(10.0);
+                        ui.spacing_mut().item_spacing = egui::vec2(0.0, 2.0);  // Reduce vertical spacing
 
                         // Display image thumbnail with click sensing
                         let image = Image::from_uri(&thumbnail_url)
@@ -783,31 +870,36 @@ impl BingtrayApp {
                             });
                         }
 
-                        ui.add_space(5.0);
-                        // Show status icon if available
+                        // Show status icon and title with text wrapping
                         if let Some(ref status_str) = status {
                             let status_icon = match status_str.as_str() {
-                                "unprocessed" => "🆕",
-                                "keepfavorite" => "⭐",
-                                "blacklisted" => "🚫",
+                                "unprocessed" => egui_material3::noto_emoji::SPARKLES,
+                                "keepfavorite" => egui_material3::noto_emoji::HEAVY_BLACK_HEART,
+                                "blacklisted" => egui_material3::noto_emoji::CROSS_MARK,
                                 _ => "",
                             };
                             trace!("Rendering carousel item {} with status: {} -> icon: {}", idx, status_str, status_icon);
                             if !status_icon.is_empty() {
-                                ui.horizontal(|ui| {
-                                    ui.label(status_icon);
-                                    ui.label(&title);
+                                ui.horizontal_wrapped(|ui| {
+                                    ui.spacing_mut().item_spacing = egui::vec2(2.0, 2.0);  // Minimal spacing
+                                    if ui.add(icon_button_filled(status_icon.to_string())).clicked() {
+                                        trace!("Status icon clicked for carousel item {}", idx);
+                                    }
+                                    // Use available width for text wrapping
+                                    ui.with_layout(egui::Layout::top_down(egui::Align::LEFT), |ui| {
+                                        ui.set_max_width(150.0);  // Constrain width to force wrapping
+                                        ui.label(egui::RichText::new(&title).text_style(egui::TextStyle::Body).size(15.0));
+                                    });
                                 });
-                            }else{
-                                ui.label(&title);
+                            } else {
+                                ui.set_max_width(180.0);
+                                ui.label(egui::RichText::new(&title).text_style(egui::TextStyle::Body).size(15.0));
                             }
                         } else {
-                            ui.label(&title);
+                            ui.set_max_width(180.0);
+                            ui.label(egui::RichText::new(&title).text_style(egui::TextStyle::Body).size(15.0));
                             trace!("Carousel item {} has no status", idx);
                         }
-
-                        
-                        
                     });
                 }));
             }
@@ -832,6 +924,21 @@ impl BingtrayApp {
                     if carousel_image.full_url == clicked_url {
                         info!("Processing click on carousel image {}: {}", idx, carousel_image.title);
                         self.selected_carousel_image = Some(carousel_image.clone());
+
+                        // Save the selection to cache for persistence
+                        if let Some(ref config) = self.config {
+                            if let Err(e) = crate::calc_bingimage::save_main_panel_selection(
+                                config,
+                                carousel_image.title.clone(),
+                                carousel_image.copyright.clone(),
+                                carousel_image.copyright_link.clone(),
+                                carousel_image.thumbnail_url.clone(),
+                                carousel_image.full_url.clone(),
+                                carousel_image.status.clone(),
+                            ) {
+                                warn!("Failed to save main panel selection to cache: {}", e);
+                            }
+                        }
 
                         // Check if we already have this high-res image cached
                         if let Some(cached_image) = self.image_cache.get(&carousel_image.full_url) {
@@ -1006,6 +1113,20 @@ impl BingtrayApp {
                         self.main_panel_image = Some(full_res_image.clone());
                         // Cache the high-res image
                         self.image_cache.insert(full_res_image.full_url.clone(), full_res_image.clone());
+                        // Save to persistent cache for app restart
+                        if let Some(ref config) = self.config {
+                            if let Err(e) = crate::calc_bingimage::save_main_panel_selection(
+                                config,
+                                full_res_image.title.clone(),
+                                full_res_image.copyright.clone(),
+                                full_res_image.copyright_link.clone(),
+                                full_res_image.thumbnail_url.clone(),
+                                full_res_image.full_url.clone(),
+                                full_res_image.status.clone(),
+                            ) {
+                                warn!("Failed to save main panel selection to cache: {}", e);
+                            }
+                        }
                         // Reset rectangle size based on new image
                         self.reset_rectangle_for_new_image = true;
                         // Clear the promise
@@ -1292,7 +1413,21 @@ impl BingtrayApp {
 
             // Add favorite and blacklist toggle switches at the right-top
             ui.horizontal(|ui| {
-                ui.label(tr!("image-title-label", { title: &main_image.title }));
+                // Get available width inside this horizontal layout (updates on resize)
+                let total_available_width = ui.available_width();
+                // Reserve approximately 250px for the two switches and labels on the right
+                let button_area_width = 250.0;
+                let title_max_width = (total_available_width - button_area_width).max(100.0); // At least 100px
+
+                // Title with dynamic width and text wrapping
+                ui.allocate_ui_with_layout(
+                    egui::vec2(title_max_width, ui.available_height()),
+                    egui::Layout::left_to_right(egui::Align::Center),
+                    |ui| {
+                        ui.label(tr!("image-title-label", { title: &main_image.title }));
+                    }
+                );
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     // Determine current status
                     let mut is_favorite = main_image.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false);
@@ -1946,6 +2081,9 @@ fn ui_mainpanel(
     ui: &mut egui::Ui,
     menu_anchor_rect: &mut Option<Rect>,
     carousel_filter: &mut Option<usize>,
+    carousel_scroll_offset: &mut f32,
+    page_input: &mut String,
+    carousel_images: &[CarouselImage],
 ) -> bool {
     let trigger_fetch = false;
 
@@ -1976,9 +2114,10 @@ fn ui_mainpanel(
         egui::vec2(56.0, 64.0),
     ));
 
-    // Add filter select box
+    // Add filter select box and page navigation
     ui.add_space(10.0);
     ui.horizontal(|ui| {
+        // Filter select
         ui.label(tr!("filter"));
         let filter_select = select(carousel_filter)
             .variant(SelectVariant::Filled)
@@ -1987,8 +2126,67 @@ fn ui_mainpanel(
             .option(1, tr!("status-keep-favorite"))
             .option(2, tr!("status-blacklisted"))
             .option(3, tr!("status-unprocessed"))
-            .width(200.0);
+            .width(150.0);
         ui.add(filter_select);
+
+        ui.add_space(5.0);
+
+        // Page navigation
+        // Filter images to get count
+        let filtered_count: usize = carousel_images
+            .iter()
+            .filter(|img| {
+                match *carousel_filter {
+                    Some(0) => true, // All images
+                    Some(1) => img.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false),
+                    Some(2) => img.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false),
+                    Some(3) => img.status.as_ref().map(|s| s == "unprocessed").unwrap_or(false),
+                    _ => true,
+                }
+            })
+            .count();
+
+        let item_extent = 200.0;
+        let total_pages = filtered_count.max(1);
+        let current_page = ((*carousel_scroll_offset / item_extent).round() as usize + 1).min(total_pages);
+
+        // Previous button
+        let prev_button = MaterialButton::filled(ICON_ARROW_BACK.to_string())
+            .small();
+        if ui.add(prev_button).clicked() && current_page > 1 {
+            *carousel_scroll_offset = ((current_page - 2) as f32) * item_extent;
+            *page_input = (current_page - 1).to_string();
+        }
+
+        // Page text input
+        ui.add_space(5.0);
+        let text_edit = egui::TextEdit::singleline(page_input)
+            .desired_width(50.0);
+        let text_response = ui.add(text_edit);
+
+        // Update page_input when not focused to stay in sync
+        if !text_response.has_focus() {
+            *page_input = current_page.to_string();
+        }
+
+        if text_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+            if let Ok(page) = page_input.parse::<usize>() {
+                if page > 0 && page <= total_pages {
+                    *carousel_scroll_offset = ((page - 1) as f32) * item_extent;
+                }
+            }
+        }
+
+        ui.label(format!("/ {}", total_pages));
+        ui.add_space(5.0);
+
+        // Next button
+        let next_button = MaterialButton::filled(ICON_ARROW_FORWARD.to_string())
+            .small();
+        if ui.add(next_button).clicked() && current_page < total_pages {
+            *carousel_scroll_offset = (current_page as f32) * item_extent;
+            *page_input = (current_page + 1).to_string();
+        }
     });
     ui.add_space(10.0);
 

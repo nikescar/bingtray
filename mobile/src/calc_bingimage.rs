@@ -1845,7 +1845,7 @@ impl CalcBingimage {
     /// Get wallpaper page status information.
     ///
     /// Returns a formatted string with current rotation index and total unprocessed images.
-    /// Format: "(Curpage: X/Y, Pages: Z/W)" where:
+    /// Format: "(CurImg: X/Y, Pages: Z/W)" where:
     ///   X = current rotation index (which image we're viewing in rotation, 1-based)
     ///   Y = total unprocessed images available
     ///   Z = current page number
@@ -1869,7 +1869,7 @@ impl CalcBingimage {
         match self.get_historical_page_info() {
             Ok((current_page, total_pages)) => {
                 format!(
-                    "(Curpage: {}/{}, Pages: {}/{})",
+                    "(CurImg: {}/{}, Pages: {}/{})",
                     current_index,
                     unprocessed_count,
                     current_page + 1,
@@ -1878,7 +1878,7 @@ impl CalcBingimage {
             }
             Err(_) => {
                 // If can't get page info, just show current rotation status
-                format!("(Curpage: {}/{})", current_index, unprocessed_count)
+                format!("(CurImg: {}/{})", current_index, unprocessed_count)
             }
         }
     }
@@ -3275,6 +3275,103 @@ mod tests {
             Err(e) => {
                 eprintln!("Download failed (this is expected without internet): {}", e);
             }
+        }
+    }
+}
+
+// ============================================================================
+// Main Panel Image Persistence Functions
+// ============================================================================
+
+/// Cached main panel image data for persistence
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CachedMainPanelImage {
+    pub title: String,
+    pub copyright: String,
+    pub copyright_link: String,
+    pub thumbnail_url: String,
+    pub full_url: String,
+    pub status: Option<String>,
+}
+
+/// Save the selected main panel image to cache for persistence across app restarts.
+///
+/// This function saves only the metadata (URLs, title, copyright) without the image bytes.
+/// The image will be re-fetched from the URL when the app restarts.
+///
+/// # Arguments
+/// * `config` - Configuration containing cache directory path
+/// * `title` - Image title
+/// * `copyright` - Copyright text
+/// * `copyright_link` - Copyright link URL
+/// * `thumbnail_url` - Thumbnail image URL
+/// * `full_url` - Full resolution image URL
+/// * `status` - Image status (optional)
+///
+/// # Returns
+/// Result indicating success or failure
+pub fn save_main_panel_selection(
+    config: &Config,
+    title: String,
+    copyright: String,
+    copyright_link: String,
+    thumbnail_url: String,
+    full_url: String,
+    status: Option<String>,
+) -> Result<()> {
+    let cached_image = CachedMainPanelImage {
+        title,
+        copyright,
+        copyright_link,
+        thumbnail_url,
+        full_url,
+        status,
+    };
+
+    let cache_path = config.cached_dir.join("main_panel_selection.json");
+    let json = serde_json::to_string_pretty(&cached_image)
+        .context("Failed to serialize main panel selection")?;
+
+    fs::write(&cache_path, json)
+        .context("Failed to write main panel selection to cache")?;
+
+    log::info!("Saved main panel selection to cache: {}", cache_path.display());
+    Ok(())
+}
+
+/// Load the last selected main panel image from cache.
+///
+/// Returns the cached image metadata if it exists, or None if no cache file is found.
+///
+/// # Arguments
+/// * `config` - Configuration containing cache directory path
+///
+/// # Returns
+/// Option containing the cached image metadata, or None if not found
+pub fn load_main_panel_selection(config: &Config) -> Option<CachedMainPanelImage> {
+    let cache_path = config.cached_dir.join("main_panel_selection.json");
+
+    if !cache_path.exists() {
+        log::info!("No cached main panel selection found");
+        return None;
+    }
+
+    match fs::read_to_string(&cache_path) {
+        Ok(json) => {
+            match serde_json::from_str::<CachedMainPanelImage>(&json) {
+                Ok(cached_image) => {
+                    log::info!("Loaded main panel selection from cache: {}", cached_image.title);
+                    Some(cached_image)
+                }
+                Err(e) => {
+                    log::warn!("Failed to parse cached main panel selection: {}", e);
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("Failed to read cached main panel selection: {}", e);
+            None
         }
     }
 }
