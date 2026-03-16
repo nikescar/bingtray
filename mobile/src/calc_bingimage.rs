@@ -60,7 +60,6 @@ use crate::datafusion_bingimage::*;
 // Desktop-only imports (wallpaper setting, channels)
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use crate::api_setwallpaper;
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use std::sync::mpsc;
 
 // ============================================================================
@@ -878,8 +877,6 @@ impl DesktopWallpaperSetter {
 // Desktop-Only CalcBingimage Struct
 // ============================================================================
 
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-
 /// Core business logic for Bing wallpaper management
 pub struct CalcBingimage {
     config: Config,
@@ -895,7 +892,6 @@ pub struct CalcBingimage {
     current_rotation_index: usize, // Current position in rotation through unprocessed images
 }
 
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 impl CalcBingimage {
     /// Create a new CalcBingimage instance with initialized configuration and database.
     ///
@@ -1205,6 +1201,7 @@ impl CalcBingimage {
     pub fn set_next_wallpaper(&mut self) -> Result<bool> {
         // Get next unprocessed image
         if let Some(image_path) = self.get_next_unprocessed_image()? {
+            #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
             api_setwallpaper::set_wallpaper(&image_path)?;
             self.current_image_path = Some(image_path.clone());
 
@@ -1287,6 +1284,7 @@ impl CalcBingimage {
         let image_path = unprocessed_images[self.current_rotation_index].clone();
 
         // Set as wallpaper WITHOUT moving it (just rotate, don't consume)
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         api_setwallpaper::set_wallpaper(&image_path)?;
         self.current_image_path = Some(image_path.clone());
 
@@ -1601,6 +1599,7 @@ impl CalcBingimage {
         let index = self.last_kept_index % images.len();
         let image_path = &images[index];
 
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         api_setwallpaper::set_wallpaper(image_path)?;
         self.current_image_path = Some(image_path.clone());
 

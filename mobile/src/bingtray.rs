@@ -11,7 +11,6 @@ use image;
 use crate::install;
 
 // Desktop-only imports
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use crate::calc_bingimage::CalcBingimage;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use crate::api_setwallpaper::check_user_mismatch;
@@ -253,7 +252,7 @@ pub struct BingtrayApp {
     ehttp_cache: Option<Arc<crate::ehttp_cache::EhttpCache>>,
     // Database
     #[cfg_attr(feature = "serde", serde(skip))]
-    db: Option<BingImageDb>,
+    db: Option<Arc<BingImageDb>>,
     // Carousel filter state
     carousel_filter: Option<usize>,
 }
@@ -327,6 +326,7 @@ impl Default for BingtrayApp {
             BingImageDb::new(cfg.db_path.clone())
                 .inspect_err(|e| warn!("Failed to open database: {}", e))
                 .ok()
+                .map(Arc::new)
         });
 
         Self {
@@ -484,13 +484,12 @@ impl BingtrayApp {
         // Load initial images if carousel is empty and we have config
         if self.carousel_images.is_empty() && self.bing_api_promise.is_none() {
             if let Some(ref _cfg) = self.config {
-                // PRIORITY 1: Try loading Bing images from current market (with 7-day cache)
-                // Desktop only - uses CalcBingimage
-                #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+                // PRIORITY 1: Try loading Bing images from current market + historical data
+                // Unified for all platforms - uses CalcBingimage
                 if !self.current_market_codes.is_empty() {
                     let market_code = self.current_market_codes[0].clone();
 
-                    info!("Loading Bing images for market: {} (checking 7-day cache)", market_code);
+                    info!("🚀 INIT: Loading Bing images for market: {} (checking 7-day cache)", market_code);
                     self.showing_historical = true;
 
                     // Open loading dialog
@@ -506,28 +505,34 @@ impl BingtrayApp {
                     let (sender, promise) = Promise::new();
 
                     std::thread::spawn(move || {
+                        info!("🧵 INIT: Background thread started for initial image loading");
+
                         // Create CalcBingimage instance for this thread
                         let calc_bing = match CalcBingimage::new() {
-                            Ok(cb) => cb,
+                            Ok(cb) => {
+                                info!("✅ INIT: CalcBingimage instance created successfully");
+                                cb
+                            }
                             Err(e) => {
-                                warn!("Failed to create CalcBingimage: {}", e);
+                                error!("❌ INIT: Failed to create CalcBingimage: {}", e);
                                 sender.send(Ok(Vec::new()));
                                 return;
                             }
                         };
 
                         // First get Bing images
+                        info!("📥 INIT: Fetching current Bing images for market: {}", market_code);
                         let mut combined_images = match calc_bing.get_bing_images_manifest_cached(
                             &market_code,
                             8,
                             0
                         ) {
                             Ok(images) => {
-                                info!("Loaded {} Bing images", images.len());
+                                info!("✅ INIT: Loaded {} Bing images", images.len());
                                 images
                             }
                             Err(e) => {
-                                warn!("Failed to load Bing images: {}", e);
+                                warn!("⚠️  INIT: Failed to load Bing images: {}", e);
                                 Vec::new()
                             }
                         };
@@ -539,16 +544,19 @@ impl BingtrayApp {
                         ctx.request_repaint();
 
                         // Then append historical images
+                        info!("📚 INIT: Downloading historical data from GitHub...");
                         match calc_bing.download_historical_data_with_progress(0, progress_status_clone.clone(), ctx.clone()) {
                             Ok(historical_images) => {
-                                info!("Appending {} historical images to {} Bing images", historical_images.len(), combined_images.len());
+                                info!("✅ INIT: Downloaded {} historical images", historical_images.len());
+                                info!("➕ INIT: Appending historical images to {} Bing images", combined_images.len());
                                 combined_images.extend(historical_images);
                             }
                             Err(e) => {
-                                warn!("Failed to load historical images: {}", e);
+                                error!("❌ INIT: Failed to load historical images: {}", e);
                             }
                         }
 
+                        info!("🏁 INIT: Completed with {} total images", combined_images.len());
                         ctx.request_repaint();
                         sender.send(Ok(combined_images));
                     });
@@ -905,47 +913,82 @@ impl BingtrayApp {
             let scroll_trigger_point = (max_scroll - trigger_threshold).max(0.0);
 
             if self.carousel_scroll_offset >= scroll_trigger_point && !self.loading_more && self.carousel_images.len() >= 8 {
-                info!("Carousel scrolled to right end (offset: {:.0}, trigger: {:.0}), loading more images",
+                info!("📍 CAROUSEL: Scrolled to right end (offset: {:.0}, trigger: {:.0}), loading more images",
                       self.carousel_scroll_offset, scroll_trigger_point);
+                info!("📊 CAROUSEL: Current state - {} images loaded, loading_more: {}",
+                      self.carousel_images.len(), self.loading_more);
 
                 self.loading_more = true;
 
                 if self.showing_historical {
-                    // Load next historical page
-                    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-                    if let Some(ref tray_logic) = self.tray_logic {
-                            match tray_logic.get_next_historical_page() {
-                                Ok(page_num) => {
-                                    info!("Loading historical page {}", page_num);
+                    // Load next historical page or fall back to market images
+                    info!("🔄 CAROUSEL: Starting historical image load process");
 
-                                    // Open loading dialog
-                                    self.bing_loading_dialog_open = true;
-                                    self.bing_loading_status = tr!("status-loading-page", { page: page_num });
+                    // Open loading dialog
+                    self.bing_loading_dialog_open = true;
+                    self.bing_loading_status = tr!("status-fetching-images").to_string();
 
-                                    // Fetch next page of historical images
-                                    let ctx = ui.ctx().clone();
-                                    let (sender, promise) = Promise::new();
+                    // Fetch next page of historical images
+                    let ctx = ui.ctx().clone();
+                    let (sender, promise) = Promise::new();
+                    let market_code = if !self.current_market_codes.is_empty() {
+                        self.current_market_codes[0].clone()
+                    } else {
+                        "en-US".to_string()
+                    };
+                    let current_count = self.carousel_images.len();
 
-                                    std::thread::spawn(move || {
-                                        let result = match CalcBingimage::new() {
-                                            Ok(calc_bing) => calc_bing.load_historical_images_paginated(page_num),
-                                            Err(e) => Err(e),
-                                        };
-                                        let bing_images = result.map_err(|e| e.to_string());
-                                        ctx.request_repaint();
-                                        sender.send(bing_images);
-                                    });
+                    info!("🌍 CAROUSEL: Using market code: {}, current offset: {}", market_code, current_count);
 
-                                    self.bing_api_promise = Some(promise);
-                                }
-                                Err(e) => {
-                                    warn!("No more historical pages: {}", e);
-                                    self.loading_more = false;
+                    std::thread::spawn(move || {
+                        info!("🧵 THREAD: Background thread started for image loading");
+
+                        let result = match CalcBingimage::new() {
+                            Ok(calc_bing) => {
+                                info!("✅ THREAD: CalcBingimage instance created successfully");
+
+                                // Try to load historical data first
+                                info!("🔍 THREAD: Attempting to get next historical page...");
+                                match calc_bing.get_next_historical_page() {
+                                    Ok(page_num) => {
+                                        info!("📚 THREAD: Historical page {} available, loading images", page_num);
+                                        let result = calc_bing.load_historical_images_paginated(page_num);
+                                        match &result {
+                                            Ok(images) => info!("✅ THREAD: Loaded {} historical images from page {}", images.len(), page_num),
+                                            Err(e) => error!("❌ THREAD: Failed to load historical images: {}", e),
+                                        }
+                                        result
+                                    }
+                                    Err(e) => {
+                                        // Historical data should have been downloaded at startup
+                                        // If it fails here, something went wrong with initialization
+                                        error!("❌ THREAD: Failed to get next historical page: {}", e);
+                                        error!("❌ THREAD: Historical data should have been downloaded at startup");
+                                        Err(e)
+                                    }
                                 }
                             }
+                            Err(e) => {
+                                error!("❌ THREAD: Failed to create CalcBingimage instance: {}", e);
+                                Err(e)
+                            }
+                        };
+
+                        match &result {
+                            Ok(images) => info!("🏁 THREAD: Image loading completed successfully, {} images to send to UI", images.len()),
+                            Err(e) => error!("🏁 THREAD: Image loading completed with error: {}", e),
                         }
-                    }
+
+                        let bing_images = result.map_err(|e| e.to_string());
+                        ctx.request_repaint();
+                        sender.send(bing_images);
+                        info!("📤 THREAD: Result sent to UI via promise");
+                    });
+
+                    self.bing_api_promise = Some(promise);
+                    info!("✅ CAROUSEL: Promise created and stored, waiting for completion");
                 }
+            }
 
             ui.add_space(10.0);
         }
@@ -988,17 +1031,19 @@ impl BingtrayApp {
         };
         
         if let Some(result) = bing_api_result {
-            info!("=== Bing API promise completed ===");
+            info!("🎉 PROMISE: === Bing API promise completed ===");
             match result {
                 Ok(bing_images) => {
-                    info!("Bing API data received with {} images (including historical)", bing_images.len());
+                    info!("📦 PROMISE: Received {} images from background thread", bing_images.len());
+                    info!("📊 PROMISE: Current carousel has {} images before adding new ones", self.carousel_images.len());
 
                     for (i, img) in bing_images.iter().enumerate() {
-                        info!("Image {}: title='{}', url='{}'", i, img.title, img.url);
+                        info!("   Image {}: title='{}', url='{}'", i, img.title, img.url);
                     }
 
                     // Clear the Bing API promise immediately to re-enable the button
                     self.bing_api_promise = None;
+                    info!("✅ PROMISE: Cleared promise, ready for next load");
 
                     // Reset historical page to 3 after INITIAL load only (16 images = 8 Bing + 8 historical)
                     // This ensures subsequent scrolling starts from page 3 instead of repeating pages 0-2
@@ -1018,14 +1063,21 @@ impl BingtrayApp {
                     self.bing_loading_dialog_open = false;
                     self.bing_loading_progress = None;
 
-                    // Reset loading_more to allow more infinite scroll
-                    self.loading_more = false;
-                    
+                    // Reset loading_more only if we got images
+                    // If we got 0 images, keep loading_more=true to prevent infinite re-triggering
+                    if !bing_images.is_empty() {
+                        self.loading_more = false;
+                        info!("🔓 PROMISE: Reset loading_more flag, ready for next scroll trigger");
+                    } else {
+                        warn!("⚠️  PROMISE: Received 0 images, keeping loading_more=true to prevent retry");
+                    }
+
                     // Force immediate screen update
                     ui.ctx().request_repaint();
-                    
+
                     // Process each image from the Bing API response
                     // Images are fetched async, but egui decodes them sync on main thread
+                    info!("➕ PROMISE: Processing {} images to add to carousel...", bing_images.len());
                     for bing_image in bing_images {
                             // Use bingtray-core functions for URL handling
                             let base_url = if bing_image.url.starts_with("http") {
@@ -1199,13 +1251,17 @@ impl BingtrayApp {
                         
                         // Force another repaint after adding all promises
                         ui.ctx().request_repaint();
+
+                    info!("✅ PROMISE: Finished processing all images");
+                    info!("📊 PROMISE: Final carousel state - {} images total", self.carousel_images.len());
                 }
                 Err(e) => {
-                    error!("Failed to fetch Bing API data: {}", e);
+                    error!("❌ PROMISE: Failed to fetch Bing API data: {}", e);
                     self.bing_api_promise = None;
                     self.bing_loading_dialog_open = false; // Close loading dialog on error
                     self.bing_loading_progress = None; // Clear progress on error
                     self.loading_more = false; // Reset loading state on error
+                    error!("❌ PROMISE: Cleaned up after error, ready for retry");
 
                     // Check if this is a "no more data" error to prevent infinite retries
                     if e.contains("No more historical data available") {

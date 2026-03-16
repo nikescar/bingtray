@@ -58,3 +58,11 @@ strip = "symbols"
 inherits = "release"
 strip = false
 
+# Fast development profile - optimized but without slow LTO
+[profile.dev-release]
+inherits = "release"
+lto = false           # Disable LTO for faster builds (saves 50%+ compile time)
+codegen-units = 16    # Parallel code generation
+opt-level = 2         # Good optimization without being too slow
+incremental = true    # Enable incremental compilation
+strip = "symbols"     # Still strip symbols to reduce size

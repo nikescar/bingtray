@@ -221,3 +221,5 @@ adb_sumpsys_usagestats_history
 
 /mobile/app/tmp/
 /mobile/build.local.sh
+/mobile/adblogcat.log
+
