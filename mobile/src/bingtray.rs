@@ -1310,7 +1310,6 @@ impl BingtrayApp {
                         .with_icons(ICON_BLOCK, ICON_BLOCK)
                         .show_track_outline(true);
                     if ui.add(blacklist_switch).changed() {
-                        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
                         if let Some(ref tray_logic) = self.tray_logic {
                             if is_blacklisted {
                                 if let Err(e) = tray_logic.blacklist_image_by_url(&base_url) {
@@ -1356,7 +1355,6 @@ impl BingtrayApp {
                         .with_icons(ICON_STAR, ICON_STAR_OUTLINE)
                         .show_track_outline(true);
                     if ui.add(favorite_switch).changed() {
-                        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
                         if let Some(ref tray_logic) = self.tray_logic {
                             if is_favorite {
                                 if let Err(e) = tray_logic.keep_image_by_url(&base_url) {
