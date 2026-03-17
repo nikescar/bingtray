@@ -1,9 +1,20 @@
 ## What's Changed
+* feat. add log argument for txt logging. by @nikescar
+* fix. organize start mode of desktop main. by @nikescar
+* fix. tray menu show on windows. by @nikescar
+* fix. tray menu not show. by @nikescar
+* fix. recover terminal detection on start. by @nikescar
+
+## What's Changed in 0.0.10
+* fix. remove duckdb from gh workflow. by @nikescar
+* release. v0.0.10 by @nikescar
 * fix. image carousel navigation. by @nikescar
 * fix. enable favorite and blicklist button on android. by @nikescar
 * fix. android image carousel errors. by @nikescar
 * chore. toggle submit to google app review. by @nikescar
 * fix. update routine for linux. by @nikescar
+
+**Full Changelog**: https://github.com/nikescar/bingtray/compare/v0.0.9...v0.0.10
 
 ## What's Changed in 0.0.9
 * fix. build error. by @nikescar
