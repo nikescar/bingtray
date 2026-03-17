@@ -200,7 +200,6 @@ pub struct BingtrayApp {
     #[cfg_attr(feature = "serde", serde(skip))]
     cached_page_index: usize,
     #[cfg_attr(feature = "serde", serde(skip))]
-    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     tray_logic: Option<CalcBingimage>,
     // User mismatch warning
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -394,7 +393,6 @@ impl Default for BingtrayApp {
                 }
             },
             screen_size_provider: None,
-            #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
             tray_logic: CalcBingimage::new().ok(),
             user_mismatch_warning,
             // Menu state

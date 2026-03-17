@@ -1,4 +1,13 @@
 ## What's Changed
+* fix. image carousel navigation. by @nikescar
+* fix. enable favorite and blicklist button on android. by @nikescar
+* fix. android image carousel errors. by @nikescar
+* chore. toggle submit to google app review. by @nikescar
+* fix. update routine for linux. by @nikescar
+
+## What's Changed in 0.0.9
+* fix. build error. by @nikescar
+* release. v0.0.9 by @nikescar
 * fix. add current title of setted desktop wallpaper on cli, tray, eframe menu. by @nikescar
 * bump by @nikescar
 * fix. remove cached status. by @nikescar
@@ -10,6 +19,8 @@
 * fix. add --tray params on desktop, startup shortcuts. by @nikescar
 * fix.menu_update. by @nikescar
 * docs. add google play signing key instructions. by @nikescar
+
+**Full Changelog**: https://github.com/nikescar/bingtray/compare/v0.0.8...v0.0.9
 
 ## What's Changed in 0.0.8
 * chore. fix virustotal 409 retry error. by @nikescar
