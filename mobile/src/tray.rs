@@ -5,12 +5,14 @@
 //! For tray interface, since there is no ui, set/keep/black operation
 //! is based on current wallpaper image on desktop.
 //!
+//! When "Show App" is clicked, the tray exits and returns TrayExitAction::OpenGui
+//! to allow the GUI to be opened on the main thread (required by winit's EventLoop).
+//!
 
 use crate::calc_bingimage::CalcBingimage;
 use anyhow::Result;
 use egui_i18n::tr;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::thread;
 use crossbeam_queue::SegQueue;
 use tao::{
     event::Event,
@@ -90,64 +92,6 @@ fn load_icon() -> Icon {
         .expect("Failed to create icon")
 }
 
-/// Open GUI window (can be called from tray menu)
-/// Only used on Windows/macOS where GUI can spawn in thread
-#[cfg(not(target_os = "linux"))]
-fn open_gui_window() -> Result<()> {
-    let options = eframe::NativeOptions {
-        viewport: eframe::egui::ViewportBuilder::default()
-            .with_inner_size([800.0, 1200.0])
-            .with_title("Bingtray - Bing Wallpaper Manager"),
-        ..Default::default()
-    };
-
-    eframe::run_native(
-        "Bingtray",
-        options,
-        Box::new(|cc| {
-            log::info!("Creating BingtrayApp instance");
-
-            // Load Material3 fonts and theme
-            use egui_material3::theme::{
-                load_fonts, load_themes,
-                setup_local_fonts_from_bytes, setup_local_theme,
-            };
-            // Prepare local fonts including Material Symbols
-            setup_local_fonts_from_bytes(
-                "MaterialSymbolsOutlined",
-                include_bytes!("../resources/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf"),
-            );
-            setup_local_fonts_from_bytes("NotoSansKr", include_bytes!("../resources/noto-sans-kr.ttf"));
-
-            // Register Korean font with egui
-            let mut fonts = egui::FontDefinitions::default();
-            fonts.font_data.insert(
-                "NotoSansKr".to_owned(),
-                std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../resources/noto-sans-kr.ttf"))),
-            );
-            fonts.families
-                .entry(egui::FontFamily::Proportional)
-                .or_default()
-                .insert(0, "NotoSansKr".to_owned());
-            fonts.families
-                .entry(egui::FontFamily::Monospace)
-                .or_default()
-                .push("NotoSansKr".to_owned());
-            cc.egui_ctx.set_fonts(fonts);
-
-            // Prepare themes
-            setup_local_theme(None);
-            egui_extras::install_image_loaders(&cc.egui_ctx);
-            load_fonts(&cc.egui_ctx);
-            load_themes();
-
-            Ok(Box::<crate::bingtray::BingtrayApp>::default())
-        }),
-    )
-    .map_err(|e| anyhow::anyhow!("eframe error: {}", e))?;
-
-    Ok(())
-}
 
 /// Create the tray menu based on current application state
 fn create_tray_menu(logic: &CalcBingimage) -> (Menu, MenuItems) {
@@ -276,29 +220,14 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
                 log::debug!("Menu items available, checking which item was clicked");
                 if menu_event.id == items.show_app {
                     log::info!(">>> 'Show App' menu item clicked!");
-                    // Open GUI window
-                    // On Windows/macOS: spawn in thread to keep tray alive
-                    // On Linux: must open on main thread, so exit tray temporarily
-                    log::info!("Opening GUI window");
-
-                    #[cfg(not(target_os = "linux"))]
-                    {
-                        // Windows/macOS: spawn in thread
-                        thread::spawn(|| {
-                            if let Err(e) = open_gui_window() {
-                                log::error!("Failed to open GUI: {}", e);
-                            }
-                        });
-                    }
-
-                    #[cfg(target_os = "linux")]
-                    {
-                        log::info!("Linux: Exiting tray event loop to open GUI on main thread");
-                        *exit_action_for_return.lock().unwrap() = TrayExitAction::OpenGui;
-                        *control_flow = ControlFlow::Exit;
-                        log::info!("Control flow set to Exit");
-                        continue; // Skip further processing
-                    }
+                    // Open GUI window on main thread
+                    // EventLoop can only be created once per process, so we exit tray mode
+                    // and let main.rs open the GUI on the main thread
+                    log::info!("Exiting tray event loop to open GUI on main thread");
+                    *exit_action_for_return.lock().unwrap() = TrayExitAction::OpenGui;
+                    *control_flow = ControlFlow::Exit;
+                    log::info!("Control flow set to Exit");
+                    continue; // Skip further processing
                 } else if menu_event.id == items.cache_dir {
                     // Open cache directory
                     log::info!("Opening cache directory");

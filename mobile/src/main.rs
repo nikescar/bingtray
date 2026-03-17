@@ -5,6 +5,9 @@
 //! - `--tray` flag: Runs tray mode
 //! - Terminal detected: Runs CLI mode
 //! - Default (double-click): Runs tray mode
+//!
+//! Logging options:
+//! - `--log [FILE]`: Enable file logging (defaults to bingtray.log if FILE not specified)
 
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 #![cfg(not(target_os = "android"))]
@@ -12,6 +15,7 @@
 
 use anyhow::Result;
 use std::io::IsTerminal;
+use std::io::Write;
 
 #[cfg(target_os = "windows")]
 fn hide_console() {
@@ -33,8 +37,58 @@ fn hide_console() {
 }
 
 fn main() -> Result<()> {
+    // Parse command-line arguments FIRST to check for explicit mode flags and log configuration
+    let args: Vec<String> = std::env::args().collect();
+
+    // Check for --log argument
+    let log_file = {
+        let mut log_file_opt: Option<String> = None;
+        let mut i = 0;
+        while i < args.len() {
+            if args[i] == "--log" {
+                // Check if there's a value after --log
+                if i + 1 < args.len() && !args[i + 1].starts_with("--") {
+                    log_file_opt = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    // --log flag present but no value, use default
+                    log_file_opt = Some("bingtray.log".to_string());
+                    i += 1;
+                }
+            } else {
+                i += 1;
+            }
+        }
+        log_file_opt
+    };
+
     // Initialize logger
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    if let Some(log_path) = &log_file {
+        // File-based logging
+        let log_path = if log_path.is_empty() {
+            "bingtray.log"
+        } else {
+            log_path.as_str()
+        };
+
+        let target = Box::new(
+            std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(log_path)
+                .unwrap_or_else(|e| {
+                    eprintln!("Failed to open log file '{}': {}", log_path, e);
+                    std::process::exit(1);
+                })
+        );
+
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+            .target(env_logger::Target::Pipe(target))
+            .init();
+    } else {
+        // Console logging (default)
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    }
 
     log::info!("Bingtray v{} starting...", env!("CARGO_PKG_VERSION"));
 
@@ -46,8 +100,6 @@ fn main() -> Result<()> {
     // Initialize global tray event handlers (one-time setup)
     bingtray::tray::init_tray_event_handlers();
 
-    // Parse command-line arguments FIRST to check for explicit mode flags
-    let args: Vec<String> = std::env::args().collect();
     let force_gui = args.iter().any(|arg| arg == "--gui");
     let force_tray = args.iter().any(|arg| arg == "--tray");
 
