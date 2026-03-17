@@ -35,65 +35,54 @@ fn main() -> Result<()> {
 
     log::info!("Bingtray v{} starting...", env!("CARGO_PKG_VERSION"));
 
-    // Check if we're running in terminal mode (before parsing args)
-    if std::io::stdout().is_terminal() {
+    // Initialize i18n EARLY (before any mode starts)
+    if let Err(e) = bingtray::i18n::init_i18n("Auto") {
+        log::error!("Failed to initialize i18n: {}", e);
+    }
+
+    // Parse command-line arguments FIRST to check for explicit mode flags
+    let args: Vec<String> = std::env::args().collect();
+    let force_tray = args.iter().any(|arg| arg == "--tray");
+
+    if force_tray {
+        // Tray mode (explicitly requested via --tray flag)
+        log::info!("Running in tray mode (--tray flag)");
+
+        // Hide console window on Windows
+        #[cfg(target_os = "windows")]
+        hide_console();
+
+        // Run tray mode, which may request to open GUI
+        loop {
+            match bingtray::tray::run_tray_mode()? {
+                bingtray::tray::TrayExitAction::Quit => {
+                    log::info!("Exiting application");
+                    break;
+                }
+                bingtray::tray::TrayExitAction::OpenGui => {
+                    log::info!("Opening GUI window");
+                    run_gui_mode()?;
+                    log::info!("GUI closed, returning to tray mode");
+                }
+            }
+        }
+    } else if std::io::stdout().is_terminal() {
         // Terminal mode - run CLI interface
         log::info!("Running in CLI mode (terminal detected)");
-
-        // Initialize i18n for CLI
-        if let Err(e) = bingtray::i18n::init_i18n("Auto") {
-            log::error!("Failed to initialize i18n: {}", e);
-        }
 
         let mut logic = bingtray::calc_bingimage::CalcBingimage::new()?;
         logic.initialize()?;
 
         bingtray::cli::run_cli_mode(&mut logic)?;
     } else {
-        // Non-terminal mode - parse arguments to determine GUI vs tray mode
+        // GUI mode (no terminal attached and no --tray flag)
+        log::info!("Running in GUI mode (no terminal detected)");
 
-        // Initialize i18n EARLY (before tray or GUI)
-        // This ensures translations work in both tray menu and GUI
-        if let Err(e) = bingtray::i18n::init_i18n("Auto") {
-            log::error!("Failed to initialize i18n: {}", e);
-        }
+        // Hide console window on Windows
+        #[cfg(target_os = "windows")]
+        hide_console();
 
-        // Parse command-line arguments
-        let args: Vec<String> = std::env::args().collect();
-        let force_tray = args.iter().any(|arg| arg == "--tray");
-
-        if force_tray {
-            // Tray mode (forced by --tray flag)
-            log::info!("Running in tray mode");
-
-            // Hide console window on Windows
-            #[cfg(target_os = "windows")]
-            hide_console();
-
-            // Run tray mode, which may request to open GUI
-            loop {
-                match bingtray::tray::run_tray_mode()? {
-                    bingtray::tray::TrayExitAction::Quit => {
-                        log::info!("Exiting application");
-                        break;
-                    }
-                    bingtray::tray::TrayExitAction::OpenGui => {
-                        log::info!("Opening GUI window");
-                        run_gui_mode()?;
-                        log::info!("GUI closed, returning to tray mode");
-                    }
-                }
-            }
-        } else {
-            // GUI mode (no terminal attached)
-            log::info!("Running in GUI mode (no terminal detected)");
-
-            // Hide console window on Windows
-            #[cfg(target_os = "windows")]
-            hide_console();
-
-            run_gui_mode()?;
-        }
+        run_gui_mode()?;
     }
 
     Ok(())
