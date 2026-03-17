@@ -1,9 +1,12 @@
 //! Desktop entry point for Bingtray
 //!
-//! Detects whether the application is running in a terminal or GUI environment:
-//! - Terminal: Runs CLI mode with CalcBingimage
-//! - Non-terminal: Runs GUI mode (or tray mode with --tray flag)
+//! Mode selection logic:
+//! - `--gui` flag: Runs GUI mode
+//! - `--tray` flag: Runs tray mode
+//! - Terminal detected: Runs CLI mode
+//! - Default (double-click): Runs tray mode
 
+#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 #![cfg(not(target_os = "android"))]
 #![cfg(not(target_arch = "wasm32"))]
 
@@ -40,11 +43,24 @@ fn main() -> Result<()> {
         log::error!("Failed to initialize i18n: {}", e);
     }
 
+    // Initialize global tray event handlers (one-time setup)
+    bingtray::tray::init_tray_event_handlers();
+
     // Parse command-line arguments FIRST to check for explicit mode flags
     let args: Vec<String> = std::env::args().collect();
+    let force_gui = args.iter().any(|arg| arg == "--gui");
     let force_tray = args.iter().any(|arg| arg == "--tray");
 
-    if force_tray {
+    if force_gui {
+        // GUI mode (explicitly requested via --gui flag)
+        log::info!("Running in GUI mode (--gui flag)");
+
+        // Hide console window on Windows
+        #[cfg(target_os = "windows")]
+        hide_console();
+
+        run_gui_mode()?;
+    } else if force_tray {
         // Tray mode (explicitly requested via --tray flag)
         log::info!("Running in tray mode (--tray flag)");
 
@@ -52,17 +68,18 @@ fn main() -> Result<()> {
         #[cfg(target_os = "windows")]
         hide_console();
 
-        // Run tray mode, which may request to open GUI
+        // Run tray mode
         loop {
+            log::info!("*** Calling run_tray_mode() ***");
             match bingtray::tray::run_tray_mode()? {
                 bingtray::tray::TrayExitAction::Quit => {
-                    log::info!("Exiting application");
+                    log::info!("*** Received Quit action, exiting application ***");
                     break;
                 }
                 bingtray::tray::TrayExitAction::OpenGui => {
-                    log::info!("Opening GUI window");
+                    log::info!("*** Received OpenGui action, opening GUI window on main thread ***");
                     run_gui_mode()?;
-                    log::info!("GUI closed, returning to tray mode");
+                    log::info!("*** GUI closed, will return to tray mode ***");
                 }
             }
         }
@@ -75,14 +92,28 @@ fn main() -> Result<()> {
 
         bingtray::cli::run_cli_mode(&mut logic)?;
     } else {
-        // GUI mode (no terminal attached and no --tray flag)
-        log::info!("Running in GUI mode (no terminal detected)");
+        // Tray mode (default for double-click on Windows - no terminal, no flags)
+        log::info!("Running in tray mode (default - no terminal detected)");
 
         // Hide console window on Windows
         #[cfg(target_os = "windows")]
         hide_console();
 
-        run_gui_mode()?;
+        // Run tray mode
+        loop {
+            log::info!("*** Calling run_tray_mode() ***");
+            match bingtray::tray::run_tray_mode()? {
+                bingtray::tray::TrayExitAction::Quit => {
+                    log::info!("*** Received Quit action, exiting application ***");
+                    break;
+                }
+                bingtray::tray::TrayExitAction::OpenGui => {
+                    log::info!("*** Received OpenGui action, opening GUI window on main thread ***");
+                    run_gui_mode()?;
+                    log::info!("*** GUI closed, will return to tray mode ***");
+                }
+            }
+        }
     }
 
     Ok(())
@@ -92,7 +123,13 @@ fn run_gui_mode() -> Result<()> {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_inner_size([800.0, 1200.0])
-            .with_title("Bingtray - Bing Wallpaper Manager"),
+            .with_title("Bingtray - Bing Wallpaper Manager")
+            .with_icon(
+                eframe::icon_data::from_png_bytes(
+                    include_bytes!("../../imgs/logo110.png") // Path to your icon
+                )
+                .expect("Failed to load icon"),
+            ),
         ..Default::default()
     };
 
