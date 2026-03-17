@@ -1,19 +1,23 @@
 //! System tray interface for Bingtray (Desktop only)
 //!
 //! Provides a system tray icon with menu for managing Bing wallpapers
-//! 
-//! For tray interface, since there is no ui, set/keep/black operation 
+//!
+//! For tray interface, since there is no ui, set/keep/black operation
 //! is based on current wallpaper image on desktop.
-//! 
+//!
 
 use crate::calc_bingimage::CalcBingimage;
 use anyhow::Result;
 use egui_i18n::tr;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use tao::{
+    event::Event,
+    event_loop::{ControlFlow, EventLoopBuilder},
+    platform::run_return::EventLoopExtRunReturn,
+};
 use tray_icon::{
     menu::{Menu, MenuEvent, MenuItem, MenuId},
-    Icon, TrayIconBuilder, TrayIcon,
+    Icon, TrayIconBuilder, TrayIcon, TrayIconEvent,
 };
 
 /// Action to take after tray mode exits
@@ -21,6 +25,12 @@ use tray_icon::{
 pub enum TrayExitAction {
     Quit,
     OpenGui,
+}
+
+/// User events for the event loop
+enum UserEvent {
+    TrayIconEvent(TrayIconEvent),
+    MenuEvent(MenuEvent),
 }
 
 /// Menu item identifiers
@@ -121,160 +131,167 @@ fn update_tray_menu(
     menu_items: &mut MenuItems,
 ) {
     let (new_menu, new_menu_items) = create_tray_menu(logic);
-    tray_icon.set_menu(Some(Box::new(new_menu)));
     *menu_items = new_menu_items;
+    tray_icon.set_menu(Some(Box::new(new_menu)));
 }
 
-/// Initialize GTK on Linux (required for tray icon)
-#[cfg(target_os = "linux")]
-fn init_gtk() {
-    use std::sync::Once;
-    static INIT: Once = Once::new();
-
-    INIT.call_once(|| {
-        // GTK must be initialized on the main thread
-        gtk::init().expect("Failed to initialize GTK");
-        log::info!("GTK initialized for tray icon support");
-    });
-}
-
-/// Run the system tray mode
+/// Run the system tray mode with proper event loop
 pub fn run_tray_mode() -> Result<TrayExitAction> {
     log::info!("Starting tray mode...");
-
-    // Initialize GTK on Linux (must be called before creating tray icon)
-    #[cfg(target_os = "linux")]
-    init_gtk();
 
     // Create application logic
     let mut app = CalcBingimage::new()?;
     app.initialize()?;
 
-    // Create tray icon and menu
-    let icon = load_icon();
-    let (tray_menu, mut menu_items) = create_tray_menu(&app);
+    // Create event loop (must be mutable for run_return)
+    let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
-    let tray_icon = TrayIconBuilder::new()
-        .with_menu(Box::new(tray_menu))
-        .with_tooltip("Bingtray - Bing Wallpaper Manager")
-        .with_icon(icon)
-        .build()
-        .expect("Failed to create tray icon");
+    // Set up event handlers to forward events to the event loop
+    let proxy = event_loop.create_proxy();
+    TrayIconEvent::set_event_handler(Some(move |event| {
+        let _ = proxy.send_event(UserEvent::TrayIconEvent(event));
+    }));
 
-    log::info!("Tray icon created");
+    let proxy = event_loop.create_proxy();
+    MenuEvent::set_event_handler(Some(move |event| {
+        let _ = proxy.send_event(UserEvent::MenuEvent(event));
+    }));
 
-    // Track exit action
+    // Track exit action - use Arc<Mutex<>> to share between closure and return
     let exit_action = Arc::new(Mutex::new(TrayExitAction::Quit));
-    let exit_action_clone = exit_action.clone();
+    let exit_action_for_return = exit_action.clone();
 
-    // Event loop - poll for tray events
-    let menu_channel = MenuEvent::receiver();
+    // Variables to be captured by the event loop
+    let mut tray_icon: Option<TrayIcon> = None;
+    let mut menu_items: Option<MenuItems> = None;
 
-    // Flag to indicate menu needs updating (deferred to avoid GTK segfault)
-    let mut needs_menu_update = false;
+    // Run event loop with run_return (allows returning to caller)
+    event_loop.run_return(move |event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
 
-    loop {
-        // Process pending GTK events on Linux
-        #[cfg(target_os = "linux")]
-        {
-            while gtk::events_pending() {
-                gtk::main_iteration();
+        match event {
+            Event::NewEvents(tao::event::StartCause::Init) => {
+                // Create tray icon on initialization
+                let icon = load_icon();
+                let (tray_menu, items) = create_tray_menu(&app);
+
+                tray_icon = Some(
+                    TrayIconBuilder::new()
+                        .with_menu(Box::new(tray_menu))
+                        .with_tooltip("Bingtray - Bing Wallpaper Manager")
+                        .with_icon(icon)
+                        .build()
+                        .expect("Failed to create tray icon"),
+                );
+
+                menu_items = Some(items);
+                log::info!("Tray icon created");
+
+                // Wake up macOS run loop if needed
+                #[cfg(target_os = "macos")]
+                unsafe {
+                    use objc2_core_foundation::CFRunLoop;
+                    if let Some(rl) = CFRunLoop::main() {
+                        rl.wake_up();
+                    }
+                }
             }
-        }
 
-        // Update menu if needed (outside event handler to avoid GTK reentrancy issues)
-        if needs_menu_update {
-            update_tray_menu(&tray_icon, &app, &mut menu_items);
-            needs_menu_update = false;
-        }
-
-        // Check for menu events (non-blocking with short timeout)
-        if let Ok(event) = menu_channel.recv_timeout(Duration::from_millis(100)) {
-            log::debug!("Menu event: {:?}", event);
-
-            if event.id == menu_items.show_app {
-                // Exit tray mode to open GUI on main thread
-                log::info!("Exiting tray mode to open GUI");
-                *exit_action_clone.lock().unwrap() = TrayExitAction::OpenGui;
-                break;
-            } else if event.id == menu_items.cache_dir {
-                // Open cache directory
-                log::info!("Opening cache directory");
-                if let Err(e) = app.open_cache_directory() {
-                    log::error!("Failed to open cache directory: {}", e);
-                }
-            } else if event.id == menu_items.next_market {
-                // Next market wallpaper
-                log::info!("Setting next market wallpaper");
-                match app.set_next_market_wallpaper() {
-                    Ok(true) => {
-                        log::info!("Wallpaper set successfully!");
-                        needs_menu_update = true;
-                    }
-                    Ok(false) => {
-                        log::warn!("No wallpapers available. Please download more images.");
-                    }
-                    Err(e) => {
-                        log::error!("Failed to set wallpaper: {}", e);
-                    }
-                }
-            } else if event.id == menu_items.keep_current {
-                // Keep current image
-                if app.can_keep() {
-                    log::info!("Keeping current image");
-                    if let Err(e) = app.keep_current_image() {
-                        log::error!("Failed to keep image: {}", e);
-                    } else {
-                        log::info!("Image moved to favorites!");
-                        needs_menu_update = true;
-                    }
-                } else {
-                    log::warn!("No current image to keep");
-                }
-            } else if event.id == menu_items.blacklist_current {
-                // Blacklist current image
-                if app.can_blacklist() {
-                    let title = app.get_current_image_title();
-                    log::info!("Blacklisting \"{}\"", title);
-                    if let Err(e) = app.blacklist_current_image() {
-                        log::error!("Failed to blacklist image: {}", e);
-                    } else {
-                        log::info!("Image blacklisted!");
-                        needs_menu_update = true;
-                    }
-                } else {
-                    log::warn!("No current image to blacklist");
-                }
-            } else if event.id == menu_items.random_favorite {
-                // Set random favorite wallpaper
-                if app.has_kept_wallpapers() {
-                    log::info!("Setting random favorite wallpaper");
-                    match app.set_kept_wallpaper() {
-                        Ok(true) => {
-                            log::info!("Favorite wallpaper set!");
-                            needs_menu_update = true;
-                        }
-                        Ok(false) => {
-                            log::warn!("No favorite wallpapers available");
-                        }
-                        Err(e) => {
-                            log::error!("Failed to set favorite wallpaper: {}", e);
-                        }
-                    }
-                } else {
-                    log::warn!("No favorite wallpapers available. Use Keep option to save some first.");
-                }
-            } else if event.id == menu_items.quit {
-                // Quit application
-                log::info!("Quitting application");
-                *exit_action_clone.lock().unwrap() = TrayExitAction::Quit;
-                break;
+            Event::UserEvent(UserEvent::TrayIconEvent(tray_event)) => {
+                log::debug!("Tray icon event: {:?}", tray_event);
             }
-        }
-    }
 
-    // Explicitly drop the tray icon before returning
-    drop(tray_icon);
+            Event::UserEvent(UserEvent::MenuEvent(menu_event)) => {
+                log::debug!("Menu event: {:?}", menu_event);
+
+                if let Some(ref items) = menu_items {
+                    if menu_event.id == items.show_app {
+                        // Open GUI
+                        log::info!("Opening GUI window");
+                        *exit_action_for_return.lock().unwrap() = TrayExitAction::OpenGui;
+                        tray_icon.take(); // Drop tray icon
+                        *control_flow = ControlFlow::Exit;
+                    } else if menu_event.id == items.cache_dir {
+                        // Open cache directory
+                        log::info!("Opening cache directory");
+                        if let Err(e) = app.open_cache_directory() {
+                            log::error!("Failed to open cache directory: {}", e);
+                        }
+                    } else if menu_event.id == items.next_market {
+                        // Next market wallpaper
+                        log::info!("Setting next market wallpaper");
+                        match app.set_next_market_wallpaper() {
+                            Ok(true) => {
+                                log::info!("Wallpaper set successfully!");
+                                if let Some(ref icon) = tray_icon {
+                                    update_tray_menu(icon, &app, &mut menu_items.as_mut().unwrap());
+                                }
+                            }
+                            Ok(false) => {
+                                log::warn!("No wallpapers available");
+                            }
+                            Err(e) => {
+                                log::error!("Failed to set wallpaper: {}", e);
+                            }
+                        }
+                    } else if menu_event.id == items.keep_current {
+                        // Keep current image
+                        if app.can_keep() {
+                            log::info!("Keeping current image");
+                            if let Err(e) = app.keep_current_image() {
+                                log::error!("Failed to keep image: {}", e);
+                            } else {
+                                log::info!("Image moved to favorites!");
+                                if let Some(ref icon) = tray_icon {
+                                    update_tray_menu(icon, &app, &mut menu_items.as_mut().unwrap());
+                                }
+                            }
+                        }
+                    } else if menu_event.id == items.blacklist_current {
+                        // Blacklist current image
+                        if app.can_blacklist() {
+                            log::info!("Blacklisting current image");
+                            if let Err(e) = app.blacklist_current_image() {
+                                log::error!("Failed to blacklist image: {}", e);
+                            } else {
+                                log::info!("Image blacklisted!");
+                                if let Some(ref icon) = tray_icon {
+                                    update_tray_menu(icon, &app, &mut menu_items.as_mut().unwrap());
+                                }
+                            }
+                        }
+                    } else if menu_event.id == items.random_favorite {
+                        // Set random favorite wallpaper
+                        if app.has_kept_wallpapers() {
+                            log::info!("Setting random favorite wallpaper");
+                            match app.set_kept_wallpaper() {
+                                Ok(true) => {
+                                    log::info!("Favorite wallpaper set!");
+                                    if let Some(ref icon) = tray_icon {
+                                        update_tray_menu(icon, &app, &mut menu_items.as_mut().unwrap());
+                                    }
+                                }
+                                Ok(false) => {
+                                    log::warn!("No favorite wallpapers available");
+                                }
+                                Err(e) => {
+                                    log::error!("Failed to set favorite wallpaper: {}", e);
+                                }
+                            }
+                        }
+                    } else if menu_event.id == items.quit {
+                        // Quit application
+                        log::info!("Quitting application");
+                        *exit_action_for_return.lock().unwrap() = TrayExitAction::Quit;
+                        tray_icon.take(); // Drop tray icon
+                        *control_flow = ControlFlow::Exit;
+                    }
+                }
+            }
+
+            _ => {}
+        }
+    });
 
     let action = *exit_action.lock().unwrap();
     log::info!("Tray mode exited with action: {:?}", action);
