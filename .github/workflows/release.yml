@@ -24,23 +24,23 @@ jobs:
           # Linux
           - name: Linux x86_64
             target: x86_64-unknown-linux-musl
-            build-args: "--release --features desktop,bundled-duckdb"
+            build-args: "--release --features desktop"
 
           # - name: Linux x86
           #   target: i686-unknown-linux-musl
-          #   build-args: "--release --features desktop,bundled-duckdb"
+          #   build-args: "--release --features desktop"
 
           - name: Linux aarch64
             target: aarch64-unknown-linux-musl
-            build-args: "--release --features desktop,bundled-duckdb"
+            build-args: "--release --features desktop"
 
           - name: Linux armv7hf
             target: armv7-unknown-linux-musleabihf
-            build-args: "--release --features desktop,bundled-duckdb"
+            build-args: "--release --features desktop"
 
           # - name: Linux armv6
           #   target: arm-unknown-linux-musleabihf
-          #   build-args: "--release --features bundled-duckdb"
+          #   build-args: "--release"
           
           # even libgtk-3-dev has installed, The system library `gdk-3.0` required by crate `gdk-sys` was not found. not resolved.
           # - name: Freebsd x86_64
@@ -73,12 +73,12 @@ jobs:
           - name: MacOS x86_64
             os: macos-latest
             target: x86_64-apple-darwin
-            build-args: "--release --features desktop,bundled-duckdb"
+            build-args: "--release --features desktop"
 
           - name: MacOS aarch64
             os: macos-latest
             target: aarch64-apple-darwin
-            build-args: "--release --features desktop,bundled-duckdb"
+            build-args: "--release --features desktop"
 
           # - name: iOS x86_64
           #   target: x86_64-apple-ios
@@ -90,7 +90,7 @@ jobs:
           - name: Windows x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            build-args: "--profile release-with-symbols --features desktop,bundled-duckdb"
+            build-args: "--profile release-with-symbols --features desktop"
 
           # - name: Windows x86
           #   os: windows-latest
