@@ -3,6 +3,7 @@
 //! Mode selection logic:
 //! - `--gui` flag: Runs GUI mode
 //! - `--tray` flag: Runs tray mode
+//! - `--silent` flag: Performs silent installation and exits (desktop only)
 //! - Terminal detected: Runs CLI mode
 //! - Default (double-click): Runs tray mode
 //!
@@ -102,6 +103,28 @@ fn main() -> Result<()> {
 
     let force_gui = args.iter().any(|arg| arg == "--gui");
     let force_tray = args.iter().any(|arg| arg == "--tray");
+    let silent_install = args.iter().any(|arg| arg == "--silent");
+
+    // Handle silent install mode (desktop only)
+    #[cfg(not(target_os = "android"))]
+    if silent_install {
+        log::info!("Running in silent install mode (--silent flag)");
+
+        use bingtray::install_stt::InstallResult;
+
+        match bingtray::install::do_install() {
+            InstallResult::Success(msg) => {
+                log::info!("Silent installation succeeded: {}", msg);
+                println!("{}", msg);
+                std::process::exit(0);
+            }
+            InstallResult::Error(err) => {
+                log::error!("Silent installation failed: {}", err);
+                eprintln!("Installation failed: {}", err);
+                std::process::exit(1);
+            }
+        }
+    }
 
     if force_gui {
         // GUI mode (explicitly requested via --gui flag)

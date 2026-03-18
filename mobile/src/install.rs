@@ -565,13 +565,13 @@ fn install_linux(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String, 
     let desktop_content = format!(
         r#"[Desktop Entry]
 Name=Bingtray {}
-Comment=Universal Android Debloater with Shizuku support
+Comment=Bing Wallpaper Setter
 Exec={} --tray
 Icon={}
 Terminal=false
 Type=Application
 Categories=Utility;Development;
-Keywords=android;debloat;shizuku;adb;
+Keywords=bing;wallpaper;bingtray;
 "#,
         CURRENT_VERSION,
         binary_dest.display(),
