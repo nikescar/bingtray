@@ -1,9 +1,21 @@
 ## What's Changed
+* fix. uninstall errors on windows.
+* fix. adding trash crate to cover remove old bins.
+* fix. remove powershell and use com method.
+* fix. install error and detailed logs. by @nikescar
+* chore. fix after release artifacts download error. by @nikescar
+* fix. cpu taking 100% on tray mode. by @nikescar
+* docs. add google play link. by @nikescar
+
+## What's Changed in 0.0.11
+* release. v0.0.11 by @nikescar
 * feat. add log argument for txt logging. by @nikescar
 * fix. organize start mode of desktop main. by @nikescar
 * fix. tray menu show on windows. by @nikescar
 * fix. tray menu not show. by @nikescar
 * fix. recover terminal detection on start. by @nikescar
+
+**Full Changelog**: https://github.com/nikescar/bingtray/compare/v0.0.10...v0.0.11
 
 ## What's Changed in 0.0.10
 * fix. remove duckdb from gh workflow. by @nikescar
