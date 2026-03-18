@@ -206,7 +206,7 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
     // Run event loop with run_return (allows returning to caller)
     log::info!("Starting event loop...");
     event_loop.run_return(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll; // Use Poll to check queues regularly
+        *control_flow = ControlFlow::Wait; // Wait for events to avoid spinning CPU
 
         // Process events from global queues
         while let Some(tray_event) = tray_queue.pop() {
