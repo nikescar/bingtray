@@ -63,7 +63,7 @@ pub fn init_tray_event_handlers() {
 
     let menu_queue_for_handler = menu_queue.clone();
     MenuEvent::set_event_handler(Some(move |event| {
-        log::debug!("MenuEvent received, pushing to global queue: {:?}", event);
+        log::info!(">>> MenuEvent handler fired, pushing to global queue: {:?}", event);
         menu_queue_for_handler.push(event);
     }));
 
@@ -206,7 +206,9 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
     // Run event loop with run_return (allows returning to caller)
     log::info!("Starting event loop...");
     event_loop.run_return(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Wait; // Wait for events to avoid spinning CPU
+        // Use Poll mode to ensure system events are processed immediately
+        // We'll manually sleep if there are no events to keep CPU usage low
+        *control_flow = ControlFlow::Poll;
 
         // Process events from global queues
         while let Some(tray_event) = tray_queue.pop() {
@@ -336,6 +338,12 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
             }
 
             _ => {}
+        }
+
+        // In Poll mode, sleep briefly if we're not exiting to avoid high CPU usage
+        // This gives time for system events to be delivered while keeping responsiveness
+        if *control_flow != ControlFlow::Exit {
+            std::thread::sleep(std::time::Duration::from_millis(10));
         }
     });
 

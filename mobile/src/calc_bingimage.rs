@@ -913,15 +913,28 @@ impl CalcBingimage {
     /// Primarily used for testing with temporary directories.
     #[cfg(test)]
     pub fn from_config(config: Config) -> Result<Self> {
-        // Initialize database
-        log::info!("Initializing database at: {:?}", config.db_path);
+        // Check if database exists before opening
+        let data_dir = config.db_path.parent()
+            .ok_or_else(|| anyhow::anyhow!("Invalid database path"))?
+            .join("datafusion_data");
+        let db_exists = data_dir.exists() &&
+            (data_dir.join("bing_images.parquet").exists() ||
+             data_dir.join("market_codes.parquet").exists() ||
+             data_dir.join("config_kv.parquet").exists());
+
+        if db_exists {
+            log::info!("Opening existing database at: {:?}", config.db_path);
+        } else {
+            log::info!("Initializing new database at: {:?}", config.db_path);
+        }
+
         let db = match BingImageDb::new(config.db_path.clone()) {
             Ok(database) => {
-                log::info!("Database opened successfully");
+                log::info!("Database {} successfully", if db_exists { "opened" } else { "initialized" });
                 Some(database)
             }
             Err(e) => {
-                log::error!("Failed to open database: {}", e);
+                log::error!("Failed to {} database: {}", if db_exists { "open" } else { "initialize" }, e);
                 None
             }
         };
@@ -983,15 +996,28 @@ impl CalcBingimage {
     /// Used in production when Config is already created.
     #[cfg(not(test))]
     fn from_config(config: Config) -> Result<Self> {
-        // Initialize database
-        log::info!("Initializing database at: {:?}", config.db_path);
+        // Check if database exists before opening
+        let data_dir = config.db_path.parent()
+            .ok_or_else(|| anyhow::anyhow!("Invalid database path"))?
+            .join("datafusion_data");
+        let db_exists = data_dir.exists() &&
+            (data_dir.join("bing_images.parquet").exists() ||
+             data_dir.join("market_codes.parquet").exists() ||
+             data_dir.join("config_kv.parquet").exists());
+
+        if db_exists {
+            log::info!("Opening existing database at: {:?}", config.db_path);
+        } else {
+            log::info!("Initializing new database at: {:?}", config.db_path);
+        }
+
         let db = match BingImageDb::new(config.db_path.clone()) {
             Ok(database) => {
-                log::info!("Database opened successfully");
+                log::info!("Database {} successfully", if db_exists { "opened" } else { "initialized" });
                 Some(database)
             }
             Err(e) => {
-                log::error!("Failed to open database: {}", e);
+                log::error!("Failed to {} database: {}", if db_exists { "open" } else { "initialize" }, e);
                 None
             }
         };
@@ -1138,10 +1164,6 @@ impl CalcBingimage {
     /// Ok(()) if initialization completes, regardless of download success
     pub fn initialize(&mut self) -> Result<()> {
         // Directories are already created in Config::new()
-
-        // Clear ehttp cache on app restart (as per requirements)
-        self.ehttp_cache.clear_all();
-        log::info!("Cleared ehttp cache on app restart");
 
         // Check if we need to download images
         if !self.has_unprocessed_files() {

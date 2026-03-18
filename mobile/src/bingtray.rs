@@ -847,15 +847,23 @@ impl BingtrayApp {
                 let title = carousel_img.title.clone();
                 let full_url = carousel_img.full_url.clone();
                 let status = carousel_img.status.clone();
+                let image_bytes = carousel_img.image_bytes.clone();
 
                 carousel_widget = carousel_widget.item(Box::new(move |ui: &mut egui::Ui, _rect| {
                     ui.vertical_centered(|ui| {
                         ui.spacing_mut().item_spacing = egui::vec2(0.0, 2.0);  // Reduce vertical spacing
 
                         // Display image thumbnail with click sensing
-                        let image = Image::from_uri(&thumbnail_url)
-                            .fit_to_exact_size(egui::vec2(180.0, 120.0))
-                            .sense(Sense::click());
+                        // Use pre-downloaded bytes if available, otherwise try URI
+                        let image = if let Some(ref bytes) = image_bytes {
+                            Image::from_bytes(format!("bytes://{}", thumbnail_url), bytes.clone())
+                                .fit_to_exact_size(egui::vec2(180.0, 120.0))
+                                .sense(Sense::click())
+                        } else {
+                            Image::from_uri(&thumbnail_url)
+                                .fit_to_exact_size(egui::vec2(180.0, 120.0))
+                                .sense(Sense::click())
+                        };
 
                         let response = ui.add(image);
 
@@ -1017,7 +1025,14 @@ impl BingtrayApp {
             let trigger_threshold = 400.0;
             let scroll_trigger_point = (max_scroll - trigger_threshold).max(0.0);
 
-            if self.carousel_scroll_offset >= scroll_trigger_point && !self.loading_more && self.carousel_images.len() >= 8 {
+            // Only load more if:
+            // 1. Content overflows viewport (max_scroll > 0)
+            // 2. User has scrolled close to the end
+            // 3. Not already loading
+            // 4. Have at least 8 images already
+            let content_overflows = total_content_width > viewport_width;
+
+            if content_overflows && self.carousel_scroll_offset >= scroll_trigger_point && !self.loading_more && self.carousel_images.len() >= 8 {
                 info!("📍 CAROUSEL: Scrolled to right end (offset: {:.0}, trigger: {:.0}), loading more images",
                       self.carousel_scroll_offset, scroll_trigger_point);
                 info!("📊 CAROUSEL: Current state - {} images loaded, loading_more: {}",
@@ -1398,6 +1413,40 @@ impl BingtrayApp {
                     ui.ctx().request_repaint();
                 }
             }
+        }
+
+        // Poll carousel thumbnail promises and update carousel_images with downloaded bytes
+        let mut completed_promises = Vec::new();
+        for (idx, promise) in self.carousel_promises.iter().enumerate() {
+            if let Some(result) = promise.ready() {
+                completed_promises.push(idx);
+                match result {
+                    Ok(carousel_image) => {
+                        // Find and update the carousel image with matching thumbnail_url
+                        if let Some(existing_image) = self.carousel_images.iter_mut()
+                            .find(|img| img.thumbnail_url == carousel_image.thumbnail_url) {
+                            // Update with downloaded bytes
+                            existing_image.image_bytes = carousel_image.image_bytes.clone();
+                            trace!("Updated carousel image bytes for: {}", carousel_image.title);
+                        }
+                        // Also update cache
+                        self.image_cache.insert(carousel_image.thumbnail_url.clone(), carousel_image.clone());
+                    }
+                    Err(e) => {
+                        error!("Failed to load carousel thumbnail: {}", e);
+                    }
+                }
+            }
+        }
+
+        // Remove completed promises in reverse order to maintain indices
+        for idx in completed_promises.iter().rev() {
+            self.carousel_promises.remove(*idx);
+        }
+
+        // Request repaint if we updated any images
+        if !completed_promises.is_empty() {
+            ui.ctx().request_repaint();
         }
 
         // Display main panel image (high resolution from selected carousel image)

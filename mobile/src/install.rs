@@ -108,9 +108,13 @@ fn cleanup_old_installations(paths: &InstallPaths, keep_version: Option<&str>) -
         get_versioned_app_name()
     };
 
+    log::info!("Cleaning up old installations, keeping: {}", version_to_keep);
+
     // Clean up old binaries in bin_dir
     if paths.bin_dir.exists() {
+        log::debug!("Scanning bin directory: {}", paths.bin_dir.display());
         if let Ok(entries) = fs::read_dir(&paths.bin_dir) {
+            let mut removed_count = 0;
             for entry in entries.flatten() {
                 let path = entry.path();
                 let file_name = entry.file_name();
@@ -128,19 +132,39 @@ fn cleanup_old_installations(paths: &InstallPaths, keep_version: Option<&str>) -
                     && !name_str.contains("-bin"); // Don't remove the -bin helper on macOS
 
                 if is_old_binary {
-                    let _ = move_to_trash(&path);
+                    log::info!("Moving old binary to trash: {}", path.display());
+                    match move_to_trash(&path) {
+                        Ok(_) => {
+                            removed_count += 1;
+                            log::debug!("Successfully removed: {}", name_str);
+                        }
+                        Err(e) => log::warn!("Failed to remove old binary {}: {}", name_str, e),
+                    }
                 }
             }
+            if removed_count > 0 {
+                log::info!("Removed {} old binary(ies)", removed_count);
+            } else {
+                log::debug!("No old binaries found to remove");
+            }
+        } else {
+            log::warn!("Could not read bin directory");
         }
+    } else {
+        log::debug!("Bin directory does not exist: {}", paths.bin_dir.display());
     }
 
     // Clean up old shortcuts
     #[cfg(not(target_os = "macos"))]
     {
+        log::debug!("Cleaning up old shortcuts...");
+        let mut shortcuts_removed = 0;
+
         // Clean start menu shortcuts
         if let Some(ref start_menu) = paths.start_menu_entry {
             if let Some(parent) = start_menu.parent() {
                 if parent.exists() {
+                    log::debug!("Scanning start menu directory: {}", parent.display());
                     if let Ok(entries) = fs::read_dir(parent) {
                         for entry in entries.flatten() {
                             let path = entry.path();
@@ -157,7 +181,14 @@ fn cleanup_old_installations(paths: &InstallPaths, keep_version: Option<&str>) -
                             let is_old_shortcut = false;
 
                             if is_old_shortcut && path != *start_menu {
-                                let _ = move_to_trash(&path);
+                                log::info!("Moving old start menu shortcut to trash: {}", path.display());
+                                match move_to_trash(&path) {
+                                    Ok(_) => {
+                                        shortcuts_removed += 1;
+                                        log::debug!("Successfully removed shortcut: {}", name_str);
+                                    }
+                                    Err(e) => log::warn!("Failed to remove shortcut {}: {}", name_str, e),
+                                }
                             }
                         }
                     }
@@ -169,6 +200,7 @@ fn cleanup_old_installations(paths: &InstallPaths, keep_version: Option<&str>) -
         if let Some(ref desktop) = paths.desktop_shortcut {
             if let Some(parent) = desktop.parent() {
                 if parent.exists() {
+                    log::debug!("Scanning desktop directory: {}", parent.display());
                     if let Ok(entries) = fs::read_dir(parent) {
                         for entry in entries.flatten() {
                             let path = entry.path();
@@ -185,20 +217,35 @@ fn cleanup_old_installations(paths: &InstallPaths, keep_version: Option<&str>) -
                             let is_old_shortcut = false;
 
                             if is_old_shortcut && path != *desktop {
-                                let _ = move_to_trash(&path);
+                                log::info!("Moving old desktop shortcut to trash: {}", path.display());
+                                match move_to_trash(&path) {
+                                    Ok(_) => {
+                                        shortcuts_removed += 1;
+                                        log::debug!("Successfully removed shortcut: {}", name_str);
+                                    }
+                                    Err(e) => log::warn!("Failed to remove shortcut {}: {}", name_str, e),
+                                }
                             }
                         }
                     }
                 }
             }
         }
+
+        if shortcuts_removed > 0 {
+            log::info!("Removed {} old shortcut(s)", shortcuts_removed);
+        } else {
+            log::debug!("No old shortcuts found to remove");
+        }
     }
 
     // Clean up old macOS app bundles
     #[cfg(target_os = "macos")]
     {
+        log::debug!("Cleaning up old macOS app bundles...");
         if paths.bin_dir.exists() {
             if let Ok(entries) = fs::read_dir(&paths.bin_dir) {
+                let mut removed_count = 0;
                 for entry in entries.flatten() {
                     let path = entry.path();
                     let file_name = entry.file_name();
@@ -209,13 +256,26 @@ fn cleanup_old_installations(paths: &InstallPaths, keep_version: Option<&str>) -
                         && !name_str.starts_with(&version_to_keep);
 
                     if is_old_app {
-                        let _ = move_to_trash(&path);
+                        log::info!("Moving old app bundle to trash: {}", path.display());
+                        match move_to_trash(&path) {
+                            Ok(_) => {
+                                removed_count += 1;
+                                log::debug!("Successfully removed: {}", name_str);
+                            }
+                            Err(e) => log::warn!("Failed to remove old app bundle {}: {}", name_str, e),
+                        }
                     }
+                }
+                if removed_count > 0 {
+                    log::info!("Removed {} old app bundle(s)", removed_count);
+                } else {
+                    log::debug!("No old app bundles found to remove");
                 }
             }
         }
     }
 
+    log::info!("Cleanup completed");
     Ok(())
 }
 
@@ -390,36 +450,48 @@ pub fn do_install() -> InstallResult {
 
 #[cfg(target_os = "linux")]
 fn install_linux(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String, String> {
+    log::info!("Starting Linux installation...");
+    log::info!("Current exe: {}", current_exe.display());
+    log::info!("Target directory: {}", paths.bin_dir.display());
+
     // Clean up old installations
+    log::info!("Cleaning up old installations...");
     cleanup_old_installations(paths, None)?;
 
     let binary_dest = paths.bin_dir.join(get_versioned_app_name());
+    log::info!("Installing to: {}", binary_dest.display());
 
     // Copy binary
+    log::info!("Copying binary...");
     fs::copy(current_exe, &binary_dest)
         .map_err(|e| format!("Failed to copy binary: {}", e))?;
+    log::info!("Binary copied successfully");
 
     // Make executable
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        log::info!("Setting executable permissions (0755)...");
         let mut perms = fs::metadata(&binary_dest)
             .map_err(|e| format!("Failed to get permissions: {}", e))?
             .permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&binary_dest, perms)
             .map_err(|e| format!("Failed to set permissions: {}", e))?;
+        log::debug!("Permissions set successfully");
     }
 
     // Create applications directory if needed
     if let Some(ref start_menu) = paths.start_menu_entry {
         if let Some(parent) = start_menu.parent() {
+            log::info!("Creating applications directory: {}", parent.display());
             fs::create_dir_all(parent)
                 .map_err(|e| format!("Failed to create applications directory: {}", e))?;
         }
     }
 
     // Create .desktop file for applications menu
+    log::info!("Creating .desktop files...");
     let desktop_content = format!(
         r#"[Desktop Entry]
 Name=Bingtray {}
@@ -437,17 +509,24 @@ Keywords=android;debloat;shizuku;adb;
     );
 
     if let Some(ref start_menu) = paths.start_menu_entry {
+        log::info!("Creating applications menu entry: {}", start_menu.display());
         fs::write(start_menu, &desktop_content)
             .map_err(|e| format!("Failed to create .desktop file: {}", e))?;
+        log::debug!("Applications menu entry created");
     }
 
     // Optionally create desktop shortcut
     if let Some(ref desktop) = paths.desktop_shortcut {
         if desktop.parent().is_some_and(|p| p.exists()) {
-            let _ = fs::write(desktop, &desktop_content);
+            log::info!("Creating desktop shortcut: {}", desktop.display());
+            match fs::write(desktop, &desktop_content) {
+                Ok(_) => log::debug!("Desktop shortcut created"),
+                Err(e) => log::warn!("Failed to create desktop shortcut (non-critical): {}", e),
+            }
         }
     }
 
+    log::info!("Installation completed successfully");
     Ok(format!("Successfully installed to {}", binary_dest.display()))
 }
 
@@ -542,19 +621,29 @@ exec "$DIR/{}-bin" --tray "$@"
 
 #[cfg(target_os = "windows")]
 fn install_windows(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
 
+    log::info!("Starting Windows installation...");
+    log::info!("Current exe: {}", current_exe.display());
+    log::info!("Target directory: {}", paths.bin_dir.display());
+
     // Clean up old installations
+    log::info!("Cleaning up old installations...");
     cleanup_old_installations(paths, None)?;
 
     let binary_dest = paths.bin_dir.join(format!("{}.exe", get_versioned_app_name()));
+    log::info!("Installing to: {}", binary_dest.display());
 
     // Copy binary
+    log::info!("Copying binary...");
     fs::copy(current_exe, &binary_dest)
         .map_err(|e| format!("Failed to copy binary: {}", e))?;
+    log::info!("Binary copied successfully");
 
     // Add uninstall registry entry
     if let Some(ref key) = paths.uninstall_key {
+        log::info!("Adding registry entries for uninstaller...");
         let reg_commands = [
             format!(r#"reg add "{}" /v DisplayName /t REG_SZ /d "Bingtray" /f"#, key),
             format!(r#"reg add "{}" /v DisplayVersion /t REG_SZ /d "{}" /f"#, key, CURRENT_VERSION),
@@ -565,45 +654,108 @@ fn install_windows(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String
             format!(r#"reg add "{}" /v NoRepair /t REG_DWORD /d 1 /f"#, key),
         ];
 
-        for cmd in &reg_commands {
-            let _ = Command::new("cmd")
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        for (i, cmd) in reg_commands.iter().enumerate() {
+            log::debug!("Running registry command {}/{}: {}", i + 1, reg_commands.len(), cmd);
+            let output = Command::new("cmd")
                 .args(["/C", cmd])
+                .creation_flags(CREATE_NO_WINDOW)
                 .output();
+
+            match output {
+                Ok(out) => {
+                    if !out.status.success() {
+                        log::warn!("Registry command failed (non-critical): {}", String::from_utf8_lossy(&out.stderr));
+                    } else {
+                        log::debug!("Registry command succeeded");
+                    }
+                }
+                Err(e) => log::warn!("Failed to run registry command (non-critical): {}", e),
+            }
         }
+        log::info!("Registry entries added");
     }
 
     // Create Start Menu shortcut using PowerShell
     if let Some(ref start_menu) = paths.start_menu_entry {
+        log::info!("Creating Start Menu shortcut: {}", start_menu.display());
         if let Some(parent) = start_menu.parent() {
+            log::debug!("Creating Start Menu directory: {}", parent.display());
             let _ = fs::create_dir_all(parent);
         }
         create_windows_shortcut(&binary_dest, start_menu)?;
+        log::info!("Start Menu shortcut created successfully");
     }
 
     // Create Desktop shortcut
     if let Some(ref desktop) = paths.desktop_shortcut {
-        let _ = create_windows_shortcut(&binary_dest, desktop);
+        log::info!("Creating Desktop shortcut: {}", desktop.display());
+        match create_windows_shortcut(&binary_dest, desktop) {
+            Ok(_) => log::info!("Desktop shortcut created successfully"),
+            Err(e) => log::warn!("Failed to create desktop shortcut (non-critical): {}", e),
+        }
     }
 
+    log::info!("Installation completed successfully");
     Ok(format!("Successfully installed to {}", binary_dest.display()))
 }
 
 #[cfg(target_os = "windows")]
 fn create_windows_shortcut(target: &PathBuf, shortcut_path: &PathBuf) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+
+    log::debug!("Creating Windows shortcut:");
+    log::debug!("  Target: {}", target.display());
+    log::debug!("  Shortcut path: {}", shortcut_path.display());
+
+    // Check if target exists
+    if !target.exists() {
+        let err_msg = format!("Target binary does not exist: {}", target.display());
+        log::error!("{}", err_msg);
+        return Err(err_msg);
+    }
+
+    let working_dir = target.parent()
+        .map(|p| p.display().to_string())
+        .unwrap_or_default();
+
+    log::debug!("  Working directory: {}", working_dir);
 
     let ps_script = format!(
         r#"$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('{}'); $Shortcut.TargetPath = '{}'; $Shortcut.Arguments = '--tray'; $Shortcut.WorkingDirectory = '{}'; $Shortcut.Description = 'Bingtray - Universal Android Debloater'; $Shortcut.Save()"#,
         shortcut_path.display(),
         target.display(),
-        target.parent().map(|p| p.display().to_string()).unwrap_or_default()
+        working_dir
     );
 
-    Command::new("powershell")
-        .args(["-Command", &ps_script])
-        .output()
-        .map_err(|e| format!("Failed to create shortcut: {}", e))?;
+    log::debug!("  PowerShell script: {}", ps_script);
 
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
+        .creation_flags(CREATE_NO_WINDOW)
+        .output()
+        .map_err(|e| {
+            let err_msg = format!("Failed to execute PowerShell: {}", e);
+            log::error!("{}", err_msg);
+            err_msg
+        })?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let err_msg = format!(
+            "PowerShell command failed with status: {}\nStderr: {}\nStdout: {}",
+            output.status, stderr, stdout
+        );
+        log::error!("{}", err_msg);
+        return Err(err_msg);
+    }
+
+    log::debug!("Shortcut created successfully");
     Ok(())
 }
 
@@ -847,18 +999,30 @@ fn get_platform_download_url() -> Option<String> {
 
 /// Download and apply update
 pub fn do_update(download_url: &str, latest_version: &str, tmp_dir: &PathBuf) -> InstallResult {
+    log::info!("=== Starting update process ===");
+    log::info!("Download URL: {}", download_url);
+    log::info!("Target version: {}", latest_version);
+    log::info!("Temp directory: {}", tmp_dir.display());
+
     let paths = get_install_paths();
 
     // Download the update
+    log::info!("Step 1: Downloading update...");
     let downloaded_file = match download_update(download_url, tmp_dir) {
-        Ok(path) => path,
-        Err(e) => return InstallResult::Error(format!("Download failed: {}", e)),
+        Ok(path) => {
+            log::info!("Download completed: {}", path.display());
+            path
+        }
+        Err(e) => {
+            log::error!("Download failed: {}", e);
+            return InstallResult::Error(format!("Download failed: {}", e));
+        }
     };
 
     // Extract if archive
     #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     let binary_path = if downloaded_file.extension().is_some_and(|ext| ext == "gz" || ext == "tar") {
-        log::info!("Extracting tar.gz archive: {}", downloaded_file.display());
+        log::info!("Step 2: Extracting tar.gz archive: {}", downloaded_file.display());
         match extract_tar_gz(&downloaded_file, tmp_dir) {
             Ok(path) => {
                 log::info!("Extraction successful, binary at: {}", path.display());
@@ -870,7 +1034,7 @@ pub fn do_update(download_url: &str, latest_version: &str, tmp_dir: &PathBuf) ->
             }
         }
     } else if downloaded_file.extension().is_some_and(|ext| ext == "zip") {
-        log::info!("Extracting zip archive: {}", downloaded_file.display());
+        log::info!("Step 2: Extracting zip archive: {}", downloaded_file.display());
         match extract_zip(&downloaded_file, tmp_dir) {
             Ok(path) => {
                 log::info!("Extraction successful, binary at: {}", path.display());
@@ -882,7 +1046,7 @@ pub fn do_update(download_url: &str, latest_version: &str, tmp_dir: &PathBuf) ->
             }
         }
     } else {
-        log::info!("No extraction needed, using downloaded file directly: {}", downloaded_file.display());
+        log::info!("Step 2: No extraction needed, using downloaded file directly: {}", downloaded_file.display());
         downloaded_file
     };
 
@@ -890,9 +1054,17 @@ pub fn do_update(download_url: &str, latest_version: &str, tmp_dir: &PathBuf) ->
     let binary_path = downloaded_file;
 
     // Replace current binary
+    log::info!("Step 3: Installing new binary...");
     match replace_binary(&binary_path, &paths, Some(latest_version)) {
-        Ok(msg) => InstallResult::Success(msg),
-        Err(e) => InstallResult::Error(e),
+        Ok(msg) => {
+            log::info!("=== Update completed successfully ===");
+            InstallResult::Success(msg)
+        }
+        Err(e) => {
+            log::error!("=== Update failed ===");
+            log::error!("Error: {}", e);
+            InstallResult::Error(e)
+        }
     }
 }
 
@@ -1029,11 +1201,24 @@ fn walkdir(dir: &PathBuf) -> impl Iterator<Item = Result<fs::DirEntry, io::Error
 }
 
 fn replace_binary(new_binary: &PathBuf, paths: &InstallPaths, version: Option<&str>) -> Result<String, String> {
+    log::info!("=== Starting binary replacement ===");
+    log::debug!("Source binary: {}", new_binary.display());
+    log::debug!("Install paths bin_dir: {}", paths.bin_dir.display());
+
+    // Check if source binary exists
+    if !new_binary.exists() {
+        let err = format!("Source binary does not exist: {}", new_binary.display());
+        log::error!("{}", err);
+        return Err(err);
+    }
+
     // Always install to the standard installation directory (e.g., ~/.local/bin on Linux)
     // Use versioned naming - use provided version (for updates) or current version (for installs)
     let versioned_name = if let Some(ver) = version {
+        log::info!("Installing version: {}", ver);
         format!("{}-{}", APP_NAME, ver)
     } else {
+        log::info!("Installing current version: {}", CURRENT_VERSION);
         get_versioned_app_name()
     };
 
@@ -1042,14 +1227,19 @@ fn replace_binary(new_binary: &PathBuf, paths: &InstallPaths, version: Option<&s
     #[cfg(not(target_os = "windows"))]
     let dest = paths.bin_dir.join(versioned_name);
 
-    log::info!("Installing binary from {} to {}", new_binary.display(), dest.display());
+    log::info!("Target installation path: {}", dest.display());
 
     // Ensure bin directory exists
     if let Some(parent) = dest.parent() {
         if !parent.exists() {
             log::info!("Creating bin directory: {}", parent.display());
             fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create bin directory: {}", e))?;
+                .map_err(|e| {
+                    log::error!("Failed to create bin directory: {}", e);
+                    format!("Failed to create bin directory: {}", e)
+                })?;
+        } else {
+            log::debug!("Bin directory already exists");
         }
     }
 
@@ -1061,34 +1251,124 @@ fn replace_binary(new_binary: &PathBuf, paths: &InstallPaths, version: Option<&s
         #[cfg(not(target_os = "windows"))]
         let backup = dest.with_extension("old");
 
-        log::info!("Backing up existing binary to {}", backup.display());
+        log::info!("Existing binary found, backing up to: {}", backup.display());
         fs::rename(&dest, &backup)
-            .map_err(|e| format!("Failed to backup existing binary: {}", e))?;
+            .map_err(|e| {
+                log::error!("Failed to backup existing binary: {}", e);
+                format!("Failed to backup existing binary: {}", e)
+            })?;
+        log::debug!("Backup completed");
+    } else {
+        log::debug!("No existing binary to backup");
     }
 
-    log::info!("Copying new binary...");
+    log::info!("Copying new binary to destination...");
     fs::copy(new_binary, &dest)
-        .map_err(|e| format!("Failed to copy new binary: {}", e))?;
+        .map_err(|e| {
+            log::error!("Failed to copy new binary: {}", e);
+            format!("Failed to copy new binary: {}", e)
+        })?;
+    log::info!("Binary copied successfully");
 
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        log::info!("Setting executable permissions...");
+        log::info!("Setting executable permissions (0755)...");
         let mut perms = fs::metadata(&dest)
-            .map_err(|e| format!("Failed to get permissions: {}", e))?
+            .map_err(|e| {
+                log::error!("Failed to get permissions: {}", e);
+                format!("Failed to get permissions: {}", e)
+            })?
             .permissions();
         perms.set_mode(0o755);
         fs::set_permissions(&dest, perms)
-            .map_err(|e| format!("Failed to set permissions: {}", e))?;
+            .map_err(|e| {
+                log::error!("Failed to set permissions: {}", e);
+                format!("Failed to set permissions: {}", e)
+            })?;
+        log::debug!("Permissions set successfully");
     }
 
     // Clean up old installations if we're installing a specific version (i.e., during update)
     if let Some(ver) = version {
-        log::info!("Cleaning up old installations, keeping version: {}", ver);
-        let _ = cleanup_old_installations(paths, Some(ver));
+        log::info!("Performing post-installation cleanup for version: {}", ver);
+
+        log::info!("Cleaning up old installations...");
+        match cleanup_old_installations(paths, Some(ver)) {
+            Ok(_) => log::debug!("Old installations cleaned up successfully"),
+            Err(e) => log::warn!("Failed to clean up old installations (non-critical): {}", e),
+        }
+
+        // Update shortcuts to point to new binary
+        #[cfg(target_os = "windows")]
+        {
+            log::info!("Updating Windows shortcuts...");
+
+            if let Some(ref start_menu) = paths.start_menu_entry {
+                log::info!("Updating Start Menu shortcut: {}", start_menu.display());
+                match create_windows_shortcut(&dest, start_menu) {
+                    Ok(_) => log::info!("Start Menu shortcut updated successfully"),
+                    Err(e) => {
+                        log::error!("Failed to update Start Menu shortcut: {}", e);
+                        return Err(format!("Failed to update Start Menu shortcut: {}", e));
+                    }
+                }
+            }
+
+            if let Some(ref desktop) = paths.desktop_shortcut {
+                log::info!("Updating Desktop shortcut: {}", desktop.display());
+                match create_windows_shortcut(&dest, desktop) {
+                    Ok(_) => log::info!("Desktop shortcut updated successfully"),
+                    Err(e) => log::warn!("Failed to update Desktop shortcut (non-critical): {}", e),
+                }
+            }
+
+            log::info!("Shortcuts updated successfully");
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            log::info!("Updating Linux .desktop files...");
+            let desktop_content = format!(
+                r#"[Desktop Entry]
+Name=Bingtray {}
+Comment=Universal Android Debloater with Shizuku support
+Exec={} --tray
+Icon={}
+Terminal=false
+Type=Application
+Categories=Utility;Development;
+Keywords=android;debloat;shizuku;adb;
+"#,
+                ver,
+                dest.display(),
+                dest.display()
+            );
+
+            if let Some(ref start_menu) = paths.start_menu_entry {
+                log::info!("Updating applications menu entry: {}", start_menu.display());
+                match fs::write(start_menu, &desktop_content) {
+                    Ok(_) => log::debug!("Applications menu entry updated"),
+                    Err(e) => log::warn!("Failed to update applications menu entry: {}", e),
+                }
+            }
+
+            if let Some(ref desktop) = paths.desktop_shortcut {
+                if desktop.parent().is_some_and(|p| p.exists()) {
+                    log::info!("Updating desktop entry: {}", desktop.display());
+                    match fs::write(desktop, &desktop_content) {
+                        Ok(_) => log::debug!("Desktop entry updated"),
+                        Err(e) => log::warn!("Failed to update desktop entry: {}", e),
+                    }
+                }
+            }
+
+            log::info!(".desktop files updated successfully");
+        }
     }
 
-    log::info!("Binary installed successfully to: {}", dest.display());
+    log::info!("=== Binary replacement completed successfully ===");
+    log::info!("Installed to: {}", dest.display());
     Ok(format!("Successfully updated to new version. Please restart the application."))
 }
 
