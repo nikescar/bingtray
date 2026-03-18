@@ -621,9 +621,6 @@ exec "$DIR/{}-bin" --tray "$@"
 
 #[cfg(target_os = "windows")]
 fn install_windows(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String, String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
-
     log::info!("Starting Windows installation...");
     log::info!("Current exe: {}", current_exe.display());
     log::info!("Target directory: {}", paths.bin_dir.display());
@@ -643,6 +640,9 @@ fn install_windows(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String
 
     // Add uninstall registry entry
     if let Some(ref key) = paths.uninstall_key {
+        use std::os::windows::process::CommandExt;
+        use std::process::Command;
+
         log::info!("Adding registry entries for uninstaller...");
         let reg_commands = [
             format!(r#"reg add "{}" /v DisplayName /t REG_SZ /d "Bingtray" /f"#, key),
@@ -703,8 +703,12 @@ fn install_windows(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String
 
 #[cfg(target_os = "windows")]
 fn create_windows_shortcut(target: &PathBuf, shortcut_path: &PathBuf) -> Result<(), String> {
-    use std::os::windows::process::CommandExt;
-    use std::process::Command;
+    use windows::core::{Interface, PCWSTR};
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile,
+        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED,
+    };
+    use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
 
     log::debug!("Creating Windows shortcut:");
     log::debug!("  Target: {}", target.display());
@@ -718,45 +722,76 @@ fn create_windows_shortcut(target: &PathBuf, shortcut_path: &PathBuf) -> Result<
     }
 
     let working_dir = target.parent()
-        .map(|p| p.display().to_string())
-        .unwrap_or_default();
+        .ok_or_else(|| "Failed to get parent directory".to_string())?;
 
-    log::debug!("  Working directory: {}", working_dir);
+    log::debug!("  Working directory: {}", working_dir.display());
 
-    let ps_script = format!(
-        r#"$WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut('{}'); $Shortcut.TargetPath = '{}'; $Shortcut.Arguments = '--tray'; $Shortcut.WorkingDirectory = '{}'; $Shortcut.Description = 'Bingtray - Universal Android Debloater'; $Shortcut.Save()"#,
-        shortcut_path.display(),
-        target.display(),
-        working_dir
-    );
+    // Convert paths to wide strings
+    let target_wide: Vec<u16> = target.display().to_string().encode_utf16().chain(Some(0)).collect();
+    let shortcut_wide: Vec<u16> = shortcut_path.display().to_string().encode_utf16().chain(Some(0)).collect();
+    let workdir_wide: Vec<u16> = working_dir.display().to_string().encode_utf16().chain(Some(0)).collect();
+    let args_wide: Vec<u16> = "--tray".encode_utf16().chain(Some(0)).collect();
+    let desc_wide: Vec<u16> = "Bingtray - Universal Android Debloater".encode_utf16().chain(Some(0)).collect();
 
-    log::debug!("  PowerShell script: {}", ps_script);
+    unsafe {
+        // Initialize COM
+        log::debug!("Initializing COM...");
+        let hr = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
+        // Check if initialization failed (but allow RPC_E_CHANGED_MODE which means COM already initialized)
+        if hr.is_err() {
+            let hr_code = hr.0;
+            // 0x80010106 = RPC_E_CHANGED_MODE, means COM already initialized with different mode (okay)
+            if hr_code != 0x80010106u32 as i32 {
+                let err_msg = format!("Failed to initialize COM: HRESULT 0x{:08X}", hr_code as u32);
+                log::error!("{}", err_msg);
+                return Err(err_msg);
+            }
+            log::debug!("COM already initialized (RPC_E_CHANGED_MODE)");
+        }
 
-    const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let result = (|| -> Result<(), String> {
+            // Create ShellLink object
+            log::debug!("Creating IShellLink instance...");
+            let shell_link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)
+                .map_err(|e| format!("Failed to create IShellLink: {:?}", e))?;
 
-    let output = Command::new("powershell")
-        .args(["-NoProfile", "-NonInteractive", "-Command", &ps_script])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .map_err(|e| {
-            let err_msg = format!("Failed to execute PowerShell: {}", e);
-            log::error!("{}", err_msg);
-            err_msg
-        })?;
+            // Set target path
+            log::debug!("Setting target path...");
+            shell_link.SetPath(PCWSTR(target_wide.as_ptr()))
+                .map_err(|e| format!("Failed to set target path: {:?}", e))?;
 
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let err_msg = format!(
-            "PowerShell command failed with status: {}\nStderr: {}\nStdout: {}",
-            output.status, stderr, stdout
-        );
-        log::error!("{}", err_msg);
-        return Err(err_msg);
+            // Set arguments
+            log::debug!("Setting arguments...");
+            shell_link.SetArguments(PCWSTR(args_wide.as_ptr()))
+                .map_err(|e| format!("Failed to set arguments: {:?}", e))?;
+
+            // Set working directory
+            log::debug!("Setting working directory...");
+            shell_link.SetWorkingDirectory(PCWSTR(workdir_wide.as_ptr()))
+                .map_err(|e| format!("Failed to set working directory: {:?}", e))?;
+
+            // Set description
+            log::debug!("Setting description...");
+            shell_link.SetDescription(PCWSTR(desc_wide.as_ptr()))
+                .map_err(|e| format!("Failed to set description: {:?}", e))?;
+
+            // Save the shortcut
+            log::debug!("Saving shortcut...");
+            let persist_file: IPersistFile = shell_link.cast()
+                .map_err(|e| format!("Failed to get IPersistFile interface: {:?}", e))?;
+
+            persist_file.Save(PCWSTR(shortcut_wide.as_ptr()), true)
+                .map_err(|e| format!("Failed to save shortcut: {:?}", e))?;
+
+            log::info!("Shortcut created successfully");
+            Ok(())
+        })();
+
+        // Uninitialize COM
+        CoUninitialize();
+
+        result
     }
-
-    log::debug!("Shortcut created successfully");
-    Ok(())
 }
 
 /// Uninstall the application
