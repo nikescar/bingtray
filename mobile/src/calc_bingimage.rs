@@ -914,21 +914,19 @@ impl CalcBingimage {
     #[cfg(test)]
     pub fn from_config(config: Config) -> Result<Self> {
         // Check if database exists before opening
-        let data_dir = config.db_path.parent()
-            .ok_or_else(|| anyhow::anyhow!("Invalid database path"))?
-            .join("datafusion_data");
+        let data_dir = &config.data_dir;
         let db_exists = data_dir.exists() &&
             (data_dir.join("bing_images.parquet").exists() ||
              data_dir.join("market_codes.parquet").exists() ||
              data_dir.join("config_kv.parquet").exists());
 
         if db_exists {
-            log::info!("Opening existing database at: {:?}", config.db_path);
+            log::info!("Opening existing database at: {:?}", config.data_dir);
         } else {
-            log::info!("Initializing new database at: {:?}", config.db_path);
+            log::info!("Initializing new database at: {:?}", config.data_dir);
         }
 
-        let db = match BingImageDb::new(config.db_path.clone()) {
+        let db = match BingImageDb::new(config.data_dir.clone()) {
             Ok(database) => {
                 log::info!("Database {} successfully", if db_exists { "opened" } else { "initialized" });
                 Some(database)
@@ -997,21 +995,19 @@ impl CalcBingimage {
     #[cfg(not(test))]
     fn from_config(config: Config) -> Result<Self> {
         // Check if database exists before opening
-        let data_dir = config.db_path.parent()
-            .ok_or_else(|| anyhow::anyhow!("Invalid database path"))?
-            .join("datafusion_data");
+        let data_dir = &config.data_dir;
         let db_exists = data_dir.exists() &&
             (data_dir.join("bing_images.parquet").exists() ||
              data_dir.join("market_codes.parquet").exists() ||
              data_dir.join("config_kv.parquet").exists());
 
         if db_exists {
-            log::info!("Opening existing database at: {:?}", config.db_path);
+            log::info!("Opening existing database at: {:?}", config.data_dir);
         } else {
-            log::info!("Initializing new database at: {:?}", config.db_path);
+            log::info!("Initializing new database at: {:?}", config.data_dir);
         }
 
-        let db = match BingImageDb::new(config.db_path.clone()) {
+        let db = match BingImageDb::new(config.data_dir.clone()) {
             Ok(database) => {
                 log::info!("Database {} successfully", if db_exists { "opened" } else { "initialized" });
                 Some(database)
@@ -1080,8 +1076,8 @@ impl CalcBingimage {
     /// # Returns
     /// A tuple of (market_code, offset) or defaults to ("en-US", 0) if not found
     fn load_market_state(config: &Config) -> Result<(String, u32)> {
-        // Try to load from DuckDB
-        if let Ok(db) = BingImageDb::new(config.db_path.clone()) {
+        // Try to load from DataFusion
+        if let Ok(db) = BingImageDb::new(config.data_dir.clone()) {
             // Get the most recently used market code
             let market_code = if let Ok(market_codes) = db.get_market_codes() {
                 market_codes
@@ -2922,7 +2918,7 @@ mod tests {
             keepfavorite_dir,
             cached_dir,
             image_cached_dir,
-            db_path: config_dir.join("bingtray.db"),
+            data_dir: config_dir.join("datafusion_data"),
         };
 
         (config, temp_dir)
@@ -3199,7 +3195,7 @@ mod tests {
             "Initial state: market={}, offset={}",
             logic.current_market_code, logic.current_market_offset
         );
-        println!("DB path: {:?}", logic.config.db_path);
+        println!("Data directory: {:?}", logic.config.data_dir);
 
         let initial_offset = logic.current_market_offset;
 

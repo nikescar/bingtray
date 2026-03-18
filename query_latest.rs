@@ -15,12 +15,12 @@ fn main() -> anyhow::Result<()> {
         .config_dir()
         .to_path_buf();
 
-    let db_path = config_dir.join("bingtray.db");
+    let data_dir = config_dir.join("datafusion_data");
 
-    println!("Opening database at: {:?}", db_path);
+    println!("Opening database at: {:?}", data_dir);
 
     // Open the database
-    let db = BingImageDb::new(db_path)?;
+    let db = BingImageDb::new(data_dir)?;
 
     // Get all images (we'll sort by fetched_at to get latest)
     println!("\nQuerying latest image...\n");

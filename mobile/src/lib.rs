@@ -57,7 +57,7 @@ pub struct Config {
     pub keepfavorite_dir: PathBuf,
     pub cached_dir: PathBuf,
     pub image_cached_dir: PathBuf,
-    pub db_path: PathBuf,
+    pub data_dir: PathBuf, // DataFusion data directory (parquet files)
 }
 
 impl Config {
@@ -93,7 +93,7 @@ impl Config {
                 keepfavorite_dir,
                 cached_dir,
                 image_cached_dir,
-                db_path: config_dir.join("bingtray.db"),
+                data_dir: config_dir.join("datafusion_data"),
             })
         }
 
@@ -108,7 +108,7 @@ impl Config {
                 keepfavorite_dir: PathBuf::new(),
                 cached_dir: PathBuf::new(),
                 image_cached_dir: PathBuf::new(),
-                db_path: PathBuf::new(),
+                data_dir: PathBuf::new(),
             })
         }
 
@@ -139,7 +139,7 @@ impl Config {
                 keepfavorite_dir,
                 cached_dir,
                 image_cached_dir,
-                db_path: config_dir.join("bingtray.db"),
+                data_dir: config_dir.join("datafusion_data"),
             })
         }
     }

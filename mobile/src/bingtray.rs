@@ -235,6 +235,9 @@ pub struct BingtrayApp {
     #[cfg(not(target_os = "android"))]
     #[cfg_attr(feature = "serde", serde(skip))]
     install_message: String,
+    #[cfg(not(target_os = "android"))]
+    #[cfg_attr(feature = "serde", serde(skip))]
+    install_in_progress: bool,
     // Update status (both desktop and Android)
     #[cfg_attr(feature = "serde", serde(skip))]
     update_status: String,
@@ -330,7 +333,7 @@ impl Default for BingtrayApp {
 
         // Initialize database before moving config
         let db = config.as_ref().and_then(|cfg| {
-            BingImageDb::new(cfg.db_path.clone())
+            BingImageDb::new(cfg.data_dir.clone())
                 .inspect_err(|e| warn!("Failed to open database: {}", e))
                 .ok()
                 .map(Arc::new)
@@ -415,6 +418,8 @@ impl Default for BingtrayApp {
             install_dialog_open: false,
             #[cfg(not(target_os = "android"))]
             install_message: String::new(),
+            #[cfg(not(target_os = "android"))]
+            install_in_progress: false,
             // Update status (both desktop and Android)
             update_status: String::new(),
             update_available: false,
@@ -777,7 +782,11 @@ impl BingtrayApp {
         #[cfg(not(target_os = "android"))]
         if MENU_INSTALL.swap(false, Ordering::Relaxed) {
             info!("Install/Uninstall action");
+            // Close menu before operation so it updates when reopened
+            self.menu_open = false;
             self.perform_install_action();
+            // Request repaint to update UI immediately
+            ui.ctx().request_repaint();
         }
 
         if MENU_QUIT.swap(false, Ordering::Relaxed) {
@@ -3134,6 +3143,37 @@ impl BingtrayApp {
                     self.update_status.clear();
                     self.update_download_url.clear();
                     self.dlg_about.close();
+
+                    // Give the filesystem time to sync before checking status
+                    log::debug!("Waiting for filesystem to sync after update...");
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+
+                    // Refresh install status with retries (same logic as install)
+                    let old_status = self.install_status.clone();
+                    let mut retries = 3;
+                    loop {
+                        log::debug!("Checking install status after update (attempt {}/{})", 4 - retries, 3);
+                        let new_status = crate::install::check_install();
+
+                        // After update, status should still be Installed (just newer version)
+                        let status_is_correct = new_status == crate::install_stt::InstallStatus::Installed;
+
+                        if status_is_correct || retries == 0 {
+                            log::info!("Install status after update: {:?} -> {:?}", old_status, new_status);
+                            self.install_status = new_status;
+                            break;
+                        }
+
+                        // Status not as expected, wait and retry
+                        log::warn!("Install status check unexpected, retrying... ({} retries left)", retries);
+                        std::thread::sleep(std::time::Duration::from_millis(300));
+                        retries -= 1;
+                    }
+
+                    if retries == 0 {
+                        log::error!("Install status check failed after all retries!");
+                        self.install_message = format!("{}\n\nNote: Status may not have updated correctly. Please restart the application.", self.install_message);
+                    }
                 }
                 InstallResult::Error(err) => {
                     log::error!("Update failed: {}", err);
@@ -3188,22 +3228,80 @@ impl BingtrayApp {
     fn perform_install_action(&mut self) {
         use crate::install_stt::InstallResult;
 
+        // Prevent concurrent operations
+        if self.install_in_progress {
+            log::warn!("Install operation already in progress, ignoring duplicate request");
+            return;
+        }
+
+        self.install_in_progress = true;
+        log::info!("Performing install action, current status: {:?}", self.install_status);
+
         let result = if self.install_status == crate::install_stt::InstallStatus::Installed {
+            log::info!("Uninstalling...");
             crate::install::do_uninstall()
         } else {
+            log::info!("Installing...");
             crate::install::do_install()
         };
 
         match result {
             InstallResult::Success(msg) => {
+                log::info!("Operation succeeded: {}", msg);
                 self.install_message = msg;
-                // Refresh install status
-                self.install_status = crate::install::check_install();
+
+                // Give the filesystem time to sync before checking status
+                // This is especially important on Windows where file operations may be asynchronous
+                log::debug!("Waiting for filesystem to sync...");
+                std::thread::sleep(std::time::Duration::from_millis(200));
+
+                // Refresh install status with retries
+                let mut retries = 3;
+                loop {
+                    log::debug!("Checking install status (attempt {}/{})", 4 - retries, 3);
+                    let new_status = crate::install::check_install();
+
+                    // Check if status changed as expected
+                    let status_changed_correctly = match self.install_status {
+                        crate::install_stt::InstallStatus::Installed => {
+                            // Was installed, should now be NotInstalled after uninstall
+                            new_status == crate::install_stt::InstallStatus::NotInstalled
+                        }
+                        crate::install_stt::InstallStatus::NotInstalled => {
+                            // Was not installed, should now be Installed after install
+                            new_status == crate::install_stt::InstallStatus::Installed
+                        }
+                        crate::install_stt::InstallStatus::Unknown => {
+                            // Unknown status - just accept whatever the new status is
+                            true
+                        }
+                    };
+
+                    if status_changed_correctly || retries == 0 {
+                        log::info!("Install status updated: {:?} -> {:?}", self.install_status, new_status);
+                        self.install_status = new_status;
+                        break;
+                    }
+
+                    // Status didn't change, wait and retry
+                    log::warn!("Install status didn't change as expected, retrying... ({} retries left)", retries);
+                    std::thread::sleep(std::time::Duration::from_millis(300));
+                    retries -= 1;
+                }
+
+                if retries == 0 {
+                    log::error!("Install status check failed after all retries!");
+                    self.install_message = format!("{}\n\nNote: Status may not have updated correctly. Please restart the application.", self.install_message);
+                }
             }
             InstallResult::Error(err) => {
+                log::error!("Operation failed: {}", err);
                 self.install_message = format!("Error: {}", err);
             }
         }
+
+        // Reset the in-progress flag
+        self.install_in_progress = false;
         self.install_dialog_open = true;
     }
 }

@@ -5,10 +5,10 @@ fn main() -> anyhow::Result<()> {
     // Get config
     let config = Config::new()?;
 
-    println!("Opening database at: {:?}", config.db_path);
+    println!("Opening database at: {:?}", config.data_dir);
 
     // Open the database
-    let db = BingImageDb::new(config.db_path)?;
+    let db = BingImageDb::new(config.data_dir)?;
 
     println!("\nQuerying latest image from each status...\n");
 

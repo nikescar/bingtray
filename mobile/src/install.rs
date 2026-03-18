@@ -312,38 +312,143 @@ pub fn get_install_paths() -> InstallPaths {
 pub fn check_install() -> InstallStatus {
     let paths = get_install_paths();
 
+    log::debug!("Checking installation status...");
+    log::debug!("  bin_dir: {}", paths.bin_dir.display());
+
     #[cfg(target_os = "linux")]
     {
-        let binary_path = paths.bin_dir.join(get_versioned_app_name());
+        // Check if ANY version of the binary exists in bin_dir
+        let has_binary = if paths.bin_dir.exists() {
+            fs::read_dir(&paths.bin_dir)
+                .ok()
+                .and_then(|entries| {
+                    entries
+                        .filter_map(Result::ok)
+                        .any(|entry| {
+                            let name = entry.file_name();
+                            let name_str = name.to_string_lossy();
+                            let is_bingtray = name_str.starts_with(&format!("{}-", APP_NAME))
+                                && !name_str.contains("-bin"); // Exclude helper binaries
+                            if is_bingtray {
+                                log::debug!("  Found binary: {}", name_str);
+                            }
+                            is_bingtray
+                        })
+                        .then_some(true)
+                })
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
         let desktop_file_exists = paths
             .start_menu_entry
             .as_ref()
-            .is_some_and(|p| p.exists());
+            .is_some_and(|p| {
+                let exists = p.exists();
+                log::debug!("  Desktop file exists: {} ({})", exists, p.display());
+                exists
+            });
 
-        if binary_path.exists() && desktop_file_exists {
+        if has_binary && desktop_file_exists {
+            log::info!("Installation detected (Linux)");
             return InstallStatus::Installed;
         }
     }
 
     #[cfg(target_os = "macos")]
     {
-        let app_bundle = paths.bin_dir.join(format!("{}.app", get_versioned_app_name()));
-        if app_bundle.exists() {
+        // Check if ANY version of the app bundle exists
+        let has_app = if paths.bin_dir.exists() {
+            fs::read_dir(&paths.bin_dir)
+                .ok()
+                .and_then(|entries| {
+                    entries
+                        .filter_map(Result::ok)
+                        .any(|entry| {
+                            let name = entry.file_name();
+                            let name_str = name.to_string_lossy();
+                            let is_bingtray = name_str.starts_with(&format!("{}-", APP_NAME))
+                                && name_str.ends_with(".app");
+                            if is_bingtray {
+                                log::debug!("  Found app bundle: {}", name_str);
+                            }
+                            is_bingtray
+                        })
+                        .then_some(true)
+                })
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        if has_app {
+            log::info!("Installation detected (macOS)");
             return InstallStatus::Installed;
         }
     }
 
     #[cfg(target_os = "windows")]
     {
-        let binary_path = paths.bin_dir.join(format!("{}.exe", get_versioned_app_name()));
-        if binary_path.exists() {
-            // Also check registry
-            if check_windows_registry(&paths) {
-                return InstallStatus::Installed;
-            }
+        // Check shortcuts and registry first (these are the definitive indicators)
+        let has_shortcut = paths
+            .start_menu_entry
+            .as_ref()
+            .is_some_and(|p| {
+                let exists = p.exists();
+                log::debug!("  Start menu shortcut exists: {} ({})", exists, p.display());
+                exists
+            });
+
+        let has_registry = check_windows_registry(&paths);
+        log::debug!("  Registry entry exists: {}", has_registry);
+
+        // If shortcuts or registry exist, definitely installed
+        if has_shortcut || has_registry {
+            log::info!("Installation detected (Windows) - shortcuts/registry exist");
+            return InstallStatus::Installed;
+        }
+
+        // If shortcuts AND registry are gone, check if binary exists
+        // Note: Binary might still exist after uninstall because we can't delete a running exe
+        // It will be cleaned up by the batch script after the app exits
+        let has_binary = if paths.bin_dir.exists() {
+            fs::read_dir(&paths.bin_dir)
+                .ok()
+                .and_then(|entries| {
+                    entries
+                        .filter_map(Result::ok)
+                        .any(|entry| {
+                            let name = entry.file_name();
+                            let name_str = name.to_string_lossy();
+                            let is_bingtray = name_str.starts_with(&format!("{}-", APP_NAME))
+                                && name_str.ends_with(".exe");
+                            if is_bingtray {
+                                log::debug!("  Found binary: {}", name_str);
+                            }
+                            is_bingtray
+                        })
+                        .then_some(true)
+                })
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        // Only consider installed if we have shortcuts/registry
+        // Binary alone (without shortcuts/registry) means uninstall is in progress
+        if has_binary && !has_shortcut && !has_registry {
+            log::info!("Binary exists but shortcuts/registry removed - considered uninstalled (cleanup pending)");
+            return InstallStatus::NotInstalled;
+        }
+
+        if has_binary {
+            log::info!("Installation detected (Windows) - binary exists");
+            return InstallStatus::Installed;
         }
     }
 
+    log::info!("No installation detected");
     InstallStatus::NotInstalled
 }
 
@@ -642,7 +747,7 @@ fn install_windows(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String
         log::info!("Registry entries added");
     }
 
-    // Create Start Menu shortcut using PowerShell
+    // Create Start Menu shortcut
     if let Some(ref start_menu) = paths.start_menu_entry {
         log::info!("Creating Start Menu shortcut: {}", start_menu.display());
         if let Some(parent) = start_menu.parent() {

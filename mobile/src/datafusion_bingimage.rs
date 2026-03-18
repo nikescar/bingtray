@@ -153,11 +153,8 @@ impl BingImageDb {
     }
 
     /// Create a new database connection with DataFusion
-    pub fn new(db_path: PathBuf) -> Result<Self> {
-        // Create data directory from database path
-        let data_dir = db_path.parent()
-            .context("Invalid database path")?
-            .join("datafusion_data");
+    pub fn new(data_dir: PathBuf) -> Result<Self> {
+        // Use the provided data directory for parquet files
 
         std::fs::create_dir_all(&data_dir)?;
 
@@ -829,7 +826,7 @@ pub struct BingImageDb;
 
 #[cfg(target_arch = "wasm32")]
 impl BingImageDb {
-    pub fn new(_db_path: PathBuf) -> Result<Self> {
+    pub fn new(_data_dir: PathBuf) -> Result<Self> {
         log::info!("DataFusion WASM: Using in-memory storage");
         Ok(Self)
     }
