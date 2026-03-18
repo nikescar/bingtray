@@ -454,11 +454,15 @@ pub fn check_install() -> InstallStatus {
 
 #[cfg(target_os = "windows")]
 fn check_windows_registry(paths: &InstallPaths) -> bool {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
 
     if let Some(key) = &paths.uninstall_key {
         let output = Command::new("reg")
             .args(["query", key])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
 
         matches!(output, Ok(o) if o.status.success())
@@ -946,7 +950,10 @@ fn uninstall_macos(paths: &InstallPaths) -> Result<String, String> {
 
 #[cfg(target_os = "windows")]
 fn uninstall_windows(paths: &InstallPaths) -> Result<String, String> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
 
     let binary_path = paths.bin_dir.join(format!("{}.exe", get_versioned_app_name()));
 
@@ -962,6 +969,7 @@ fn uninstall_windows(paths: &InstallPaths) -> Result<String, String> {
     if let Some(ref key) = paths.uninstall_key {
         let _ = Command::new("reg")
             .args(["delete", key, "/f"])
+            .creation_flags(CREATE_NO_WINDOW)
             .output();
     }
 
@@ -991,6 +999,7 @@ del "%~f0"
 
         Command::new("cmd")
             .args(["/C", "start", "/min", "", &batch_script.display().to_string()])
+            .creation_flags(CREATE_NO_WINDOW)
             .spawn()
             .map_err(|e| format!("Failed to run uninstall script: {}", e))?;
     }
