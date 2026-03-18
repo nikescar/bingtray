@@ -261,7 +261,7 @@ jobs:
           # Finally, we store the binary as GitHub artifact for later usage
           name: bingtray-${{ matrix.platform.target }}
           path: target/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingtray*
-          retention-days: 1
+          retention-days: 3
 
       - name: Upload Binary Artifact (Android)
         if: contains(matrix.platform.target, 'android') && (!contains(matrix.platform.name, 'Android APK arm64'))
@@ -269,7 +269,7 @@ jobs:
         with:
           name: bingtray-${{ matrix.platform.target }}
           path: target/${{ matrix.platform.target }}/release/bingtray
-          retention-days: 1
+          retention-days: 3
       
       # - name: All except Android, Build snap packages
       #   if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64')
@@ -291,7 +291,7 @@ jobs:
         with:
           name: bingtray-all-signed.apk
           path: ./mobile/app/build/outputs/apk/release/bingtray-all-signed.apk
-          retention-days: 1
+          retention-days: 3
       
   release:
     name: Release

@@ -23,11 +23,14 @@ jobs:
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: release.yml
+          run_id: ${{ github.event.workflow_run.id || '' }}
           name_is_regexp: true
           name: bingtray-(x86_64|aarch64|armv7).*linux.*
           path: artifacts
-          branch: main
           github_token: ${{ secrets.GITHUB_TOKEN }}
+          check_artifacts: true
+          search_artifacts: true
+          if_no_artifact_found: warn
 
       - name: List downloaded files (verification)
         run: ls -R artifacts/
@@ -81,9 +84,11 @@ jobs:
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: release.yml
+          run_id: ${{ github.event.workflow_run.id || '' }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           name: ${{ matrix.artifact-name }}
           path: artifacts
+          if_no_artifact_found: fail
 
       - name: Prepare snap binary
         run: |
@@ -120,10 +125,12 @@ jobs:
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: release.yml
+          run_id: ${{ github.event.workflow_run.id || '' }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
           name_is_regexp: true
           name: bingtray-(x86_64|aarch64).*linux.*
           path: artifacts
+          if_no_artifact_found: fail
 
       - name: Install flatpak and flatpak-builder
         run: |
