@@ -4,6 +4,7 @@
 //! - `--gui` flag: Runs GUI mode
 //! - `--tray` flag: Runs tray mode
 //! - `--silent` flag: Performs silent installation and exits (desktop only)
+//! - `--uninstall` flag: Performs uninstallation and exits (desktop only)
 //! - Terminal detected: Runs CLI mode
 //! - Default (double-click): Runs tray mode
 //!
@@ -104,6 +105,28 @@ fn main() -> Result<()> {
     let force_gui = args.iter().any(|arg| arg == "--gui");
     let force_tray = args.iter().any(|arg| arg == "--tray");
     let silent_install = args.iter().any(|arg| arg == "--silent");
+    let uninstall = args.iter().any(|arg| arg == "--uninstall");
+
+    // Handle uninstall mode (desktop only)
+    #[cfg(not(target_os = "android"))]
+    if uninstall {
+        log::info!("Running in uninstall mode (--uninstall flag)");
+
+        use bingtray::install_stt::InstallResult;
+
+        match bingtray::install::do_uninstall() {
+            InstallResult::Success(msg) => {
+                log::info!("Uninstallation succeeded: {}", msg);
+                println!("{}", msg);
+                std::process::exit(0);
+            }
+            InstallResult::Error(err) => {
+                log::error!("Uninstallation failed: {}", err);
+                eprintln!("Uninstallation failed: {}", err);
+                std::process::exit(1);
+            }
+        }
+    }
 
     // Handle silent install mode (desktop only)
     #[cfg(not(target_os = "android"))]

@@ -719,6 +719,11 @@ fn install_windows(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String
 
         log::info!("Adding registry entries for uninstaller...");
 
+        // Calculate estimated size in KB
+        let estimated_size = fs::metadata(&binary_dest)
+            .map(|m| (m.len() / 1024).to_string())
+            .unwrap_or_else(|_| "0".to_string());
+
         // Define registry entries to add (name, type, value)
         let reg_entries: Vec<(&str, &str, String)> = vec![
             ("DisplayName", "REG_SZ", "Bingtray".to_string()),
@@ -726,6 +731,9 @@ fn install_windows(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String
             ("Publisher", "REG_SZ", "nikescar".to_string()),
             ("UninstallString", "REG_SZ", format!("\"{}\" --uninstall", binary_dest.display())),
             ("InstallLocation", "REG_SZ", paths.bin_dir.display().to_string()),
+            ("DisplayIcon", "REG_SZ", binary_dest.display().to_string()),
+            ("EstimatedSize", "REG_DWORD", estimated_size),
+            ("URLInfoAbout", "REG_SZ", "https://bingtray.pages.dev".to_string()),
             ("NoModify", "REG_DWORD", "1".to_string()),
             ("NoRepair", "REG_DWORD", "1".to_string()),
         ];
