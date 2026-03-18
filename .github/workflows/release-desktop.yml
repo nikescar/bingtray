@@ -104,25 +104,14 @@ jobs:
       - name: Prepare snap binary in expected location
         run: |
           # Create the directory structure that snapcraft expects
-          if [ "${{ matrix.architecture }}" = "amd64" ]; then
-            mkdir -p target/release
-            cp artifacts/bingtray target/release/
-            chmod +x target/release/bingtray
-            echo "Prepared amd64 binary:"
-            ls -la target/release/
-          elif [ "${{ matrix.architecture }}" = "arm64" ]; then
-            mkdir -p target/aarch64-unknown-linux-musl/release
-            cp artifacts/bingtray target/aarch64-unknown-linux-musl/release/
-            chmod +x target/aarch64-unknown-linux-musl/release/bingtray
-            echo "Prepared arm64 binary:"
-            ls -la target/aarch64-unknown-linux-musl/release/
-          elif [ "${{ matrix.architecture }}" = "armhf" ]; then
-            mkdir -p target/armv7-unknown-linux-musleabihf/release
-            cp artifacts/bingtray target/armv7-unknown-linux-musleabihf/release/
-            chmod +x target/armv7-unknown-linux-musleabihf/release/bingtray
-            echo "Prepared armhf binary:"
-            ls -la target/armv7-unknown-linux-musleabihf/release/
-          fi
+          # All architectures use target/release/bingtray as per snapcraft.yaml
+          mkdir -p target/release
+          cp artifacts/bingtray target/release/
+          chmod +x target/release/bingtray
+          echo "Prepared ${{ matrix.architecture }} binary:"
+          ls -la target/release/
+          echo "Binary info:"
+          file target/release/bingtray || true
 
       - name: Build snap package for ${{ matrix.architecture }}
         uses: snapcore/action-build@v1
