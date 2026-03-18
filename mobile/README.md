@@ -108,8 +108,16 @@ https://play.google.com/console/u/1/developers/8469971848379081167/app/497607944
 
 docs : https://f-droid.org/en/docs/
 
-### Publish to Flathub
+### Publish to Flathub(Flatpak)
 https://docs.flathub.org/docs/for-app-authors/submission
 
 ### Publish to Huawei
 https://docs.nhncloud.com/en/Mobile%20Service/IAP/en/console-huawei-guide/
+
+### Publish to Snapstore
+https://snapcraft.io/bingtray/settings
+https://documentation.ubuntu.com/snapcraft/stable/how-to/publishing/publish-a-snap/
+
+### Publish to Msstore
+https://partner.microsoft.com/en-us/dashboard/apps-and-games/overview
+

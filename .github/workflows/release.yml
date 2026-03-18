@@ -271,20 +271,6 @@ jobs:
           path: target/${{ matrix.platform.target }}/release/bingtray
           retention-days: 3
       
-      # - name: All except Android, Build snap packages
-      #   if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64')
-      #   uses: snapcore/action-build@v1
-      #   id: build
-      
-      # - name: All except Android, Publish snap to store
-      #   if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64')
-      #   uses: snapcore/action-publish@v1
-      #   env:
-      #     SNAPCRAFT_STORE_CREDENTIALS: ${{ secrets.SNAPSTORE_LOGIN }}
-      #   with:
-      #     snap: ${{ steps.build.outputs.snap }}
-      #     release: edge
-
       - name: Android - Upload APK Artifact
         if: (contains(matrix.platform.name, 'Android APK arm64'))
         uses: actions/upload-artifact@v4

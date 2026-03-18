@@ -714,34 +714,47 @@ fn install_windows(paths: &InstallPaths, current_exe: &PathBuf) -> Result<String
         use std::process::Command;
 
         log::info!("Adding registry entries for uninstaller...");
-        let reg_commands = [
-            format!(r#"reg add "{}" /v DisplayName /t REG_SZ /d "Bingtray" /f"#, key),
-            format!(r#"reg add "{}" /v DisplayVersion /t REG_SZ /d "{}" /f"#, key, CURRENT_VERSION),
-            format!(r#"reg add "{}" /v Publisher /t REG_SZ /d "nikescar" /f"#, key),
-            format!(r#"reg add "{}" /v UninstallString /t REG_SZ /d "\"{}\" --uninstall" /f"#, key, binary_dest.display()),
-            format!(r#"reg add "{}" /v InstallLocation /t REG_SZ /d "{}" /f"#, key, paths.bin_dir.display()),
-            format!(r#"reg add "{}" /v NoModify /t REG_DWORD /d 1 /f"#, key),
-            format!(r#"reg add "{}" /v NoRepair /t REG_DWORD /d 1 /f"#, key),
+
+        // Define registry entries to add (name, type, value)
+        let reg_entries: Vec<(&str, &str, String)> = vec![
+            ("DisplayName", "REG_SZ", "Bingtray".to_string()),
+            ("DisplayVersion", "REG_SZ", CURRENT_VERSION.to_string()),
+            ("Publisher", "REG_SZ", "nikescar".to_string()),
+            ("UninstallString", "REG_SZ", format!("\"{}\" --uninstall", binary_dest.display())),
+            ("InstallLocation", "REG_SZ", paths.bin_dir.display().to_string()),
+            ("NoModify", "REG_DWORD", "1".to_string()),
+            ("NoRepair", "REG_DWORD", "1".to_string()),
         ];
 
         const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-        for (i, cmd) in reg_commands.iter().enumerate() {
-            log::debug!("Running registry command {}/{}: {}", i + 1, reg_commands.len(), cmd);
-            let output = Command::new("cmd")
-                .args(["/C", cmd])
+        for (i, (value_name, value_type, value_data)) in reg_entries.iter().enumerate() {
+            log::debug!("Adding registry entry {}/{}: {} = {} ({})",
+                i + 1, reg_entries.len(), value_name, value_data, value_type);
+
+            // Call reg.exe directly with separate arguments (not through cmd)
+            let output = Command::new("reg")
+                .args([
+                    "add",
+                    key,
+                    "/v", value_name,
+                    "/t", value_type,
+                    "/d", value_data,
+                    "/f"
+                ])
                 .creation_flags(CREATE_NO_WINDOW)
                 .output();
 
             match output {
                 Ok(out) => {
                     if !out.status.success() {
-                        log::warn!("Registry command failed (non-critical): {}", String::from_utf8_lossy(&out.stderr));
+                        log::warn!("Registry command failed (non-critical) for {}: {}",
+                            value_name, String::from_utf8_lossy(&out.stderr));
                     } else {
-                        log::debug!("Registry command succeeded");
+                        log::debug!("Registry entry '{}' added successfully", value_name);
                     }
                 }
-                Err(e) => log::warn!("Failed to run registry command (non-critical): {}", e),
+                Err(e) => log::warn!("Failed to run registry command for {} (non-critical): {}", value_name, e),
             }
         }
         log::info!("Registry entries added");

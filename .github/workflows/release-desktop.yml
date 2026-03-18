@@ -101,6 +101,18 @@ jobs:
           pwd
           ls -la
 
+      - name: Sync version from Cargo.toml to snapcraft.yaml
+        run: |
+          # Extract version from Cargo.toml
+          VERSION=$(grep -m1 '^version = ' Cargo.toml | sed 's/version = "\(.*\)"/\1/')
+          echo "Found version in Cargo.toml: $VERSION"
+
+          # Update version in snapcraft.yaml
+          sed -i "s/^version: .*/version: $VERSION/" snap/snapcraft.yaml
+
+          echo "Updated snapcraft.yaml version:"
+          grep "^version:" snap/snapcraft.yaml
+
       - name: Prepare snap binary in expected location
         run: |
           # Create the directory structure that snapcraft expects
