@@ -90,12 +90,25 @@ jobs:
           path: artifacts
           if_no_artifact_found: fail
 
-      - name: Prepare snap binary
+      - name: Prepare snap binary in expected location
         run: |
-          mkdir -p snap-binary
-          cp artifacts/bingtray snap-binary/
-          chmod +x snap-binary/bingtray
-          ls -la snap-binary/
+          # Create the directory structure that snapcraft expects
+          if [ "${{ matrix.architecture }}" = "amd64" ]; then
+            mkdir -p target/release
+            cp artifacts/bingtray target/release/
+            chmod +x target/release/bingtray
+            ls -la target/release/
+          elif [ "${{ matrix.architecture }}" = "arm64" ]; then
+            mkdir -p target/aarch64-unknown-linux-musl/release
+            cp artifacts/bingtray target/aarch64-unknown-linux-musl/release/
+            chmod +x target/aarch64-unknown-linux-musl/release/bingtray
+            ls -la target/aarch64-unknown-linux-musl/release/
+          elif [ "${{ matrix.architecture }}" = "armhf" ]; then
+            mkdir -p target/armv7-unknown-linux-musleabihf/release
+            cp artifacts/bingtray target/armv7-unknown-linux-musleabihf/release/
+            chmod +x target/armv7-unknown-linux-musleabihf/release/bingtray
+            ls -la target/armv7-unknown-linux-musleabihf/release/
+          fi
 
       - name: Build snap package for ${{ matrix.architecture }}
         uses: snapcore/action-build@v1
@@ -140,7 +153,7 @@ jobs:
 
       - name: Build Flatpak
         run: |
-          flatpak-builder --force-clean --repo=repo build-dir flatpak/pe.nikescar.bingtray.yml
+          flatpak-builder --force-clean --repo=repo build-dir deploy/flatpak/pe.nikescar.bingtray.yml
 
       - name: Create Flatpak bundle
         run: |

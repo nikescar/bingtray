@@ -1,49 +1,66 @@
-# this manifest is for the F-Droid repository
 AntiFeatures:
-  NonFreeAssets:
-    en-US: Depends on Bing Images.
   NonFreeNet:
-    en-US: Depends on Bing Images.
+    en-US: wallpaper images are downloaded from bing.com.
 Categories:
-  - Multimedia
-  - Theming
   - Wallpaper
-License: MIT
+License: MIT or Apache 2.0
 SourceCode: https://github.com/nikescar/bingtray
 IssueTracker: https://github.com/nikescar/bingtray/issues
 
-AutoName: Bingtray
+AutoName: BingTray
+Description: |-
+  A cross-platform wallpaper manager that downloads and manages Bing's weekly wallpapers.
+
+  Bing wallpapers are updated weekly 8 images,
+  many of them shared between markets. The app visits random market wallpaper lists and downloads
+  new images if not already cached.
+
+  Features:
+  * Download Bing wallpapers from multiple global markets
+  * Set wallpapers as background
+  * Keep favorite wallpapers
+  * Blacklist unwanted wallpapers
+  * Cross-platform support (Windows, macOS, Linux, Android)
 
 RepoType: git
 Repo: https://github.com/nikescar/bingtray.git
 
 Builds:
-  - versionName: 0.0.6
-    versionCode: 239015706
-    commit: v0.0.6
-    # init: echo 'started init.'
-    output: mobile/app/build/outputs/apk/release/app-release.apk
-    # prebuild: echo 'started prebuild'
+  - versionName: 0.0.8
+    versionCode: 8
+    commit: d15314fde2569547fa7c46a78960fc12258e5fd2
+    subdir: mobile
+    sudo:
+      - apt-get update
+      - apt-get install -y make gcc libc-dev pkg-config libunwind-dev clang llvm
+    gradle:
+      - release
+    output: app/build/outputs/apk/release/app-release-unsigned.apk
+    srclibs:
+      - rustup@1.27.1
+    prebuild:
+      - sed -i -e '/if (System.getenv("ANDROID_SPLIT_BUILD")/,/^    }/d' app/build.gradle
+      - sed -i '/APPLICATION_VERSION_CODE/s/def appVersionCode.*/def appVersionCode
+        = "$$VERCODE$$"/' app/build.gradle
+      - sed -i '/APPLICATION_VERSION_NAME/s/def appVersionName.*/def appVersionName
+        = "$$VERSION$$"/' app/build.gradle
+      - $$rustup$$/rustup-init.sh -y --default-toolchain 1.81.0 --target aarch64-linux-android
+        armv7-linux-androideabi i686-linux-android x86_64-linux-android
     scanignore:
       - mobile/Cargo.toml
-      - bingtray-core/Cargo.toml
-      - bingtray/Cargo.toml
       - Cargo.toml
     build:
-      - source $HOME/.cargo/env
-      - cd mobile
-      - cargo ndk -t armeabi-v7a -o app/src/main/jniLibs/ build --release --lib
-      - cargo ndk -t arm64-v8a -o app/src/main/jniLibs/ build --release --lib
-      - cargo ndk -t x86 -o app/src/main/jniLibs/ build --release --lib
-      - cargo ndk -t x86_64 -o app/src/main/jniLibs/ build --release --lib
-      - gradle assembleRelease
-    # postbuild: echo 'postbuild.'
-    # antifeatures:
-    #  - NonFreeAssets
-    #  - NonFreeNet
+      - source "$HOME/.cargo/env"
+      - cargo install cargo-ndk --locked
+      - cd ..
+      - cargo ndk -t armeabi-v7a -o mobile/app/src/main/jniLibs/ build --release --lib
+      - cargo ndk -t arm64-v8a -o mobile/app/src/main/jniLibs/ build --release --lib
+      - cargo ndk -t x86 -o mobile/app/src/main/jniLibs/ build --release --lib
+      - cargo ndk -t x86_64 -o mobile/app/src/main/jniLibs/ build --release --lib
+    ndk: 28.2.13676358
 
 AutoUpdateMode: Version v%v
-UpdateCheckMode: HTTP
-UpdateCheckData: https://api.github.com/repos/nikescar/bingtray/releases/latest|"id":\s*(\d+)|.|"tag_name":\s*"v([^"]+)"
-CurrentVersion: 0.0.6
-CurrentVersionCode: 239015706
+UpdateCheckMode: Tags
+UpdateCheckData: Cargo.toml|versioncode\s*=\s*"(\d+)"|.|version\s*=\s*"([\d.]+)"
+CurrentVersion: 0.0.8
+CurrentVersionCode: 8

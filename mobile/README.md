@@ -102,7 +102,7 @@ https://play.google.com/console/u/1/developers/8469971848379081167/app/497607944
 1. fork fdroid data repository in gitlab (https://gitlab.com/fdroid/fdroiddata)
 2. clone forked repository (git clone https://gitlab.com/nikescar/fdroiddata)
 3. make branch with new package name (git checkout -b pe.nikescar.bingtray)
-4. add fdoid metadata (../fastlane/fdroid__pe.nikescar.bingtray.yml)
+4. add fdoid metadata (../deploy/fdroid/pe.nikescar.bingtray.yml)
 5. commit and push it to gitlab (git commit -a -m 'initial commit' && git push origin)
 6. make PR to check build pipeline (make sure PR Contents uses fdroid templates)
 
