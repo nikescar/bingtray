@@ -57,6 +57,7 @@ md5 = "0.7"
 tray-icon = { version = "0.18", default-features = false }
 tao = "0.33"
 wallpaper = "3.2.0"
+trash = "5.2"
 # DataFusion and Arrow for SQL analytics
 datafusion = "44"
 arrow = "53"

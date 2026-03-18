@@ -24,75 +24,40 @@ fn get_versioned_app_name() -> String {
 /// Move a file or directory to trash (cross-platform)
 fn move_to_trash<P: AsRef<Path>>(path: P) -> Result<(), String> {
     let path = path.as_ref();
+
+    log::debug!("Moving to trash: {}", path.display());
+
     if !path.exists() {
+        log::debug!("Path does not exist, nothing to move");
         return Ok(()); // Nothing to move
     }
 
-    #[cfg(target_os = "linux")]
+    // Use the trash crate which properly handles all platforms:
+    // - Windows: Uses IFileOperation COM interface (Recycle Bin)
+    // - macOS: Uses FSMoveObjectToTrashSync (Finder Trash)
+    // - Linux: Uses freedesktop.org Trash specification
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     {
-        let trash_dir = dirs::home_dir()
-            .ok_or_else(|| "Failed to get home directory".to_string())?
-            .join(".local/share/Trash/files");
-        fs::create_dir_all(&trash_dir)
-            .map_err(|e| format!("Failed to create trash directory: {}", e))?;
+        trash::delete(path)
+            .map_err(|e| {
+                let err_msg = format!("Failed to move to trash: {}", e);
+                log::error!("{}", err_msg);
+                err_msg
+            })?;
 
-        let file_name = path.file_name()
-            .ok_or_else(|| "Invalid file path".to_string())?;
-        let mut dest = trash_dir.join(file_name);
-
-        // Add timestamp if file already exists in trash
-        if dest.exists() {
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            dest = trash_dir.join(format!("{}-{}", file_name.to_string_lossy(), timestamp));
-        }
-
-        fs::rename(path, dest)
-            .map_err(|e| format!("Failed to move to trash: {}", e))?;
+        log::debug!("Successfully moved to trash");
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
     {
-        let trash_dir = dirs::home_dir()
-            .ok_or_else(|| "Failed to get home directory".to_string())?
-            .join(".Trash");
-
-        let file_name = path.file_name()
-            .ok_or_else(|| "Invalid file path".to_string())?;
-        let mut dest = trash_dir.join(file_name);
-
-        // Add timestamp if file already exists in trash
-        if dest.exists() {
-            let timestamp = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs();
-            dest = trash_dir.join(format!("{}-{}", file_name.to_string_lossy(), timestamp));
-        }
-
-        fs::rename(path, dest)
-            .map_err(|e| format!("Failed to move to trash: {}", e))?;
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        use std::process::Command;
-
-        // Use PowerShell to move to Recycle Bin
-        let ps_script = format!(
-            r#"Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('{}', 'OnlyErrorDialogs', 'SendToRecycleBin')"#,
-            path.display()
-        );
-
-        let output = Command::new("powershell")
-            .args(["-Command", &ps_script])
-            .output()
-            .map_err(|e| format!("Failed to move to recycle bin: {}", e))?;
-
-        if !output.status.success() {
-            return Err(format!("Failed to move to recycle bin: {:?}", String::from_utf8_lossy(&output.stderr)));
+        // On Android/WASM, just delete the file
+        log::debug!("Platform does not support trash, deleting file directly");
+        if path.is_dir() {
+            fs::remove_dir_all(path)
+                .map_err(|e| format!("Failed to remove directory: {}", e))?;
+        } else {
+            fs::remove_file(path)
+                .map_err(|e| format!("Failed to remove file: {}", e))?;
         }
     }
 
