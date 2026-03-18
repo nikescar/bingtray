@@ -23,7 +23,8 @@ jobs:
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: release.yml
-          run_id: ${{ github.event.workflow_run.id || '' }}
+          run_id: ${{ github.event.workflow_run.id }}
+          workflow_conclusion: success
           name_is_regexp: true
           name: bingtray-(x86_64|aarch64|armv7).*linux.*
           path: artifacts
@@ -84,11 +85,21 @@ jobs:
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: release.yml
-          run_id: ${{ github.event.workflow_run.id || '' }}
+          run_id: ${{ github.event.workflow_run.id }}
+          workflow_conclusion: success
           github_token: ${{ secrets.GITHUB_TOKEN }}
           name: ${{ matrix.artifact-name }}
           path: artifacts
           if_no_artifact_found: fail
+          skip_unpack: false
+
+      - name: Debug - List downloaded artifacts
+        run: |
+          echo "Listing artifacts directory:"
+          ls -laR artifacts/
+          echo "Current directory:"
+          pwd
+          ls -la
 
       - name: Prepare snap binary in expected location
         run: |
@@ -97,22 +108,27 @@ jobs:
             mkdir -p target/release
             cp artifacts/bingtray target/release/
             chmod +x target/release/bingtray
+            echo "Prepared amd64 binary:"
             ls -la target/release/
           elif [ "${{ matrix.architecture }}" = "arm64" ]; then
             mkdir -p target/aarch64-unknown-linux-musl/release
             cp artifacts/bingtray target/aarch64-unknown-linux-musl/release/
             chmod +x target/aarch64-unknown-linux-musl/release/bingtray
+            echo "Prepared arm64 binary:"
             ls -la target/aarch64-unknown-linux-musl/release/
           elif [ "${{ matrix.architecture }}" = "armhf" ]; then
             mkdir -p target/armv7-unknown-linux-musleabihf/release
             cp artifacts/bingtray target/armv7-unknown-linux-musleabihf/release/
             chmod +x target/armv7-unknown-linux-musleabihf/release/bingtray
+            echo "Prepared armhf binary:"
             ls -la target/armv7-unknown-linux-musleabihf/release/
           fi
 
       - name: Build snap package for ${{ matrix.architecture }}
         uses: snapcore/action-build@v1
         id: build
+        env:
+          TARGET_ARCH: ${{ matrix.architecture }}
         with:
           snapcraft-channel: stable
 
@@ -138,18 +154,42 @@ jobs:
         uses: dawidd6/action-download-artifact@v6
         with:
           workflow: release.yml
-          run_id: ${{ github.event.workflow_run.id || '' }}
+          run_id: ${{ github.event.workflow_run.id }}
+          workflow_conclusion: success
           github_token: ${{ secrets.GITHUB_TOKEN }}
           name_is_regexp: true
           name: bingtray-(x86_64|aarch64).*linux.*
-          path: artifacts
+          path: artifacts-download
           if_no_artifact_found: fail
+
+      - name: Prepare binary for Flatpak
+        run: |
+          echo "Downloaded artifacts:"
+          ls -laR artifacts-download/
+
+          # Create artifacts directory for flatpak manifest
+          mkdir -p artifacts
+
+          # Find and copy the x86_64 binary (primary target for flatpak)
+          if [ -f "artifacts-download/bingtray" ]; then
+            cp artifacts-download/bingtray artifacts/
+          elif [ -d "artifacts-download/bingtray-x86_64-unknown-linux-musl" ]; then
+            cp artifacts-download/bingtray-x86_64-unknown-linux-musl/bingtray artifacts/
+          else
+            echo "Searching for bingtray binary..."
+            find artifacts-download -name bingtray -type f -exec cp {} artifacts/ \; -quit
+          fi
+
+          chmod +x artifacts/bingtray
+          echo "Prepared binary for Flatpak:"
+          ls -la artifacts/
 
       - name: Install flatpak and flatpak-builder
         run: |
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder
           sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
 
       - name: Build Flatpak
         run: |

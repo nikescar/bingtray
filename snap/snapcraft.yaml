@@ -38,22 +38,36 @@ parts:
       # Set version from git
       snapcraftctl set-version $(git describe --tags --always 2>/dev/null || echo "0.0.6")
 
+      # Use TARGET_ARCH from environment if set, otherwise fall back to SNAPCRAFT_TARGET_ARCH
+      ARCH="${TARGET_ARCH:-$SNAPCRAFT_TARGET_ARCH}"
+
+      echo "Building for architecture: $ARCH"
+
       # Determine the Rust target based on architecture
-      case "$SNAPCRAFT_TARGET_ARCH" in
+      case "$ARCH" in
         amd64)
           BINARY_PATH="target/release/bingtray"
           ;;
         arm64)
-          BINARY_PATH="target/aarch64-unknown-linux-musl/release/bingtray"
+          BINARY_PATH="target/release/bingtray"
           ;;
         armhf)
-          BINARY_PATH="target/armv7-unknown-linux-musleabihf/release/bingtray"
+          BINARY_PATH="target/release/bingtray"
           ;;
         *)
-          echo "Unsupported architecture: $SNAPCRAFT_TARGET_ARCH"
+          echo "Unsupported architecture: $ARCH"
           exit 1
           ;;
       esac
 
+      echo "Looking for binary at: $BINARY_PATH"
+      if [ ! -f "$BINARY_PATH" ]; then
+        echo "ERROR: Binary not found at $BINARY_PATH"
+        echo "Directory contents:"
+        find target -name bingtray 2>/dev/null || echo "No bingtray binaries found in target/"
+        exit 1
+      fi
+
       # Install the binary
       install -Dm755 $BINARY_PATH $SNAPCRAFT_PART_INSTALL/bin/bingtray
+      echo "Successfully installed binary to $SNAPCRAFT_PART_INSTALL/bin/bingtray"
