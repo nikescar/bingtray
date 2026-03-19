@@ -98,6 +98,12 @@ https://play.google.com/console/u/1/developers/8469971848379081167/app/497607944
 - other instructions : https://bingtray.pages.dev/docs/usage
 ```
 
+### Publish to Snapstore
+1. register snap name in https://snapcraft.io/snaps
+2. update app settings in https://snapcraft.io/bingtray/releases
+
+docs : https://documentation.ubuntu.com/snapcraft/stable/how-to/publishing/publish-a-snap/
+
 ### Submit app to Fdroid
 1. fork fdroid data repository in gitlab (https://gitlab.com/fdroid/fdroiddata)
 2. clone forked repository (git clone https://gitlab.com/nikescar/fdroiddata)
@@ -114,10 +120,19 @@ https://docs.flathub.org/docs/for-app-authors/submission
 ### Publish to Huawei
 https://docs.nhncloud.com/en/Mobile%20Service/IAP/en/console-huawei-guide/
 
-### Publish to Snapstore
-https://snapcraft.io/bingtray/settings
-https://documentation.ubuntu.com/snapcraft/stable/how-to/publishing/publish-a-snap/
-
 ### Publish to Msstore
 https://partner.microsoft.com/en-us/dashboard/apps-and-games/overview
+
+### Publish to Choco
+https://mtirion.medium.com/publish-a-net-console-app-to-chocolatey-using-github-actions-29eaa60a8668
+
+### Publish to Winget
+https://github.com/isaacrlevin/winget-publish-action
+
+### Publish with cloudsmith
+https://cloudsmith.io/~nikescar/repos/bingtray/upload/
+
+### Publish with Goreleaser
+
+Homebrew : https://dev.to/hadlow/how-to-release-to-homebrew-with-goreleaser-github-actions-and-semantic-release-2gbb
 

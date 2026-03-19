@@ -10,7 +10,6 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
-        maven { url 'https://maven.rikka.app/releases' }
     }
 }
 //rootProject.name = "Rust Template"
