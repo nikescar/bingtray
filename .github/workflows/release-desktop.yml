@@ -19,6 +19,28 @@ jobs:
         with:
           fetch-depth: 0
 
+      # - name: MS - Configure Store Credentials
+      #   uses: microsoft/store-submission@v1
+      #   with:
+      #     command: configure
+      #     type: win32
+      #     seller-id: ${{ secrets.SELLER_ID }}
+      #     product-id: ${{ secrets.PRODUCT_ID }}
+      #     tenant-id: ${{ secrets.TENANT_ID }}
+      #     client-id: ${{ secrets.CLIENT_ID }}
+      #     client-secret: ${{ secrets.CLIENT_SECRET }}
+
+      # - name: MS - Update Draft Submission
+      #   uses: microsoft/store-submission@v1
+      #   with:
+      #     command: update
+      #     product-update: '{"packages":[{"packageUrl":"https://cdn.contoso.us/prod/5.10.1.4420/ContosoIgniteInstallerFull.msi","languages":["en"],"architectures":["X64"],"isSilentInstall":true}]}'
+
+      # - name: MS - Publish Submission
+      #   uses: microsoft/store-submission@v1
+      #   with:
+      #     command: publish
+
       - name: Download artifact from latest build
         uses: dawidd6/action-download-artifact@v6
         with:

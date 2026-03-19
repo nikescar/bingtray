@@ -28,10 +28,10 @@ modules:
       - install -Dm644 logo.png /app/share/icons/hicolor/256x256/apps/pe.nikescar.bingtray.png
     sources:
       - type: file
-        path: artifacts/bingtray
+        path: ../../artifacts/bingtray
       - type: file
-        path: deploy/flatpak/pe.nikescar.bingtray.desktop
+        path: pe.nikescar.bingtray.desktop
       - type: file
-        path: deploy/flatpak/pe.nikescar.bingtray.metainfo.xml
+        path: pe.nikescar.bingtray.metainfo.xml
       - type: file
-        path: imgs/logo.png
+        path: ../../imgs/logo.png

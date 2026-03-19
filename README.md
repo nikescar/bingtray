@@ -66,13 +66,10 @@ After starting the application, you'll see a tray icon with the following option
 <summary> Todos </summary>
 
 ## Todos
-* cli detection tray mode
-* windows error fix
 * download progress on gui
 * remove windws i686 build due to virustotal detected - https://www.virustotal.com/gui/file-analysis/MTVlM2Q3MzFmMzNlMWM4MGVjNmNhNTNmM2Q3MjZjMzE6MTc1MzI1NzA0OA==
 * android widgets.
 * ios widgets.
-* snapcraft https://github.com/marketplace/actions/snapcraft-action
 * flathub https://github.com/flatpak/flatpak-github-actions
 * microsoft store https://github.com/marketplace/actions/microsoft-store-publish 
 * ms store https://github.com/marketplace/actions/ms-store-publish
