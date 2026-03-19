@@ -90,7 +90,7 @@ jobs:
           - name: Windows x86_64
             os: windows-latest
             target: x86_64-pc-windows-msvc
-            build-args: "--profile release-with-symbols --features desktop"
+            build-args: "--release --features desktop"
 
           # - name: Windows x86
           #   os: windows-latest
@@ -206,6 +206,8 @@ jobs:
       - name: Build Binary for ${{ matrix.platform.name }} (non-Android)
         if: (contains(matrix.platform.target, 'x86_64') || contains(matrix.platform.target, 'aarch64') || contains(matrix.platform.target, 'armv7')) && !contains(matrix.platform.name, 'Android APK arm64') && !contains(matrix.platform.target, 'android')
         uses: actions-rs/cargo@v1
+        env:
+          RUSTFLAGS: "--remap-path-prefix=${{ github.workspace }}=/build --remap-path-prefix=$HOME=~"
         with:
           command: build
           args: ${{ matrix.platform.build-args }} --package bingtray
@@ -231,7 +233,7 @@ jobs:
           echo "Checking for build output..."
           Get-ChildItem -Path target -Recurse -Filter "*.exe" | Format-Table FullName
 
-          $EXE_PATH = "target/release-with-symbols/bingtray.exe"
+          $EXE_PATH = "target/release/bingtray.exe"
           if (-Not (Test-Path $EXE_PATH)) {
             echo "::error:: Executable not found at $EXE_PATH"
             echo "Listing target directory contents:"
@@ -260,7 +262,7 @@ jobs:
         with:
           # Finally, we store the binary as GitHub artifact for later usage
           name: bingtray-${{ matrix.platform.target }}
-          path: target/release${{ contains(matrix.platform.target, 'windows') && '-with-symbols' || '' }}/bingtray*
+          path: target/release/bingtray*
           retention-days: 3
 
       - name: Upload Binary Artifact (Android)
