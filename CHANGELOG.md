@@ -1,4 +1,9 @@
 ## What's Changed
+* chore. concise build options. by @nikescar
+* chore. fix flatpak release. by @nikescar
+
+## What's Changed in 0.0.13
+* release. v0.0.13 by @nikescar
 * feat. add uninstall argument for desktop app. by @nikescar
 * fix. not show terminal on windows (un)install operations. by @nikescar
 * fix. windows registry addition. by @nikescar
@@ -6,6 +11,8 @@
 * feat. add silent argument to install app. by @nikescar
 * chore. fix snapcraft publish error. by @nikescar
 * chore. fix snapstore filename error. by @nikescar
+
+**Full Changelog**: https://github.com/nikescar/bingtray/compare/v0.0.12...v0.0.13
 
 ## What's Changed in 0.0.12
 * release. v0.0.12 by @nikescar
