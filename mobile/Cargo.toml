@@ -41,13 +41,13 @@ sys-locale = { workspace = true }
 
 # HTTP for cross-platform image downloads
 ehttp = "0.5.0"
-ureq = "2.12"
-webbrowser = "1.1"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+webbrowser = { version = "1.1", default-features = false }
 
 # Utilities
-image = "0.25"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 crossbeam-queue = "0.3"
-rand = "0.8"
+rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
 poll-promise = "0.3.0"
 bincode = "1.3"
 md5 = "0.7"
@@ -59,34 +59,34 @@ tao = "0.33"
 wallpaper = "3.2.0"
 trash = "5.2"
 # DataFusion and Arrow for SQL analytics
-datafusion = "44"
-arrow = "53"
-arrow-schema = "53"
-parquet = "53"
+datafusion = { version = "44", default-features = false, features = ["parquet"] }
+arrow = { version = "53", default-features = false }
+arrow-schema = { version = "53", default-features = false }
+parquet = { version = "53", default-features = false }
 tokio = { workspace = true }
 num_cpus = "1.16"
 dashmap = "6.1"
-env_logger = "0.11"
+env_logger = { version = "0.11", default-features = false }
 directories = { workspace = true }
 opener = "0.7"
 dirs = "5.0"
-flate2 = "1.0"
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"] }
 tar = "0.4"
-zip = "2.2"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
 
 # Android-specific dependencies
 [target.'cfg(target_os = "android")'.dependencies]
 ndk-context = { version = "0.1", default-features = false }
 jni = { version = "0.21", default-features = false }
-android_logger = { version = "0.15" }
+android_logger = { version = "0.15", default-features = false }
 android-activity = { version = "0.6", default-features = false, features = ["native-activity"] }
 ndk-sys = { version = "0.6.0", default-features = false }
 eframe = { workspace = true, default-features = false, features = ["default_fonts","glow","android-native-activity"] }
 # DataFusion and Arrow for SQL analytics
-datafusion = "44"
-arrow = "53"
-arrow-schema = "53"
-parquet = "53"
+datafusion = { version = "44", default-features = false, features = ["parquet"] }
+arrow = { version = "53", default-features = false }
+arrow-schema = { version = "53", default-features = false }
+parquet = { version = "53", default-features = false }
 tokio = { workspace = true }
 num_cpus = "1.16"
 dashmap = "6.1"
