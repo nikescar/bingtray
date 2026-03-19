@@ -5,8 +5,8 @@ on:
     types:
       - completed
   push:
-    branches:
-      - main
+    tags:
+      - v*
   workflow_dispatch:
 
 permissions:

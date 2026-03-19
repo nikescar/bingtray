@@ -1,11 +1,23 @@
 ## What's Changed
-* fix. uninstall errors on windows.
-* fix. adding trash crate to cover remove old bins.
-* fix. remove powershell and use com method.
+* feat. add uninstall argument for desktop app. by @nikescar
+* fix. not show terminal on windows (un)install operations. by @nikescar
+* fix. windows registry addition. by @nikescar
+* chore. fix snapcraft publish error. by @nikescar
+* feat. add silent argument to install app. by @nikescar
+* chore. fix snapcraft publish error. by @nikescar
+* chore. fix snapstore filename error. by @nikescar
+
+## What's Changed in 0.0.12
+* release. v0.0.12 by @nikescar
+* fix. uninstall errors on windows. by @nikescar
+* fix. adding trash crate to cover remove old bins. by @nikescar
+* fix. remove powershell and use com method. by @nikescar
 * fix. install error and detailed logs. by @nikescar
 * chore. fix after release artifacts download error. by @nikescar
 * fix. cpu taking 100% on tray mode. by @nikescar
 * docs. add google play link. by @nikescar
+
+**Full Changelog**: https://github.com/nikescar/bingtray/compare/v0.0.11...v0.0.12
 
 ## What's Changed in 0.0.11
 * release. v0.0.11 by @nikescar
