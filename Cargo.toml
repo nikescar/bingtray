@@ -8,8 +8,8 @@ members = [
 edition = "2021"
 license = "MIT OR Apache-2.0"
 rust-version = "1.81"
-version = "0.0.15"
-versioncode = "15"
+version = "0.0.16"
+versioncode = "16"
 
 [workspace.dependencies]
 directories = "5.0"
@@ -37,7 +37,7 @@ eframe = { version = "0.33", default-features = false, features = [
     "android-native-activity",
 ] }
 egui_extras = { version = "0.33", default-features = false, features = ["image", "svg", "default", "all_loaders"] }
-egui-material3 = { git = "https://github.com/nikescar/egui-material3/", default-features = false }
+egui-material3 = { version = "0.0.9", default-features = false }
 
 [profile.dev]
 # Fast incremental builds for development
