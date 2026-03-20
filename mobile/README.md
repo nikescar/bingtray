@@ -110,12 +110,18 @@ docs : https://documentation.ubuntu.com/snapcraft/stable/how-to/publishing/publi
 3. make branch with new package name (git checkout -b pe.nikescar.bingtray)
 4. add fdoid metadata (../deploy/fdroid/pe.nikescar.bingtray.yml)
 5. commit and push it to gitlab (git commit -a -m 'initial commit' && git push origin)
-6. make PR to check build pipeline (make sure PR Contents uses fdroid templates)
+6. make PR to check build pipeline. (make sure PR Contents uses fdroid templates)
 
 docs : https://f-droid.org/en/docs/
 
 ### Publish to Flathub(Flatpak)
-https://docs.flathub.org/docs/for-app-authors/submission
+1. fork flathub data repository(https://github.com/flathub/flathub) in github. uncheck clone "only master branch". 
+2. clone "new-pr" branch(git clone https://github.com/nikescar/flathub -b new-pr) from the fork. and move to app name(pe.nikescar.bingtray) branch (git checkout -b pe.nikescar.bingtray)
+3. copy files from the directory (../deploy/flatpak/*) and edit properly.
+4. commit and make PR against flathub/flathub(new-pr branch) repository.
+5. pass the test.
+
+docs : https://docs.flathub.org/docs/for-app-authors/submission
 
 ### Publish to Huawei
 https://docs.nhncloud.com/en/Mobile%20Service/IAP/en/console-huawei-guide/

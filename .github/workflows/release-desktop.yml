@@ -163,75 +163,75 @@ jobs:
           snap: ${{ steps.build.outputs.snap }}
           release: edge
 
-  publish-flathub:
-    runs-on: ubuntu-latest
-    needs: download-and-deploy
+  # publish-flathub:
+  #   runs-on: ubuntu-latest
+  #   needs: download-and-deploy
 
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+  #   steps:
+  #     - name: Checkout Repository
+  #       uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0
 
-      - name: Download build artifacts
-        uses: dawidd6/action-download-artifact@v6
-        with:
-          workflow: release.yml
-          run_id: ${{ github.event.workflow_run.id }}
-          workflow_conclusion: success
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          name_is_regexp: true
-          name: bingtray-(x86_64|aarch64).*linux.*
-          path: artifacts-download
-          if_no_artifact_found: fail
+  #     - name: Download build artifacts
+  #       uses: dawidd6/action-download-artifact@v6
+  #       with:
+  #         workflow: release.yml
+  #         run_id: ${{ github.event.workflow_run.id }}
+  #         workflow_conclusion: success
+  #         github_token: ${{ secrets.GITHUB_TOKEN }}
+  #         name_is_regexp: true
+  #         name: bingtray-(x86_64|aarch64).*linux.*
+  #         path: artifacts-download
+  #         if_no_artifact_found: fail
 
-      - name: Prepare binary for Flatpak
-        run: |
-          echo "Downloaded artifacts:"
-          ls -laR artifacts-download/
+  #     - name: Prepare binary for Flatpak
+  #       run: |
+  #         echo "Downloaded artifacts:"
+  #         ls -laR artifacts-download/
 
-          # Create artifacts directory for flatpak manifest
-          mkdir -p artifacts
+  #         # Create artifacts directory for flatpak manifest
+  #         mkdir -p artifacts
 
-          # Find and copy the x86_64 binary (primary target for flatpak)
-          if [ -f "artifacts-download/bingtray" ]; then
-            cp artifacts-download/bingtray artifacts/
-          elif [ -d "artifacts-download/bingtray-x86_64-unknown-linux-musl" ]; then
-            cp artifacts-download/bingtray-x86_64-unknown-linux-musl/bingtray artifacts/
-          else
-            echo "Searching for bingtray binary..."
-            find artifacts-download -name bingtray -type f -exec cp {} artifacts/ \; -quit
-          fi
+  #         # Find and copy the x86_64 binary (primary target for flatpak)
+  #         if [ -f "artifacts-download/bingtray" ]; then
+  #           cp artifacts-download/bingtray artifacts/
+  #         elif [ -d "artifacts-download/bingtray-x86_64-unknown-linux-musl" ]; then
+  #           cp artifacts-download/bingtray-x86_64-unknown-linux-musl/bingtray artifacts/
+  #         else
+  #           echo "Searching for bingtray binary..."
+  #           find artifacts-download -name bingtray -type f -exec cp {} artifacts/ \; -quit
+  #         fi
 
-          chmod +x artifacts/bingtray
-          echo "Prepared binary for Flatpak:"
-          ls -la artifacts/
+  #         chmod +x artifacts/bingtray
+  #         echo "Prepared binary for Flatpak:"
+  #         ls -la artifacts/
 
-      - name: Install flatpak and flatpak-builder
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder
-          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
-          sudo flatpak install -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+  #     - name: Install flatpak and flatpak-builder
+  #       run: |
+  #         sudo apt-get update
+  #         sudo apt-get install -y flatpak flatpak-builder
+  #         sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+  #         sudo flatpak install -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
 
-      - name: Build Flatpak
-        run: |
-          flatpak-builder --force-clean --repo=repo build-dir deploy/flatpak/pe.nikescar.bingtray.yml
+  #     - name: Build Flatpak
+  #       run: |
+  #         flatpak-builder --force-clean --repo=repo build-dir deploy/flatpak/pe.nikescar.bingtray.yml
 
-      - name: Create Flatpak bundle
-        run: |
-          flatpak build-bundle repo bingtray.flatpak pe.nikescar.bingtray
+  #     - name: Create Flatpak bundle
+  #       run: |
+  #         flatpak build-bundle repo bingtray.flatpak pe.nikescar.bingtray
 
-      - name: Upload Flatpak artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: bingtray-flatpak
-          path: bingtray.flatpak
-          retention-days: 7
+  #     - name: Upload Flatpak artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: bingtray-flatpak
+  #         path: bingtray.flatpak
+  #         retention-days: 7
 
-      # Note: Actual Flathub publishing requires submitting to the Flathub repository
-      # This creates a flatpak bundle that can be manually submitted
-      - name: Flathub publishing note
-        run: |
-          echo "To publish to Flathub, submit a PR to https://github.com/flathub/flathub"
-          echo "with your pe.nikescar.bingtray.yml manifest file"
+  #     # Note: Actual Flathub publishing requires submitting to the Flathub repository
+  #     # This creates a flatpak bundle that can be manually submitted
+  #     - name: Flathub publishing note
+  #       run: |
+  #         echo "To publish to Flathub, submit a PR to https://github.com/flathub/flathub"
+  #         echo "with your pe.nikescar.bingtray.yml manifest file"
