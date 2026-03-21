@@ -62,6 +62,10 @@ After starting the application, you'll see a tray icon with the following option
 - **Blackbox**: Via bsetbg
 - **Android** : Android 5 Lolipop -  Android 16 Baklava
 
+## Star History
+
+[![Star History Chart](https://api.star-history.com/image?repos=nikescar/bingtray&type=date&legend=top-left)](https://www.star-history.com/?repos=nikescar%2Fbingtray&type=date&legend=top-left)
+
 <details markdown>
 <summary> Todos </summary>
 
