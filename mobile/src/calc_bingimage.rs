@@ -2530,15 +2530,27 @@ impl CalcBingimage {
         // Check if we need to download
         if let Some(database) = &self.db {
             if !database.should_download_manifest("historical") {
-                log::info!("Historical data is fresh (< 7 days), loading from cache");
-                return self.load_historical_from_cache(8);
+                log::info!("Historical data timestamp is fresh (< 7 days), checking cache...");
+                // Verify data actually exists before trusting the timestamp
+                match database.count_by_market_code("historical") {
+                    Ok(count) if count > 0 => {
+                        log::info!("Found {} historical images in cache, loading from cache", count);
+                        return self.load_historical_from_cache(8);
+                    }
+                    Ok(_) => {
+                        log::warn!("Timestamp exists but no historical data found, forcing fresh download");
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to check historical data count: {}, forcing fresh download", e);
+                    }
+                }
             }
         }
 
         log::info!("Downloading historical data from GitHub");
 
         let url =
-            "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
+            "https://github.com/v5tech/bing-wallpaper/blob/main/bing-wallpaper.md?plain=1";
 
         // Create request with User-Agent
         let mut request = ehttp::Request::get(url);
@@ -2617,8 +2629,20 @@ impl CalcBingimage {
         // Check if we need to download
         if let Some(database) = &self.db {
             if !database.should_download_manifest("historical") {
-                log::info!("Historical data is fresh (< 7 days), loading from cache");
-                return self.load_historical_from_cache(8);
+                log::info!("Historical data timestamp is fresh (< 7 days), checking cache...");
+                // Verify data actually exists before trusting the timestamp
+                match database.count_by_market_code("historical") {
+                    Ok(count) if count > 0 => {
+                        log::info!("Found {} historical images in cache, loading from cache", count);
+                        return self.load_historical_from_cache(8);
+                    }
+                    Ok(_) => {
+                        log::warn!("Timestamp exists but no historical data found, forcing fresh download");
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to check historical data count: {}, forcing fresh download", e);
+                    }
+                }
             }
         }
 
@@ -2631,7 +2655,7 @@ impl CalcBingimage {
         log::info!("Downloading historical data from GitHub");
 
         let url =
-            "https://raw.githubusercontent.com/v5tech/bing-wallpaper/refs/heads/main/bing-wallpaper.md";
+            "https://github.com/v5tech/bing-wallpaper/blob/main/bing-wallpaper.md?plain=1";
 
         // Create request with User-Agent
         let mut request = ehttp::Request::get(url);
@@ -2715,9 +2739,12 @@ impl CalcBingimage {
 
     /// Parse historical markdown content into HistoricalImage structs
     fn parse_historical_markdown(&self, text: &str) -> Result<Vec<HistoricalImage>> {
+        // Extract markdown content from HTML if needed
+        let markdown_text = self.extract_markdown_from_html(text);
+
         let mut historical_images = Vec::new();
 
-        for line in text.lines() {
+        for line in markdown_text.lines() {
             // Skip empty lines and headers
             if line.trim().is_empty() || line.starts_with('#') {
                 continue;
@@ -2774,6 +2801,59 @@ impl CalcBingimage {
         }
 
         Ok(historical_images)
+    }
+
+    /// Extract markdown content from HTML response (for GitHub blob URLs with ?plain=1)
+    /// Returns the original text if it's already markdown (not HTML)
+    fn extract_markdown_from_html<'a>(&self, text: &'a str) -> std::borrow::Cow<'a, str> {
+        // Check if the content is HTML
+        let trimmed = text.trim_start();
+        if !trimmed.starts_with("<!DOCTYPE") && !trimmed.starts_with("<html") && !trimmed.starts_with("<HTML") {
+            // Not HTML, return as-is (already markdown)
+            return std::borrow::Cow::Borrowed(text);
+        }
+
+        log::info!("Detected HTML response, extracting markdown content");
+
+        // For GitHub's ?plain=1 URLs, the content is usually in a <table class="highlight">
+        // or similar structure. We'll look for lines that match the expected pattern.
+        // Extract all lines that look like our markdown format: "YYYY-MM-DD | [...](...)"
+        let mut extracted_lines = Vec::new();
+
+        for line in text.lines() {
+            let trimmed_line = line.trim();
+
+            // Look for lines containing our date pattern and markdown links
+            // This is more robust than trying to parse HTML structure
+            if trimmed_line.contains(" | [") && trimmed_line.contains("](https://") {
+                // Check if it starts with a date pattern (YYYY-MM-DD)
+                let potential_date = trimmed_line.split('|').next().unwrap_or("").trim();
+                if potential_date.len() == 10 && potential_date.chars().nth(4) == Some('-') && potential_date.chars().nth(7) == Some('-') {
+                    // Decode HTML entities if present
+                    let decoded = trimmed_line
+                        .replace("&lt;", "<")
+                        .replace("&gt;", ">")
+                        .replace("&amp;", "&")
+                        .replace("&quot;", "\"")
+                        .replace("&#39;", "'");
+                    extracted_lines.push(decoded);
+                    continue;
+                }
+            }
+
+            // Also check for header line
+            if trimmed_line.starts_with("## Bing Wallpaper") {
+                extracted_lines.push(trimmed_line.to_string());
+            }
+        }
+
+        if !extracted_lines.is_empty() {
+            log::info!("Extracted {} markdown lines from HTML", extracted_lines.len());
+            std::borrow::Cow::Owned(extracted_lines.join("\n"))
+        } else {
+            log::warn!("Could not extract markdown from HTML, returning original text");
+            std::borrow::Cow::Borrowed(text)
+        }
     }
 
     /// Reset the historical page counter to a specific value.
@@ -2944,6 +3024,71 @@ mod tests {
             "hello____world_jpg"
         );
         assert_eq!(sanitize_filename("hello-world_test"), "hello-world_test");
+    }
+
+    #[test]
+    fn test_parse_historical_markdown_plain() {
+        let (config, _temp_dir) = create_test_config();
+        let calc_bing = CalcBingimage::from_config(config).unwrap();
+
+        // Test plain markdown format (original format)
+        let plain_markdown = r#"## Bing Wallpaper
+
+2026-03-25 | [Cherry blossoms at East Lake Cherry Blossom Park, Wuhan, China (© Zhang Qiao/VCG/Getty Images)](https://cn.bing.com/th?id=OHR.WuhanCherryBlossom_EN-US5963967452_UHD.jpg)
+
+2026-03-24 | [Lightning storm over saguaro cacti, Sonoran Desert, Arizona (© Jack Dykinga/Nature Picture Library)](https://cn.bing.com/th?id=OHR.SonoranStorm_EN-US5792303901_UHD.jpg)"#;
+
+        let result = calc_bing.parse_historical_markdown(plain_markdown);
+        assert!(result.is_ok());
+        let images = result.unwrap();
+        assert_eq!(images.len(), 2);
+        assert_eq!(images[0].title, "Cherry blossoms at East Lake Cherry Blossom Park, Wuhan, China");
+        assert_eq!(images[0].fullstartdate, "202603250000");
+        assert!(images[0].url.contains("www.bing.com")); // Should be normalized from cn.bing.com
+    }
+
+    #[test]
+    fn test_parse_historical_markdown_html() {
+        let (config, _temp_dir) = create_test_config();
+        let calc_bing = CalcBingimage::from_config(config).unwrap();
+
+        // Test HTML format (new GitHub ?plain=1 format with embedded markdown)
+        let html_response = r#"<!DOCTYPE html>
+<html>
+<head><title>Test</title></head>
+<body>
+<div class="content">
+## Bing Wallpaper
+
+2026-03-25 | [Cherry blossoms at East Lake Cherry Blossom Park, Wuhan, China (© Zhang Qiao/VCG/Getty Images)](https://cn.bing.com/th?id=OHR.WuhanCherryBlossom_EN-US5963967452_UHD.jpg)
+
+2026-03-24 | [Lightning storm over saguaro cacti, Sonoran Desert, Arizona (© Jack Dykinga/Nature Picture Library)](https://cn.bing.com/th?id=OHR.SonoranStorm_EN-US5792303901_UHD.jpg)
+</div>
+</body>
+</html>"#;
+
+        let result = calc_bing.parse_historical_markdown(html_response);
+        assert!(result.is_ok());
+        let images = result.unwrap();
+        assert_eq!(images.len(), 2);
+        assert_eq!(images[0].title, "Cherry blossoms at East Lake Cherry Blossom Park, Wuhan, China");
+        assert_eq!(images[1].title, "Lightning storm over saguaro cacti, Sonoran Desert, Arizona");
+    }
+
+    #[test]
+    fn test_extract_markdown_from_html() {
+        let (config, _temp_dir) = create_test_config();
+        let calc_bing = CalcBingimage::from_config(config).unwrap();
+
+        // Test that plain markdown is returned unchanged
+        let plain = "2026-03-25 | [Title](url)";
+        let result = calc_bing.extract_markdown_from_html(plain);
+        assert_eq!(result, plain);
+
+        // Test that HTML is processed
+        let html = "<!DOCTYPE html><body>2026-03-25 | [Title](https://url)</body>";
+        let result = calc_bing.extract_markdown_from_html(html);
+        assert!(result.contains("2026-03-25"));
     }
 
     #[test]
