@@ -9,6 +9,12 @@ use std::path::PathBuf;
 #[cfg(not(target_os = "android"))]
 use directories::ProjectDirs;
 
+// Database
+#[cfg(not(target_arch = "wasm32"))]
+pub mod schema;
+
+pub mod db;
+
 // Core modules
 pub mod shared_store;
 pub mod bingtray;
