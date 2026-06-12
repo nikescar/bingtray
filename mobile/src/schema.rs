@@ -11,7 +11,7 @@ diesel::table! {
         fetched_at -> Integer,
         status -> Text,
         created_at -> Integer,
-        updated_at -> Integer,
+        updated_at -> Integer
     }
 }
 
@@ -21,7 +21,7 @@ diesel::table! {
         key -> Text,
         value -> Text,
         created_at -> Integer,
-        updated_at -> Integer,
+        updated_at -> Integer
     }
 }
 
@@ -31,7 +31,7 @@ diesel::table! {
         code -> Text,
         last_used_at -> Integer,
         created_at -> Integer,
-        updated_at -> Integer,
+        updated_at -> Integer
     }
 }
 
