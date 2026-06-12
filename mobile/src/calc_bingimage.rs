@@ -55,7 +55,7 @@ use std::time::SystemTime;
 
 // DataFusion is available on both desktop and Android, but not WASM
 #[cfg(not(target_arch = "wasm32"))]
-use crate::datafusion_bingimage::*;
+// Removed: DataFusion replaced with Diesel;
 
 // Desktop-only imports (wallpaper setting, channels)
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]

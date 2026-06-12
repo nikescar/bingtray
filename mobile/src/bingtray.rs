@@ -6,7 +6,7 @@
 use crate::{BingImage, Config, Settings};
 pub use crate::dlg_settings_stt::DlgSettings;
 use crate::calc_bingimage::sanitize_filename;
-use crate::datafusion_bingimage::BingImageDb;
+// Removed: DataFusion replaced with Diesel\n// use crate::datafusion_bingimage::BingImageDb;
 use image;
 use crate::install;
 
@@ -259,7 +259,7 @@ pub struct BingtrayApp {
     ehttp_cache: Option<Arc<crate::ehttp_cache::EhttpCache>>,
     // Database
     #[cfg_attr(feature = "serde", serde(skip))]
-    db: Option<Arc<BingImageDb>>,
+    // db: Option<Arc<BingImageDb>>, // Removed - replaced by ViewModel
     // Carousel filter state
     carousel_filter: Option<usize>,
     // Track if we've loaded cached main panel image
@@ -336,7 +336,7 @@ impl Default for BingtrayApp {
 
         // Initialize database before moving config
         let db = config.as_ref().and_then(|cfg| {
-            BingImageDb::new(cfg.data_dir.clone())
+            None // BingImageDb removed - use ViewModel instead
                 .inspect_err(|e| warn!("Failed to open database: {}", e))
                 .ok()
                 .map(Arc::new)
@@ -1340,27 +1340,8 @@ impl BingtrayApp {
                             };
 
                             // Fetch status from database using base_url (not full_url with size params)
-                            let status = self.db.as_ref().and_then(|db| {
-                                match db.get_image(&base_url) {
-                                    Ok(Some(record)) => {
-                                        let status_str = record.status.as_str().to_string();
-                                        info!("Found status for {}: {}", display_title, status_str);
-                                        Some(status_str)
-                                    }
-                                    Ok(None) => {
-                                        info!("No status found in DB for: {} (URL: {})", display_title, base_url);
-                                        None
-                                    }
-                                    Err(e) => {
-                                        warn!("Error querying status for {}: {}", display_title, e);
-                                        None
-                                    }
-                                }
-                            });
-
-                            if self.db.is_none() {
-                                warn!("Database is not initialized - status icons will not be available");
-                            }
+                            // TODO: Use ViewModel to get status
+                            let status = None; // Temporarily disabled - use ViewModel instead
 
                             let carousel_image = CarouselImage {
                                 title: display_title.clone(),
