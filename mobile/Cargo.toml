@@ -29,6 +29,11 @@ serde = { version = "1.0", default-features = false, features = ["derive"], opti
 serde_json = { version = "1.0", features = ["std"], optional = true }
 chrono = "0.4"
 
+# Database
+diesel = { version = "2.3.0", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+diesel_migrations = "2.3.0"
+asupersync = { git = "https://github.com/Dicklesworthstone/asupersync" }
+
 # UI framework
 egui = { workspace = true }
 eframe = { workspace = true }

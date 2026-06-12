@@ -1,0 +1,3 @@
+DROP TABLE IF EXISTS config_kv;
+DROP TABLE IF EXISTS market_codes;
+DROP TABLE IF EXISTS bing_images;

@@ -1,0 +1,2 @@
+-- Initial setup for diesel with SQLite
+-- This file is intentionally empty for SQLite
