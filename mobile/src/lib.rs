@@ -20,7 +20,6 @@ pub mod viewmodel;
 pub mod shared_store;
 pub mod bingtray;
 pub mod api_bingimage;
-pub mod datafusion_bingimage;
 pub mod calc_bingimage; // Now available on all platforms (contains cross-platform functions + desktop-only struct)
 pub mod dlg_settings_stt;
 pub mod dlg_settings;

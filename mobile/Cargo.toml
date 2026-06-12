@@ -63,14 +63,6 @@ tray-icon = { version = "0.18", default-features = false }
 tao = "0.33"
 wallpaper = "3.2.0"
 trash = "5.2"
-# DataFusion and Arrow for SQL analytics
-datafusion = { version = "44", default-features = false, features = ["parquet"] }
-arrow = { version = "53", default-features = false }
-arrow-schema = { version = "53", default-features = false }
-parquet = { version = "53", default-features = false }
-tokio = { workspace = true }
-num_cpus = "1.16"
-dashmap = "6.1"
 env_logger = { version = "0.11", default-features = false }
 directories = { workspace = true }
 opener = "0.7"
@@ -87,14 +79,6 @@ android_logger = { version = "0.15", default-features = false }
 android-activity = { version = "0.6", default-features = false, features = ["native-activity"] }
 ndk-sys = { version = "0.6.0", default-features = false }
 eframe = { workspace = true, default-features = false, features = ["default_fonts","glow","android-native-activity"] }
-# DataFusion and Arrow for SQL analytics
-datafusion = { version = "44", default-features = false, features = ["parquet"] }
-arrow = { version = "53", default-features = false }
-arrow-schema = { version = "53", default-features = false }
-parquet = { version = "53", default-features = false }
-tokio = { workspace = true }
-num_cpus = "1.16"
-dashmap = "6.1"
 
 # Windows-specific dependencies
 [target.'cfg(target_os = "windows")'.dependencies]
