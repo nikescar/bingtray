@@ -14,6 +14,7 @@ use directories::ProjectDirs;
 pub mod schema;
 
 pub mod db;
+pub mod viewmodel;
 
 // Core modules
 pub mod shared_store;
