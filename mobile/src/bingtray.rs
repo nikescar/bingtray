@@ -201,6 +201,9 @@ pub struct BingtrayApp {
     cached_page_index: usize,
     #[cfg_attr(feature = "serde", serde(skip))]
     tray_logic: Option<CalcBingimage>,
+    // ViewModel for new architecture
+    #[cfg_attr(feature = "serde", serde(skip))]
+    viewmodel: Option<crate::viewmodel::ViewModel>,
     // User mismatch warning
     #[cfg_attr(feature = "serde", serde(skip))]
     user_mismatch_warning: Option<String>,
@@ -397,6 +400,18 @@ impl Default for BingtrayApp {
             },
             screen_size_provider: None,
             tray_logic: CalcBingimage::new().ok(),
+            viewmodel: {
+                #[cfg(not(feature = "cli-only"))]
+                {
+                    config.as_ref().and_then(|c| {
+                        crate::viewmodel::ViewModel::new_async(c.config_dir.join("bingtray.db")).ok()
+                    })
+                }
+                #[cfg(feature = "cli-only")]
+                {
+                    None
+                }
+            },
             user_mismatch_warning,
             // Menu state
             menu_open: false,
@@ -443,6 +458,34 @@ impl Default for BingtrayApp {
 
 impl eframe::App for BingtrayApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Poll ViewModel events
+        #[cfg(not(feature = "cli-only"))]
+        if let Some(ref viewmodel) = self.viewmodel {
+            for event in viewmodel.poll_events() {
+                use crate::viewmodel::ViewModelEvent;
+                match event {
+                    ViewModelEvent::ImagesLoaded { images } => {
+                        log::info!("ViewModel: Loaded {} images", images.len());
+                    }
+                    ViewModelEvent::DownloadProgress { current, total } => {
+                        log::info!("ViewModel: Download progress: {}/{}", current, total);
+                    }
+                    ViewModelEvent::DownloadComplete { count } => {
+                        log::info!("ViewModel: Download complete: {} images", count);
+                    }
+                    ViewModelEvent::WallpaperSet { success } => {
+                        log::info!("ViewModel: Wallpaper set: {}", success);
+                    }
+                    ViewModelEvent::StatusUpdated { url, status } => {
+                        log::info!("ViewModel: Status updated for {}: {:?}", url, status);
+                    }
+                    ViewModelEvent::Error { message } => {
+                        log::error!("ViewModel error: {}", message);
+                    }
+                }
+            }
+        }
+
         // Load cached main panel image on first run
         if !self.cached_image_loaded {
             self.cached_image_loaded = true;
@@ -3303,5 +3346,15 @@ impl BingtrayApp {
         // Reset the in-progress flag
         self.install_in_progress = false;
         self.install_dialog_open = true;
+    }
+}
+
+impl Drop for BingtrayApp {
+    fn drop(&mut self) {
+        log::info!("Shutting down BingTrayApp");
+        #[cfg(not(feature = "cli-only"))]
+        if let Some(ref viewmodel) = self.viewmodel {
+            viewmodel.send_command(crate::viewmodel::ViewModelCommand::Shutdown).ok();
+        }
     }
 }
