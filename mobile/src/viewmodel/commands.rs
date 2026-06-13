@@ -1,6 +1,8 @@
 use diesel::prelude::*;
 use anyhow::Result;
 use crate::db::ImageStatus;
+use crate::db::models::NewBingImage;
+use std::path::PathBuf;
 
 /// Download images for a market code (stub for now)
 pub fn download_images_sync(_conn: &mut SqliteConnection, _market_code: &str) -> Result<usize> {
@@ -44,4 +46,422 @@ pub fn blacklist_image_sync(conn: &mut SqliteConnection, url: &str) -> Result<()
     use crate::db::operations;
     operations::update_image_status(conn, url, ImageStatus::Blacklisted)?;
     Ok(())
+}
+
+// ============================================================================
+// Image Cache Helpers
+// ============================================================================
+
+/// Get the cache directory path for storing downloaded images
+fn get_cache_dir() -> Result<PathBuf> {
+    let cache_dir = dirs::cache_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not determine cache directory"))?
+        .join("bingtray")
+        .join("images");
+
+    // Create cache directory if it doesn't exist
+    std::fs::create_dir_all(&cache_dir)?;
+
+    Ok(cache_dir)
+}
+
+/// Generate a cache filename from a URL
+fn get_cache_filename(url: &str) -> String {
+    // Extract filename from URL (e.g., OHR.SomeImage_EN-US123_UHD.jpg)
+    // URLs look like: https://www.bing.com/th?id=OHR.Hnausapollur_EN-US2080493040_1920x1080.jpg&rf=...
+    // We want to extract: OHR_Hnausapollur (the first two parts before market code)
+
+    let filename = url
+        .split("th?id=")
+        .nth(1)
+        .and_then(|s| {
+            // Split on & to remove query params
+            let clean = s.split('&').next().unwrap_or(s);
+            // Split on _ to get parts: [OHR.Name, EN-US..., 1920x1080.jpg]
+            let parts: Vec<&str> = clean.split('_').collect();
+            if parts.len() >= 2 {
+                // Take first part (OHR.Name) and replace . with _
+                Some(parts[0].replace('.', "_"))
+            } else {
+                Some(parts.first().unwrap_or(&"unknown").to_string())
+            }
+        })
+        .unwrap_or_else(|| "unknown".to_string());
+
+    // Sanitize filename
+    let sanitized = filename
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+    format!("{}.jpg", sanitized)
+}
+
+/// Load image bytes from cache if available
+/// Returns Some(bytes) if cached, None if not found
+fn load_image_from_cache(url: &str) -> Result<Option<Vec<u8>>> {
+    let cache_dir = get_cache_dir()?;
+    let filename = get_cache_filename(url);
+    let cache_path = cache_dir.join(&filename);
+
+    if cache_path.exists() {
+        log::info!("✓ Cache hit: loading from {:?}", cache_path);
+        let bytes = std::fs::read(&cache_path)?;
+        Ok(Some(bytes))
+    } else {
+        log::info!("⚠ Cache miss: will download from network");
+        Ok(None)
+    }
+}
+
+/// Save image bytes to cache
+fn save_image_to_cache(url: &str, bytes: &[u8]) -> Result<()> {
+    let cache_dir = get_cache_dir()?;
+    let filename = get_cache_filename(url);
+    let cache_path = cache_dir.join(&filename);
+
+    std::fs::write(&cache_path, bytes)?;
+    log::info!("💾 Saved to cache: {:?} ({} bytes)", cache_path, bytes.len());
+
+    Ok(())
+}
+
+// ============================================================================
+// Market State Helpers
+// ============================================================================
+
+/// Get market state from config (market_code, offset)
+/// Returns default ("en-US", 0) if not found
+pub fn get_market_state_sync(conn: &mut SqliteConnection) -> Result<(String, u32)> {
+    use crate::db::operations;
+    
+    let market_code = operations::get_config(conn, "market_code")?
+        .unwrap_or_else(|| "en-US".to_string());
+    
+    let offset = operations::get_config(conn, "offset")?
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(0);
+    
+    Ok((market_code, offset))
+}
+
+/// Save market state to config (market_code, offset)
+pub fn save_market_state_sync(conn: &mut SqliteConnection, market_code: &str, offset: u32) -> Result<()> {
+    use crate::db::operations;
+    
+    operations::set_config(conn, "market_code", market_code)?;
+    operations::set_config(conn, "offset", &offset.to_string())?;
+    
+    Ok(())
+}
+
+/// Increment market offset by 8 and save to config
+pub fn increment_market_offset_sync(conn: &mut SqliteConnection) -> Result<()> {
+    let (market_code, offset) = get_market_state_sync(conn)?;
+    let new_offset = offset + 8;
+    save_market_state_sync(conn, &market_code, new_offset)?;
+    Ok(())
+}
+
+// ============================================================================
+// CLI-Specific: Desktop Wallpaper Matching
+// ============================================================================
+
+/// Get the URL of the current desktop wallpaper by matching it to the database
+/// Returns None if no match found (wallpaper not from BingTray or database cleared)
+pub fn get_current_desktop_wallpaper_url_sync(conn: &mut SqliteConnection) -> Result<Option<String>> {
+    use crate::db::operations;
+    use crate::schema::bing_images;
+    
+    // First, try to get the tracked wallpaper URL from config
+    if let Ok(Some(tracked_url)) = operations::get_config(conn, "current_wallpaper_url") {
+        log::debug!("Found tracked wallpaper URL: {}", tracked_url);
+        // Verify it exists in database
+        let images: Vec<crate::db::BingImage> = bing_images::table
+            .filter(bing_images::url.eq(&tracked_url))
+            .load(conn)?;
+        
+        if !images.is_empty() {
+            return Ok(Some(tracked_url));
+        }
+        log::warn!("Tracked wallpaper URL not found in database, falling back to file detection");
+    }
+    
+    // Fallback: Try to detect from desktop environment (may not work on all systems)
+    match crate::api_setwallpaper::get_wallpaper() {
+        Ok(wallpaper_path_str) => {
+            use std::path::Path;
+            let wallpaper_path = Path::new(&wallpaper_path_str);
+            
+            // Extract filename stem (without extension)
+            let filename = wallpaper_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .ok_or_else(|| anyhow::anyhow!("Invalid wallpaper path"))?;
+            
+            // Extract core identifier (remove OHR_ prefix if present)
+            let core_id = filename
+                .strip_prefix("OHR_")
+                .unwrap_or(filename);
+            
+            // Query database for URLs containing this identifier
+            let pattern = format!("%{}%", core_id);
+            let images: Vec<crate::db::BingImage> = bing_images::table
+                .filter(bing_images::url.like(pattern))
+                .order(bing_images::fetched_at.desc())
+                .load(conn)?;
+            
+            // Return first match (most recent if multiple)
+            Ok(images.first().map(|img| img.url.clone()))
+        }
+        Err(e) => {
+            log::warn!("Could not detect wallpaper from desktop environment: {}", e);
+            Ok(None)
+        }
+    }
+}
+
+/// Mark current desktop wallpaper as favorite
+/// Returns image title if successful, None if no match found
+pub fn keep_current_wallpaper_sync(conn: &mut SqliteConnection) -> Result<Option<String>> {
+    use crate::db::operations;
+    
+    // Get current wallpaper URL
+    let url = match get_current_desktop_wallpaper_url_sync(conn)? {
+        Some(u) => u,
+        None => return Ok(None),
+    };
+    
+    // Get image to retrieve title
+    let image = operations::get_image(conn, &url)?
+        .ok_or_else(|| anyhow::anyhow!("Image not found in database"))?;
+    
+    // Update status to keepfavorite
+    operations::update_image_status(conn, &url, ImageStatus::KeepFavorite)?;
+    
+    Ok(Some(image.title))
+}
+
+/// Mark current desktop wallpaper as blacklisted
+/// Returns image title if successful, None if no match found
+pub fn blacklist_current_wallpaper_sync(conn: &mut SqliteConnection) -> Result<Option<String>> {
+    use crate::db::operations;
+    
+    // Get current wallpaper URL
+    let url = match get_current_desktop_wallpaper_url_sync(conn)? {
+        Some(u) => u,
+        None => return Ok(None),
+    };
+    
+    // Get image to retrieve title
+    let image = operations::get_image(conn, &url)?
+        .ok_or_else(|| anyhow::anyhow!("Image not found in database"))?;
+    
+    // Update status to blacklisted
+    operations::update_image_status(conn, &url, ImageStatus::Blacklisted)?;
+    
+    Ok(Some(image.title))
+}
+
+/// Set a random favorite as desktop wallpaper
+/// Returns image title if successful, None if no favorites available
+pub fn set_random_favorite_wallpaper_sync(conn: &mut SqliteConnection) -> Result<Option<String>> {
+    use crate::db::operations;
+    use rand::seq::SliceRandom;
+
+    // Query all favorites
+    let favorites = operations::get_images_by_status(conn, ImageStatus::KeepFavorite)?;
+
+    if favorites.is_empty() {
+        return Ok(None);
+    }
+
+    // Pick one randomly
+    let mut rng = rand::thread_rng();
+    let image = favorites.choose(&mut rng)
+        .ok_or_else(|| anyhow::anyhow!("Failed to pick random favorite"))?;
+
+    // Try to load from cache first
+    let bytes = if let Some(cached_bytes) = load_image_from_cache(&image.url)? {
+        log::info!("Using cached image for: {}", image.title);
+        cached_bytes
+    } else {
+        log::info!("Cache miss, downloading image for: {}", image.title);
+        // Download image bytes on-demand via ehttp (synchronous)
+        let (tx, rx) = std::sync::mpsc::channel();
+        ehttp::fetch(ehttp::Request::get(&image.url), move |response| {
+            let _ = tx.send(response);
+        });
+
+        let response = rx.recv_timeout(std::time::Duration::from_secs(30))
+            .map_err(|_| anyhow::anyhow!("Image download timeout"))?;
+
+        let downloaded_bytes = response
+            .map_err(|e| anyhow::anyhow!("Image download failed: {}", e))?
+            .bytes;
+
+        // Save to cache for future use
+        save_image_to_cache(&image.url, &downloaded_bytes)?;
+
+        downloaded_bytes
+    };
+
+    // Set wallpaper
+    crate::api_setwallpaper::set_wallpaper_from_bytes(&bytes)?;
+
+    // Track current wallpaper URL in config for detection
+    operations::set_config(conn, "current_wallpaper_url", &image.url)?;
+    log::debug!("Tracked current wallpaper URL: {}", image.url);
+
+    Ok(Some(image.title.clone()))
+}
+
+// ============================================================================
+// CLI-Specific: Download and Set Next Wallpaper
+// ============================================================================
+
+/// Download next wallpaper if needed, then set it as desktop wallpaper
+/// Returns WallpaperSetResult with title and URL
+pub fn download_and_set_next_wallpaper_sync(conn: &mut SqliteConnection) -> Result<crate::viewmodel::WallpaperSetResult> {
+    use crate::db::operations;
+    use crate::schema::bing_images;
+    
+    // Step 1: Check for unprocessed images
+    let unprocessed = bing_images::table
+        .filter(bing_images::status.eq("unprocessed"))
+        .order(bing_images::fetched_at.desc())
+        .first::<crate::db::BingImage>(conn)
+        .optional()?;
+    
+    let image = if let Some(img) = unprocessed {
+        // Step 2a: Use existing unprocessed image
+        log::info!("Using existing unprocessed image: {}", img.title);
+        img
+    } else {
+        // Step 2b: No unprocessed images - auto-download from API
+        log::info!("No unprocessed images found - downloading from Bing API");
+        
+        let (market_code, offset) = get_market_state_sync(conn)?;
+        log::info!("Market state: code={}, offset={}", market_code, offset);
+        
+        // Fetch from Bing API (synchronous)
+        let url = format!(
+            "https://www.bing.com/HPImageArchive.aspx?format=js&idx={}&n=8&mkt={}",
+            offset, market_code
+        );
+        
+        let (tx, rx) = std::sync::mpsc::channel();
+        let mut request = ehttp::Request::get(&url);
+        request.headers.insert(
+            "User-Agent".to_string(),
+            format!("bingtray/{}", env!("CARGO_PKG_VERSION")),
+        );
+        
+        ehttp::fetch(request, move |response| {
+            let _ = tx.send(response);
+        });
+        
+        let response = rx.recv_timeout(std::time::Duration::from_secs(30))
+            .map_err(|_| anyhow::anyhow!("API request timeout"))?;
+        
+        let resp = response.map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
+        
+        if !resp.ok {
+            anyhow::bail!("API returned error: {} {}", resp.status, resp.status_text);
+        }
+        
+        // Parse JSON response
+        let json_text = resp.text().ok_or_else(|| anyhow::anyhow!("No response body"))?;
+        let bing_response: crate::BingResponse = serde_json::from_str(json_text)
+            .map_err(|e| anyhow::anyhow!("Failed to parse JSON: {}", e))?;
+        
+        log::info!("Downloaded {} images from Bing API", bing_response.images.len());
+        
+        // Insert images into database with status='unprocessed'
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let current_timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i32;
+        
+        for bing_img in &bing_response.images {
+            let full_url = if bing_img.url.starts_with("http") {
+                bing_img.url.clone()
+            } else {
+                format!("https://www.bing.com{}", bing_img.url)
+            };
+            
+            let new_img = NewBingImage {
+                url: &full_url,
+                title: &bing_img.title,
+                copyright: bing_img.copyright.as_deref(),
+                copyright_link: bing_img.copyright_link.as_deref(),
+                market_code: &market_code,
+                status: "unprocessed",
+                fetched_at: current_timestamp,
+                created_at: current_timestamp,
+                updated_at: current_timestamp,
+            };
+            
+            operations::upsert_image(conn, &new_img)?;
+        }
+        
+        // Increment offset and save
+        increment_market_offset_sync(conn)?;
+        log::info!("Market offset incremented to {}", offset + 8);
+        
+        // Pick first newly inserted image
+        bing_response.images.first()
+            .ok_or_else(|| anyhow::anyhow!("No images returned from API"))?;
+        
+        // Reload from database to get full record
+        bing_images::table
+            .filter(bing_images::status.eq("unprocessed"))
+            .order(bing_images::fetched_at.desc())
+            .first::<crate::db::BingImage>(conn)?
+    };
+    
+    // Step 3: Download image bytes on-demand (with caching)
+    let bytes = if let Some(cached_bytes) = load_image_from_cache(&image.url)? {
+        log::info!("Using cached image: {}", image.title);
+        cached_bytes
+    } else {
+        log::info!("Downloading image bytes: {}", image.url);
+        let (tx, rx) = std::sync::mpsc::channel();
+        ehttp::fetch(ehttp::Request::get(&image.url), move |response| {
+            let _ = tx.send(response);
+        });
+
+        let response = rx.recv_timeout(std::time::Duration::from_secs(30))
+            .map_err(|_| anyhow::anyhow!("Image download timeout"))?;
+
+        let downloaded_bytes = response
+            .map_err(|e| anyhow::anyhow!("Image download failed: {}", e))?
+            .bytes;
+
+        // Save to cache for future use
+        save_image_to_cache(&image.url, &downloaded_bytes)?;
+
+        downloaded_bytes
+    };
+    
+    // Step 4: Set wallpaper
+    log::info!("Setting wallpaper: {}", image.title);
+    crate::api_setwallpaper::set_wallpaper_from_bytes(&bytes)?;
+    
+    // Step 5: Track current wallpaper URL in config for detection
+    operations::set_config(conn, "current_wallpaper_url", &image.url)?;
+    log::debug!("Tracked current wallpaper URL: {}", image.url);
+    
+    // Step 6: Return result
+    Ok(crate::viewmodel::WallpaperSetResult {
+        title: image.title.clone(),
+        url: image.url.clone(),
+    })
 }

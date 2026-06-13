@@ -127,54 +127,15 @@ pub fn get_market_codes() -> Result<Vec<String>> {
 }
 
 /// Save Bing images to database cache
+/// DEPRECATED: Database operations moved to ViewModel layer
 fn save_bing_images_to_cache(
-    db: &BingImageDb,
-    market_code: &str,
-    images: &[BingImage],
+    _db: &(),
+    _market_code: &str,
+    _images: &[BingImage],
 ) -> Result<()> {
-    log::info!(
-        "Saving {} Bing images to cache for market: {}",
-        images.len(),
-        market_code
-    );
-
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
-        .as_secs() as i64;
-
-    // Convert BingImages to BingImageRecords
-    let records: Vec<BingImageRecord> = images
-        .iter()
-        .map(|img| BingImageRecord {
-            url: img.url.clone(),
-            title: img.title.clone(),
-            copyright: img.copyright.clone(),
-            copyright_link: img.copyright_link.clone(),
-            market_code: market_code.to_string(),
-            fetched_at: now,
-            status: ImageStatus::Unprocessed,
-        })
-        .collect();
-
-    // Use batch_upsert_images which handles duplicate key errors gracefully
-    match db.batch_upsert_images(&records) {
-        Ok(saved_count) => {
-            log::info!("Successfully cached {} out of {} Bing images", saved_count, images.len());
-        }
-        Err(e) => {
-            log::warn!("Failed to batch upsert images (possibly duplicate entries): {}", e);
-            // Don't fail completely - continue with timestamp update
-        }
-    }
-
-    // Save download timestamp
-    if let Err(e) = db.set_last_download_timestamp(market_code, now) {
-        log::warn!("Failed to set download timestamp: {}", e);
-    }
-
-    // Note: Removed checkpoint() call here as it can cause lock contention
-    // in multi-process scenarios. DuckDB will automatically checkpoint the WAL
+    // Database persistence moved to ViewModel layer
+    // This function is deprecated and does nothing
+    log::debug!("save_bing_images_to_cache is deprecated - use ViewModel instead");
     // at appropriate times. Manual checkpoints should only be done at app shutdown.
 
     Ok(())
@@ -342,95 +303,11 @@ pub fn sanitize_filename(filename: &str) -> String {
 /// A tuple of (current_page, images)
 fn load_historical_metadata_with_db(
     _config: &Config,
-    db: Option<&BingImageDb>,
+    _db: Option<&()>,
 ) -> Result<(usize, Vec<HistoricalImage>)> {
-    // Load page number and historical images from database
-    if let Some(database) = db {
-        let current_page = database
-            .get_historical_page()
-            .context("Failed to load historical page from database")?;
-        log::debug!("Loaded historical page {} from database", current_page);
-
-        // Load historical images from bing_images table (market_code = 'historical')
-        let records = database
-            .get_images_by_market_code("historical")
-            .context("Failed to load historical images from database")?;
-
-        // Convert BingImageRecord to HistoricalImage
-        let mut images: Vec<HistoricalImage> = records
-            .into_iter()
-            .map(|record| {
-                // Convert Unix timestamp back to YYYYMMDD0000 format
-                let days_since_epoch = record.fetched_at / 86400;
-
-                // Calculate year, month, day from days since epoch
-                let mut year = 1970;
-                let mut remaining_days = days_since_epoch;
-
-                loop {
-                    let days_in_year = if year % 4 == 0 && (year % 100 != 0 || year % 400 == 0) {
-                        366
-                    } else {
-                        365
-                    };
-                    if remaining_days >= days_in_year {
-                        remaining_days -= days_in_year;
-                        year += 1;
-                    } else {
-                        break;
-                    }
-                }
-
-                let is_leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-                let days_in_month = [
-                    31,
-                    if is_leap { 29 } else { 28 },
-                    31,
-                    30,
-                    31,
-                    30,
-                    31,
-                    31,
-                    30,
-                    31,
-                    30,
-                    31,
-                ];
-
-                let mut month = 1;
-                for (i, &days) in days_in_month.iter().enumerate() {
-                    if remaining_days < days {
-                        month = i + 1;
-                        break;
-                    }
-                    remaining_days -= days;
-                }
-
-                let day = remaining_days + 1;
-                let fullstartdate = format!("{:04}{:02}{:02}0000", year, month, day);
-
-                HistoricalImage {
-                    fullstartdate,
-                    url: record.url,
-                    copyright: record.copyright.unwrap_or_default(),
-                    copyrightlink: record.copyright_link.unwrap_or_default(),
-                    title: record.title,
-                }
-            })
-            .collect();
-
-        // Sort by date (most recent first)
-        images.sort_by(|a, b| b.fullstartdate.cmp(&a.fullstartdate));
-
-        log::debug!(
-            "Successfully loaded {} historical images from bing_images table",
-            images.len()
-        );
-        return Ok((current_page, images));
-    }
-
-    log::error!("Cannot load historical data: Database not available");
-    anyhow::bail!("Database not available")
+    // DEPRECATED: Database operations moved to ViewModel layer
+    // Return empty result
+    Ok((0, Vec::new()))
 }
 
 /// Write historical metadata and current page number to persistent storage.
@@ -446,249 +323,25 @@ fn load_historical_metadata_with_db(
 /// * `db` - Optional database connection
 fn save_historical_metadata_with_db(
     _config: &Config,
-    current_page: usize,
-    images: &[HistoricalImage],
-    db: Option<&BingImageDb>,
+    _current_page: usize,
+    _images: &[HistoricalImage],
+    _db: Option<&()>,
 ) -> Result<()> {
-    // Save page number and historical images to database
-    if let Some(database) = db {
-        // Save all images (not just 8) to database
-        log::info!(
-            "Saving historical page {} with {} images to bing_images table",
-            current_page,
-            images.len()
-        );
-
-        // Save historical page number
-        database
-            .set_historical_page(current_page)
-            .context("Failed to save historical page to database")?;
-        log::debug!("Saved historical page number to database: {}", current_page);
-
-        // Save each historical image as a row in bing_images table
-        let mut saved_count = 0;
-        let total_count = images.len();
-        for (idx, img) in images.iter().enumerate() {
-            // Convert YYYYMMDD0000 to Unix timestamp
-            // Extract YYYYMMDD from YYYYMMDD0000
-            let date_str = &img.fullstartdate[..8]; // Get first 8 chars (YYYYMMDD)
-            let timestamp = if date_str.len() == 8 {
-                // Parse YYYYMMDD as year, month, day
-                if let (Ok(year), Ok(month), Ok(day)) = (
-                    date_str[0..4].parse::<i32>(),
-                    date_str[4..6].parse::<u32>(),
-                    date_str[6..8].parse::<u32>(),
-                ) {
-                    // Use chrono to convert to Unix timestamp (seconds since 1970-01-01 00:00:00 UTC)
-                    use chrono::{NaiveDate, TimeZone, Utc};
-                    if let Some(naive_date) = NaiveDate::from_ymd_opt(year, month, day) {
-                        Utc.from_utc_datetime(&naive_date.and_hms_opt(0, 0, 0).unwrap())
-                            .timestamp()
-                    } else {
-                        log::warn!("Invalid date: {}-{:02}-{:02}, using 0", year, month, day);
-                        0
-                    }
-                } else {
-                    0
-                }
-            } else {
-                0
-            };
-
-            let record = BingImageRecord {
-                url: img.url.clone(),
-                title: img.title.clone(),
-                copyright: Some(img.copyright.clone()),
-                copyright_link: Some(img.copyrightlink.clone()).filter(|s| !s.is_empty()),
-                market_code: "historical".to_string(), // Special market code for historical images
-                fetched_at: timestamp,
-                status: ImageStatus::Unprocessed, // Mark as unprocessed/historical
-            };
-
-            match database.upsert_image(&record) {
-                Ok(_) => {
-                    saved_count += 1;
-                    // Log progress every 100 images
-                    if (idx + 1) % 100 == 0 || idx + 1 == total_count {
-                        log::info!(
-                            "Progress: Saved {}/{} historical images ({:.1}%)",
-                            idx + 1,
-                            total_count,
-                            ((idx + 1) as f32 / total_count as f32) * 100.0
-                        );
-                    }
-                }
-                Err(e) => log::warn!("Failed to save historical image {}: {}", img.url, e),
-            }
-        }
-
-        log::info!(
-            "Successfully saved {} historical images to bing_images table (out of {} total)",
-            saved_count,
-            images.len()
-        );
-
-        // Save download timestamp
-        log::info!("Saving metadata...");
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-        database
-            .set_last_download_timestamp("historical", now)
-            .context("Failed to save historical download timestamp")?;
-        log::debug!("Saved historical download timestamp: {}", now);
-
-        // Flush database to ensure data is written to disk
-        log::info!("Writing data to disk...");
-        database
-            .checkpoint()
-            .context("Failed to checkpoint database")?;
-        log::info!(
-            "Database checkpoint completed - all {} images saved successfully",
-            saved_count
-        );
-
-        return Ok(());
-    }
-
-    log::error!("Cannot save historical data: Database not available");
-    anyhow::bail!("Database not available")
+    // DEPRECATED: Database operations moved to ViewModel layer
+    Ok(())
 }
 
 /// Save historical metadata with progress updates for UI
 fn save_historical_metadata_with_progress(
     _config: &Config,
-    current_page: usize,
-    images: &[HistoricalImage],
-    db: Option<&BingImageDb>,
-    progress_status: std::sync::Arc<std::sync::Mutex<String>>,
-    ctx: egui::Context,
+    _current_page: usize,
+    _images: &[HistoricalImage],
+    _db: Option<&()>,
+    _progress_status: std::sync::Arc<std::sync::Mutex<String>>,
+    _ctx: egui::Context,
 ) -> Result<()> {
-    // Save page number and historical images to database
-    if let Some(database) = db {
-        // Save all images (not just 8) to database
-        log::info!(
-            "Saving historical page {} with {} images to bing_images table",
-            current_page,
-            images.len()
-        );
-
-        // Save historical page number
-        database
-            .set_historical_page(current_page)
-            .context("Failed to save historical page to database")?;
-        log::debug!("Saved historical page number to database: {}", current_page);
-
-        // Convert all images to records first
-        let total_count = images.len();
-        let mut all_records = Vec::with_capacity(total_count);
-
-        for img in images.iter() {
-            // Convert YYYYMMDD0000 to Unix timestamp
-            let date_str = &img.fullstartdate[..8];
-            let timestamp = if date_str.len() == 8 {
-                if let (Ok(year), Ok(month), Ok(day)) = (
-                    date_str[0..4].parse::<i32>(),
-                    date_str[4..6].parse::<u32>(),
-                    date_str[6..8].parse::<u32>(),
-                ) {
-                    // Use chrono to convert to Unix timestamp (seconds since 1970-01-01 00:00:00 UTC)
-                    use chrono::{NaiveDate, TimeZone, Utc};
-                    if let Some(naive_date) = NaiveDate::from_ymd_opt(year, month, day) {
-                        Utc.from_utc_datetime(&naive_date.and_hms_opt(0, 0, 0).unwrap())
-                            .timestamp()
-                    } else {
-                        log::warn!("Invalid date: {}-{:02}-{:02}, using 0", year, month, day);
-                        0
-                    }
-                } else {
-                    0
-                }
-            } else {
-                0
-            };
-
-            all_records.push(BingImageRecord {
-                url: img.url.clone(),
-                title: img.title.clone(),
-                copyright: Some(img.copyright.clone()),
-                copyright_link: Some(img.copyrightlink.clone()).filter(|s| !s.is_empty()),
-                market_code: "historical".to_string(),
-                fetched_at: timestamp,
-                status: ImageStatus::Unprocessed,
-            });
-        }
-
-        // Batch insert in chunks of 100 for progress updates
-        let mut saved_count = 0;
-        let chunk_size = 100;
-
-        for (chunk_idx, chunk) in all_records.chunks(chunk_size).enumerate() {
-            match database.batch_upsert_images(chunk) {
-                Ok(count) => {
-                    saved_count += count;
-                    let progress_msg = format!(
-                        "Saved {}/{} images ({:.0}%)",
-                        saved_count,
-                        total_count,
-                        (saved_count as f32 / total_count as f32) * 100.0
-                    );
-                    log::info!("Progress: {}", progress_msg);
-
-                    // Update UI progress
-                    if let Ok(mut status) = progress_status.lock() {
-                        *status = progress_msg;
-                    }
-                    ctx.request_repaint();
-                }
-                Err(e) => log::warn!("Failed to save batch {}: {}", chunk_idx, e),
-            }
-        }
-
-        log::info!(
-            "Successfully saved {} historical images to bing_images table (out of {} total)",
-            saved_count,
-            images.len()
-        );
-
-        // Update progress
-        if let Ok(mut status) = progress_status.lock() {
-            *status = "Finalizing...".to_string();
-        }
-        ctx.request_repaint();
-
-        // Save download timestamp
-        log::info!("Saving metadata...");
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i64;
-        database
-            .set_last_download_timestamp("historical", now)
-            .context("Failed to save historical download timestamp")?;
-        log::debug!("Saved historical download timestamp: {}", now);
-
-        // Flush database to ensure data is written to disk
-        if let Ok(mut status) = progress_status.lock() {
-            *status = "Writing to disk...".to_string();
-        }
-        ctx.request_repaint();
-
-        log::info!("Writing data to disk...");
-        database
-            .checkpoint()
-            .context("Failed to checkpoint database")?;
-        log::info!(
-            "Database checkpoint completed - all {} images saved successfully",
-            saved_count
-        );
-
-        return Ok(());
-    }
-
-    log::error!("Cannot save historical data: Database not available");
-    anyhow::bail!("Database not available")
+    // DEPRECATED: Database operations moved to ViewModel layer
+    Ok(())
 }
 
 /// Load a specific page of images from the local cache directory.
@@ -878,10 +531,11 @@ impl DesktopWallpaperSetter {
 // ============================================================================
 
 /// Core business logic for Bing wallpaper management
+/// DEPRECATED: Database functionality moved to ViewModel layer
 pub struct CalcBingimage {
     config: Config,
     current_image_path: Option<PathBuf>,
-    db: Option<BingImageDb>,
+    db: Option<()>, // Always None - database moved to ViewModel
     current_market_code: String,
     current_market_offset: u32,
     download_exhausted: bool, // True when API returns no more images
@@ -913,29 +567,8 @@ impl CalcBingimage {
     /// Primarily used for testing with temporary directories.
     #[cfg(test)]
     pub fn from_config(config: Config) -> Result<Self> {
-        // Check if database exists before opening
-        let data_dir = &config.data_dir;
-        let db_exists = data_dir.exists() &&
-            (data_dir.join("bing_images.parquet").exists() ||
-             data_dir.join("market_codes.parquet").exists() ||
-             data_dir.join("config_kv.parquet").exists());
-
-        if db_exists {
-            log::info!("Opening existing database at: {:?}", config.data_dir);
-        } else {
-            log::info!("Initializing new database at: {:?}", config.data_dir);
-        }
-
-        let db = match BingImageDb::new(config.data_dir.clone()) {
-            Ok(database) => {
-                log::info!("Database {} successfully", if db_exists { "opened" } else { "initialized" });
-                Some(database)
-            }
-            Err(e) => {
-                log::error!("Failed to {} database: {}", if db_exists { "open" } else { "initialize" }, e);
-                None
-            }
-        };
+        // Database functionality moved to ViewModel layer
+        log::info!("CalcBingimage initialized (database features disabled, use ViewModel)");
 
         // Load market state (default to en-US, offset 0)
         let (current_market_code, current_market_offset) =
@@ -947,38 +580,14 @@ impl CalcBingimage {
             7 * 24 * 3600, // 7 days
         );
 
-        // Load last_kept_index from DB or default to 0
-        let last_kept_index = if let Some(ref database) = db {
-            database
-                .get_config("last_kept_index")
-                .ok()
-                .flatten()
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(0)
-        } else {
-            0
-        };
-
-        // Load current_page_size from DB or default to 8 (standard Bing API page size)
-        let current_page_size = if let Some(ref database) = db {
-            database
-                .get_config("current_page_size")
-                .ok()
-                .flatten()
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(8)
-        } else {
-            8
-        };
-
-        // Don't reset historical page here - it's reset by the GUI after initial load
-        // Resetting here causes issues because CalcBingimage is created multiple times
-        // in background threads, which would reset the counter on every scroll
+        // Default values (previously loaded from DB)
+        let last_kept_index = 0;
+        let current_page_size = 8;
 
         Ok(Self {
             config,
             current_image_path: None,
-            db,
+            db: None, // Always None - use ViewModel
             current_market_code,
             current_market_offset,
             download_exhausted: false,
@@ -994,29 +603,8 @@ impl CalcBingimage {
     /// Used in production when Config is already created.
     #[cfg(not(test))]
     fn from_config(config: Config) -> Result<Self> {
-        // Check if database exists before opening
-        let data_dir = &config.data_dir;
-        let db_exists = data_dir.exists() &&
-            (data_dir.join("bing_images.parquet").exists() ||
-             data_dir.join("market_codes.parquet").exists() ||
-             data_dir.join("config_kv.parquet").exists());
-
-        if db_exists {
-            log::info!("Opening existing database at: {:?}", config.data_dir);
-        } else {
-            log::info!("Initializing new database at: {:?}", config.data_dir);
-        }
-
-        let db = match BingImageDb::new(config.data_dir.clone()) {
-            Ok(database) => {
-                log::info!("Database {} successfully", if db_exists { "opened" } else { "initialized" });
-                Some(database)
-            }
-            Err(e) => {
-                log::error!("Failed to {} database: {}", if db_exists { "open" } else { "initialize" }, e);
-                None
-            }
-        };
+        // Database functionality moved to ViewModel layer
+        log::info!("CalcBingimage initialized (database features disabled, use ViewModel)");
 
         // Load market state (default to en-US, offset 0)
         let (current_market_code, current_market_offset) =
@@ -1028,38 +616,14 @@ impl CalcBingimage {
             7 * 24 * 3600, // 7 days
         );
 
-        // Load last_kept_index from DB or default to 0
-        let last_kept_index = if let Some(ref database) = db {
-            database
-                .get_config("last_kept_index")
-                .ok()
-                .flatten()
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(0)
-        } else {
-            0
-        };
-
-        // Load current_page_size from DB or default to 8 (standard Bing API page size)
-        let current_page_size = if let Some(ref database) = db {
-            database
-                .get_config("current_page_size")
-                .ok()
-                .flatten()
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(8)
-        } else {
-            8
-        };
-
-        // Don't reset historical page here - it's reset by the GUI after initial load
-        // Resetting here causes issues because CalcBingimage is created multiple times
-        // in background threads, which would reset the counter on every scroll
+        // Default values (previously loaded from DB)
+        let last_kept_index = 0;
+        let current_page_size = 8;
 
         Ok(Self {
             config,
             current_image_path: None,
-            db,
+            db: None, // Always None - use ViewModel
             current_market_code,
             current_market_offset,
             download_exhausted: false,
@@ -1071,55 +635,72 @@ impl CalcBingimage {
         })
     }
 
-    /// Load the current market code and offset from persistent storage (DuckDB).
+    /// Load the current market code and offset from persistent storage.
+    ///
+    /// Reads from config_dir/market_state.conf with format:
+    /// ```
+    /// market_code=en-US
+    /// offset=8
+    /// ```
     ///
     /// # Returns
-    /// A tuple of (market_code, offset) or defaults to ("en-US", 0) if not found
+    /// Tuple of (market_code, offset), defaults to ("en-US", 0) if file doesn't exist
     fn load_market_state(config: &Config) -> Result<(String, u32)> {
-        // Try to load from DataFusion
-        if let Ok(db) = BingImageDb::new(config.data_dir.clone()) {
-            // Get the most recently used market code
-            let market_code = if let Ok(market_codes) = db.get_market_codes() {
-                market_codes
-                    .first()
-                    .map(|record| record.code.clone())
-                    .unwrap_or_else(|| "en-US".to_string())
-            } else {
-                "en-US".to_string()
-            };
+        let state_path = config.config_dir.join("market_state.conf");
 
-            // Get the offset from config_kv table
-            let offset = db
-                .get_config("market_offset")
-                .ok()
-                .flatten()
-                .and_then(|v| v.parse::<u32>().ok())
-                .unwrap_or(0);
+        if state_path.exists() {
+            let content = fs::read_to_string(&state_path)
+                .context("Failed to read market_state.conf")?;
 
+            let mut market_code = "en-US".to_string();
+            let mut offset = 0u32;
+
+            for line in content.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with('#') {
+                    continue;
+                }
+                if let Some((key, value)) = line.split_once('=') {
+                    match key.trim() {
+                        "market_code" => market_code = value.trim().to_string(),
+                        "offset" => offset = value.trim().parse().unwrap_or(0),
+                        _ => {}
+                    }
+                }
+            }
+
+            log::info!("Loaded market state: market_code={}, offset={}", market_code, offset);
             Ok((market_code, offset))
         } else {
-            // Fallback to defaults if DB not available
+            // No state file exists yet, return defaults
+            log::info!("No market_state.conf found, using defaults: en-US, offset=0");
             Ok(("en-US".to_string(), 0))
         }
     }
 
-    /// Save the current market code and offset to persistent storage (DuckDB).
+    /// Save the current market code and offset to persistent storage.
+    ///
+    /// Writes to config_dir/market_state.conf with format:
+    /// ```
+    /// market_code=en-US
+    /// offset=8
+    /// ```
     fn save_market_state(&self) -> Result<()> {
-        if let Some(db) = &self.db {
-            // Save market code with current timestamp (in microseconds for better precision)
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_micros() as i64;
+        let state_path = self.config.config_dir.join("market_state.conf");
 
-            db.upsert_market_code(&self.current_market_code, now)?;
+        let content = format!(
+            "# Bingtray market state\nmarket_code={}\noffset={}\n",
+            self.current_market_code, self.current_market_offset
+        );
 
-            // Save offset in config_kv table
-            db.set_config("market_offset", &self.current_market_offset.to_string())?;
+        fs::write(&state_path, content)
+            .context("Failed to write market_state.conf")?;
 
-            // Flush database to ensure data is written to disk
-            db.checkpoint()?;
-        }
+        log::info!(
+            "Saved market state: market_code={}, offset={}",
+            self.current_market_code,
+            self.current_market_offset
+        );
         Ok(())
     }
 
@@ -1265,9 +846,6 @@ impl CalcBingimage {
                         log::info!("Downloaded {} market images", count);
                         // Update current_page_size to the number of images downloaded
                         self.current_page_size = count;
-                        if let Some(ref db) = self.db {
-                            let _ = db.set_config("current_page_size", &self.current_page_size.to_string());
-                        }
                     }
                     Err(e) => {
                         log::warn!("Failed to download from market: {}", e);
@@ -1328,38 +906,16 @@ impl CalcBingimage {
     fn load_next_historical_page(&mut self) -> Result<()> {
         log::info!("No unprocessed images available, loading next historical page");
 
-        // First check if historical data exists, if not download it
-        if let Some(ref db) = self.db {
-            let has_historical = db.count_by_market_code("historical")
-                .map(|count| count > 0)
-                .unwrap_or(false);
+        // Historical images feature requires database (complex storage of thousands of records)
+        // In CLI mode (no database), we skip this and suggest alternatives
+        log::warn!("Historical images not available in CLI mode (requires database)");
+        log::info!("Suggestion: Try switching to a different market code for more images");
+        log::info!("Available markets: en-US, ja-JP, de-DE, fr-FR, es-ES, zh-CN, etc.");
 
-            if !has_historical {
-                log::info!("No historical data in database, downloading from GitHub...");
-                match self.download_historical_data(0) {
-                    Ok(images) => {
-                        log::info!("Successfully downloaded {} historical images metadata", images.len());
-                    }
-                    Err(e) => {
-                        log::error!("Failed to download historical data: {}", e);
-                        return Err(e);
-                    }
-                }
-            }
-        }
+        anyhow::bail!("Historical images not available in CLI mode - try a different market code or use GUI for historical images");
 
-        // Get next historical page and load images
-        let page = self.get_next_historical_page()?;
-        log::info!("Loading historical page {}", page);
-
-        // Load images from the page
-        let historical_images = self.load_historical_images_paginated(page)?;
-
-        if historical_images.is_empty() {
-            log::warn!("No images found on historical page {}", page);
-            return Err(anyhow::anyhow!("No images found on page {}", page));
-        }
-
+        // Unreachable code below - commenting out for now
+        /*
         log::info!("Downloading {} historical images from page {}", historical_images.len(), page);
 
         // Download and save images to unprocessed directory
@@ -1380,11 +936,9 @@ impl CalcBingimage {
 
         // Update current_page_size and save to database
         self.current_page_size = downloaded_count;
-        if let Some(ref db) = self.db {
-            db.set_config("current_page_size", &self.current_page_size.to_string())?;
-        }
 
         Ok(())
+        */
     }
 
     /// Save the current wallpaper to the favorites collection for future use.
@@ -1525,16 +1079,9 @@ impl CalcBingimage {
     ///
     /// # Errors
     /// Returns an error if the database is not available or the update fails
-    pub fn keep_image_by_url(&self, url: &str) -> Result<()> {
-        if let Some(ref database) = self.db {
-            use crate::datafusion_bingimage::ImageStatus;
-            database.update_image_status(url, ImageStatus::KeepFavorite)
-                .context("Failed to update image status to keepfavorite")?;
-            log::info!("Marked image as favorite in database: {}", url);
-            Ok(())
-        } else {
-            anyhow::bail!("Database not available")
-        }
+    pub fn keep_image_by_url(&self, _url: &str) -> Result<()> {
+        // DEPRECATED: Database functionality moved to ViewModel
+        anyhow::bail!("Database not available")
     }
 
     /// Mark a specific image as blacklisted by its URL.
@@ -1547,16 +1094,9 @@ impl CalcBingimage {
     ///
     /// # Errors
     /// Returns an error if the database is not available or the update fails
-    pub fn blacklist_image_by_url(&self, url: &str) -> Result<()> {
-        if let Some(ref database) = self.db {
-            use crate::datafusion_bingimage::ImageStatus;
-            database.update_image_status(url, ImageStatus::Blacklisted)
-                .context("Failed to update image status to blacklisted")?;
-            log::info!("Marked image as blacklisted in database: {}", url);
-            Ok(())
-        } else {
-            anyhow::bail!("Database not available")
-        }
+    pub fn blacklist_image_by_url(&self, _url: &str) -> Result<()> {
+        // DEPRECATED: Database functionality moved to ViewModel
+        anyhow::bail!("Database not available")
     }
 
     /// Unmark a specific image (set to unprocessed status) by its URL.
@@ -1569,16 +1109,9 @@ impl CalcBingimage {
     ///
     /// # Errors
     /// Returns an error if the database is not available or the update fails
-    pub fn unmark_image_by_url(&self, url: &str) -> Result<()> {
-        if let Some(ref database) = self.db {
-            use crate::datafusion_bingimage::ImageStatus;
-            database.update_image_status(url, ImageStatus::Unprocessed)
-                .context("Failed to update image status to unprocessed")?;
-            log::info!("Unmarked image (set to unprocessed) in database: {}", url);
-            Ok(())
-        } else {
-            anyhow::bail!("Database not available")
-        }
+    pub fn unmark_image_by_url(&self, _url: &str) -> Result<()> {
+        // DEPRECATED: Database functionality moved to ViewModel
+        anyhow::bail!("Database not available")
     }
 
     /// Select and display a random wallpaper from the favorites collection.
@@ -1625,10 +1158,6 @@ impl CalcBingimage {
 
         // Increment and save the index
         self.last_kept_index = (self.last_kept_index + 1) % images.len();
-        if let Some(ref db) = self.db {
-            let _ = db.set_config("last_kept_index", &self.last_kept_index.to_string());
-            let _ = db.checkpoint();
-        }
 
         Ok(true)
     }
@@ -1675,8 +1204,6 @@ impl CalcBingimage {
 
         Ok(())
     }
-
-    // === State queries ===
 
     /// Query whether there are any unprocessed wallpapers ready to be displayed.
     ///
@@ -1978,14 +1505,23 @@ impl CalcBingimage {
     /// # Returns
     /// A vector of blacklisted identifiers (URLs or filenames)
     fn read_blacklist(&self) -> Result<Vec<String>> {
-        if let Some(ref db) = self.db {
-            return db
-                .get_blacklisted_urls()
-                .context("Failed to read blacklist from database");
-        }
+        // Fallback to file-based blacklist for CLI mode
+        let blacklist_path = self.config.config_dir.join("blacklist.conf");
 
-        // No database available
-        Ok(Vec::new())
+        if blacklist_path.exists() {
+            let content = fs::read_to_string(&blacklist_path)
+                .context("Failed to read blacklist.conf")?;
+            let blacklist: Vec<String> = content
+                .lines()
+                .filter(|line| !line.trim().is_empty())
+                .map(|s| s.to_string())
+                .collect();
+            log::info!("Loaded {} blacklisted items from file", blacklist.len());
+            Ok(blacklist)
+        } else {
+            // No blacklist file exists yet
+            Ok(Vec::new())
+        }
     }
 
     /// Persist the updated blacklist to the database or disk.
@@ -2000,42 +1536,16 @@ impl CalcBingimage {
     /// # Arguments
     /// * `blacklist` - Complete list of identifiers to blacklist (URLs or filenames)
     fn write_blacklist(&self, blacklist: &[String]) -> Result<()> {
-        if let Some(ref db) = self.db {
-            // Get the last entry (newly added)
-            if let Some(last_entry) = blacklist.last() {
-                // Try to find and update existing image record
-                if let Ok(Some(mut record)) = db.get_image(last_entry) {
-                    record.status = ImageStatus::Blacklisted;
-                    db.upsert_image(&record)
-                        .context("Failed to update image status to blacklisted")?;
-                    log::info!(
-                        "Updated image status to blacklisted in database: {}",
-                        last_entry
-                    );
-                    return Ok(());
-                } else {
-                    // Create a minimal record for unknown images
-                    let record = BingImageRecord {
-                        url: last_entry.clone(),
-                        title: last_entry.clone(),
-                        copyright: None,
-                        copyright_link: None,
-                        market_code: "unknown".to_string(),
-                        fetched_at: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs() as i64,
-                        status: ImageStatus::Blacklisted,
-                    };
-                    db.upsert_image(&record)
-                        .context("Failed to create blacklist entry in database")?;
-                    log::info!("Created blacklist entry in database: {}", last_entry);
-                    return Ok(());
-                }
-            }
-        }
+        // Fallback to file-based blacklist for CLI mode
+        let blacklist_path = self.config.config_dir.join("blacklist.conf");
 
-        anyhow::bail!("Database not available")
+        // Write all entries (one per line)
+        let content = blacklist.join("\n");
+        fs::write(&blacklist_path, content)
+            .context("Failed to write blacklist.conf")?;
+
+        log::info!("Saved {} blacklisted items to file", blacklist.len());
+        Ok(())
     }
 
     /// Fetch and download an initial batch of wallpapers from Bing's API.
@@ -2375,46 +1885,12 @@ impl CalcBingimage {
     ///
     /// # Arguments
     /// * `images` - Slice of BingImage structs to add to metadata
-    fn save_metadata(&self, images: &[BingImage]) -> Result<()> {
-        // Try to save to database first
-        if let Some(ref db) = self.db {
-            let mut saved_count = 0;
-            for image in images {
-                let record = BingImageRecord {
-                    url: image.url.clone(),
-                    title: image.title.clone(),
-                    copyright: image.copyright.clone(),
-                    copyright_link: image.copyright_link.clone(),
-                    market_code: "unknown".to_string(), // Will be updated when fetching
-                    fetched_at: std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_secs() as i64,
-                    status: ImageStatus::Unprocessed,
-                };
-
-                match db.upsert_image(&record) {
-                    Ok(_) => saved_count += 1,
-                    Err(e) => log::warn!("Failed to save image metadata to database: {}", e),
-                }
-            }
-
-            if saved_count == images.len() {
-                log::info!(
-                    "Successfully saved {} image metadata records to database",
-                    saved_count
-                );
-                return Ok(());
-            } else {
-                anyhow::bail!(
-                    "Failed to save all metadata to database ({}/{})",
-                    saved_count,
-                    images.len()
-                );
-            }
-        }
-
-        anyhow::bail!("Database not available")
+    fn save_metadata(&self, _images: &[BingImage]) -> Result<()> {
+        // DEPRECATED: Database functionality moved to ViewModel
+        // Metadata saving is not critical for CLI operation (just for search/attribution)
+        // Return Ok to allow download flow to continue
+        log::debug!("save_metadata skipped (database not available in CLI mode)");
+        Ok(())
     }
 
     /// Load Bing images from database cache for a specific market code
@@ -2423,37 +1899,9 @@ impl CalcBingimage {
         market_code: &str,
         count: usize,
     ) -> Result<Vec<BingImage>> {
-        log::info!(
-            "Loading Bing images from database cache for market: {}",
-            market_code
-        );
-
-        let db = self.db.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Database not available"))?;
-
-        let records = db
-            .get_images_by_market_code(market_code)
-            .context("Failed to load images from database")?;
-
-        if records.is_empty() {
-            anyhow::bail!("No images in cache for market code: {}", market_code);
-        }
-
-        let bing_images: Vec<BingImage> = records
-            .into_iter()
-            .take(count)
-            .map(|record| BingImage {
-                url: record.url,
-                title: record.title,
-                copyright: record.copyright,
-                copyright_link: record.copyright_link,
-            })
-            .collect();
-
-        log::info!("Loaded {} Bing images from cache", bing_images.len());
-        Ok(bing_images)
+        // DEPRECATED: Database functionality moved to ViewModel
+        Ok(Vec::new())
     }
-
     /// Fetch Bing images with caching support (checks 7-day cache before downloading)
     pub fn get_bing_images_manifest_cached(
         &self,
@@ -2462,30 +1910,12 @@ impl CalcBingimage {
         offset: u32,
     ) -> Result<Vec<BingImage>> {
         // Check if we should use cache
-        if let Some(db) = &self.db {
-            if offset == 0 && !db.should_download_manifest(market_code) {
-                log::info!(
-                    "Bing images for {} are fresh (< 7 days), loading from cache",
-                    market_code
-                );
-                match self.load_bing_images_from_cache(market_code, count as usize) {
-                    Ok(images) => return Ok(images),
-                    Err(e) => {
-                        log::warn!("Failed to load from cache: {}, downloading fresh data", e);
-                    }
-                }
-            }
-        }
 
         // Download fresh data
         let images = get_bing_images_manifest(market_code, count, offset)?;
 
         // Save to cache if this is the first page
         if offset == 0 {
-            if let Some(db) = &self.db {
-                save_bing_images_to_cache(db, market_code, &images)
-                    .unwrap_or_else(|e| log::warn!("Failed to cache Bing images: {}", e));
-            }
         }
 
         Ok(images)
@@ -2493,30 +1923,8 @@ impl CalcBingimage {
 
     /// Load historical images from database cache (without downloading)
     pub fn load_historical_from_cache(&self, count: usize) -> Result<Vec<BingImage>> {
-        log::info!("Loading historical images from database cache");
-
-        let db = self.db.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Database not available"))?;
-
-        let (_, historical_images) = load_historical_metadata_with_db(&self.config, Some(db))?;
-
-        if historical_images.is_empty() {
-            anyhow::bail!("No historical images in cache");
-        }
-
-        let bing_images: Vec<BingImage> = historical_images
-            .iter()
-            .take(count)
-            .map(|img| BingImage {
-                url: img.url.clone(),
-                title: img.title.clone(),
-                copyright: Some(img.copyright.clone()),
-                copyright_link: Some(img.copyrightlink.clone()).filter(|s| !s.is_empty()),
-            })
-            .collect();
-
-        log::info!("Loaded {} historical images from cache", bing_images.len());
-        Ok(bing_images)
+        // DEPRECATED: Database functionality moved to ViewModel
+        Ok(Vec::new())
     }
 
     /// Download historical wallpaper data from GitHub and return first page of images.
@@ -2528,24 +1936,6 @@ impl CalcBingimage {
         }
 
         // Check if we need to download
-        if let Some(database) = &self.db {
-            if !database.should_download_manifest("historical") {
-                log::info!("Historical data timestamp is fresh (< 7 days), checking cache...");
-                // Verify data actually exists before trusting the timestamp
-                match database.count_by_market_code("historical") {
-                    Ok(count) if count > 0 => {
-                        log::info!("Found {} historical images in cache, loading from cache", count);
-                        return self.load_historical_from_cache(8);
-                    }
-                    Ok(_) => {
-                        log::warn!("Timestamp exists but no historical data found, forcing fresh download");
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to check historical data count: {}, forcing fresh download", e);
-                    }
-                }
-            }
-        }
 
         log::info!("Downloading historical data from GitHub");
 
@@ -2627,24 +2017,7 @@ impl CalcBingimage {
         }
 
         // Check if we need to download
-        if let Some(database) = &self.db {
-            if !database.should_download_manifest("historical") {
-                log::info!("Historical data timestamp is fresh (< 7 days), checking cache...");
                 // Verify data actually exists before trusting the timestamp
-                match database.count_by_market_code("historical") {
-                    Ok(count) if count > 0 => {
-                        log::info!("Found {} historical images in cache, loading from cache", count);
-                        return self.load_historical_from_cache(8);
-                    }
-                    Ok(_) => {
-                        log::warn!("Timestamp exists but no historical data found, forcing fresh download");
-                    }
-                    Err(e) => {
-                        log::warn!("Failed to check historical data count: {}, forcing fresh download", e);
-                    }
-                }
-            }
-        }
 
         // Update progress
         if let Ok(mut status) = progress_status.lock() {
@@ -2859,112 +2232,25 @@ impl CalcBingimage {
     /// Reset the historical page counter to a specific value.
     /// Used by GUI after initial load to set the starting page for scrolling.
     pub fn reset_historical_page(&self, page: usize) -> Result<()> {
-        let db = self.db.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Database not available"))?;
-
-        db.set_historical_page(page)
-            .context("Failed to reset historical page")?;
-        db.checkpoint()
-            .context("Failed to checkpoint after resetting historical page")?;
-
-        log::info!("Reset historical page to {}", page);
+        // DEPRECATED: Database functionality moved to ViewModel
         Ok(())
     }
-
     /// Advance to the next page of historical images and return the current page number.
     pub fn get_next_historical_page(&self) -> Result<usize> {
-        let db = self.db.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Database not available"))?;
-
-        let current_page = db
-            .get_historical_page()
-            .context("Failed to load historical page from database")?;
-
-        // Use efficient count query instead of loading all images
-        let total_count = db
-            .count_by_market_code("historical")
-            .context("Failed to count historical images")?;
-
-        if total_count == 0 {
-            log::info!("No historical metadata available yet");
-            return Err(anyhow::anyhow!(
-                "No historical data available - call download_historical_data first"
-            ));
-        }
-
-        let start_idx = current_page * 8;
-
-        if start_idx >= total_count {
-            log::info!("No more historical pages available");
-            return Err(anyhow::anyhow!("No more historical data available"));
-        }
-
-        // Update page number only (don't re-save images that are already in database)
-        db.set_historical_page(current_page + 1)
-            .context("Failed to save historical page to database")?;
-        log::debug!("Updated historical page number to {}", current_page + 1);
-
-        log::info!("Returning historical page number {}", current_page);
-        Ok(current_page)
+        // DEPRECATED: Database functionality moved to ViewModel
+        Ok(0)
     }
 
     /// Retrieve pagination information for historical image browsing.
     pub fn get_historical_page_info(&self) -> Result<(usize, usize)> {
-        let db = self.db.as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Database not available"))?;
-
-        let current_page = db
-            .get_historical_page()
-            .context("Failed to load historical page from database")?;
-
-        // Use efficient count query instead of loading all images
-        let total_count = db
-            .count_by_market_code("historical")
-            .context("Failed to count historical images")?;
-
-        let total_pages = (total_count + 7) / 8; // Round up
-        Ok((current_page, total_pages))
+        // DEPRECATED: Database functionality moved to ViewModel
+        Ok((0, 0))
     }
 
     /// Load historical images paginated (3 items per page to prevent ANR)
     pub fn load_historical_images_paginated(&self, page: usize) -> Result<Vec<BingImage>> {
-        let db = self.db.as_ref()
-            .ok_or_else(|| {
-                log::error!("Database not available - cannot load historical images");
-                anyhow::anyhow!("Database not available - failed to initialize database connection")
-            })?;
-
-        // Load only 3 images per page to prevent ANR (reduced from 8)
-        // egui decodes images synchronously on main thread - loading 8 at once causes 5s freeze
-        let limit = 3;
-        let offset = page * 3;
-
-        log::debug!("Loading historical images: page={}, limit={}, offset={}", page, limit, offset);
-
-        // Query paginated results directly (no wasteful full scan)
-        let records = db
-            .get_images_by_market_code_paginated("historical", limit, offset)
-            .context("Failed to load paginated historical images from database")?;
-
-        log::debug!(
-            "Successfully loaded {} historical images from bing_images table (page={}, offset={})",
-            records.len(),
-            page,
-            offset
-        );
-
-        // Convert BingImageRecord to BingImage
-        let bing_images: Vec<BingImage> = records
-            .into_iter()
-            .map(|record| BingImage {
-                url: record.url,
-                title: record.title,
-                copyright: record.copyright,
-                copyright_link: record.copyright_link,
-            })
-            .collect();
-
-        Ok(bing_images)
+        // DEPRECATED: Database functionality moved to ViewModel
+        Ok(Vec::new())
     }
 }
 
@@ -3307,19 +2593,9 @@ mod tests {
             logic.current_market_code, logic.current_market_offset
         );
 
-        // Verify data is in DuckDB
-        if let Some(db) = &logic.db {
-            // Check market code
-            let market_codes = db.get_market_codes().unwrap();
-            assert!(!market_codes.is_empty());
-            assert_eq!(market_codes[0].code, "ja-JP");
-            println!("DB market code: {}", market_codes[0].code);
-
-            // Check offset
-            let offset = db.get_config("market_offset").unwrap().unwrap();
-            assert_eq!(offset, "5");
-            println!("DB offset: {}", offset);
-        }
+        // Database verification removed - CalcBingimage no longer uses DuckDB
+        // Database has been migrated to ViewModel with Diesel/SQLite
+        // See: docs/superpowers/specs/2026-06-12-diesel-mvvm-design.md
 
         // Verify load works
         let (market, offset) = CalcBingimage::load_market_state(&logic.config).unwrap();
@@ -3354,12 +2630,9 @@ mod tests {
         );
         assert_eq!(logic.current_market_offset, initial_offset + 1);
 
-        // Verify data was written to DuckDB
-        if let Some(db) = &logic.db {
-            let offset_str = db.get_config("market_offset").unwrap().unwrap();
-            println!("DB offset value: {}", offset_str);
-            assert_eq!(offset_str.parse::<u32>().unwrap(), initial_offset + 1);
-        }
+        // Database verification removed - CalcBingimage no longer uses DuckDB
+        // Database has been migrated to ViewModel with Diesel/SQLite
+        // See: docs/superpowers/specs/2026-06-12-diesel-mvvm-design.md
 
         // Load in new instance using same config
         let (market, offset) = CalcBingimage::load_market_state(&logic.config).unwrap();

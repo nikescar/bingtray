@@ -115,7 +115,7 @@ impl Resource {
 }
 
 /// Main Bingtray application state
-#[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub struct BingtrayApp {
     title: String,
@@ -334,12 +334,11 @@ impl Default for BingtrayApp {
             )))
         };
 
-        // Initialize database before moving config
-        let db = config.as_ref().and_then(|cfg| {
-            None // BingImageDb removed - use ViewModel instead
-                .inspect_err(|e| warn!("Failed to open database: {}", e))
-                .ok()
-                .map(Arc::new)
+        // Database initialization removed - now handled by ViewModel
+
+        // Initialize ViewModel with async mode for GUI
+        let viewmodel = config.as_ref().and_then(|c| {
+            crate::viewmodel::ViewModel::new_async(c.config_dir.join("bingtray.db")).ok()
         });
 
         Self {
@@ -400,18 +399,7 @@ impl Default for BingtrayApp {
             },
             screen_size_provider: None,
             tray_logic: CalcBingimage::new().ok(),
-            viewmodel: {
-                #[cfg(not(feature = "cli-only"))]
-                {
-                    config.as_ref().and_then(|c| {
-                        crate::viewmodel::ViewModel::new_async(c.config_dir.join("bingtray.db")).ok()
-                    })
-                }
-                #[cfg(feature = "cli-only")]
-                {
-                    None
-                }
-            },
+            viewmodel,
             user_mismatch_warning,
             // Menu state
             menu_open: false,
@@ -444,8 +432,7 @@ impl Default for BingtrayApp {
             update_latest_version: String::new(),
             // HTTP cache
             ehttp_cache,
-            // Database
-            db,
+            // Database removed - now handled by ViewModel
             // Carousel filter (0: All, 1: Favorite, 2: Blacklisted)
             carousel_filter: Some(0),
             // Track if cached image has been loaded
@@ -459,7 +446,6 @@ impl Default for BingtrayApp {
 impl eframe::App for BingtrayApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Poll ViewModel events
-        #[cfg(not(feature = "cli-only"))]
         if let Some(ref viewmodel) = self.viewmodel {
             for event in viewmodel.poll_events() {
                 use crate::viewmodel::ViewModelEvent;
@@ -3333,7 +3319,6 @@ impl BingtrayApp {
 impl Drop for BingtrayApp {
     fn drop(&mut self) {
         log::info!("Shutting down BingTrayApp");
-        #[cfg(not(feature = "cli-only"))]
         if let Some(ref viewmodel) = self.viewmodel {
             viewmodel.send_command(crate::viewmodel::ViewModelCommand::Shutdown).ok();
         }

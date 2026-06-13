@@ -184,11 +184,7 @@ fn main() -> Result<()> {
     } else if std::io::stdout().is_terminal() {
         // Terminal mode - run CLI interface
         log::info!("Running in CLI mode (terminal detected)");
-
-        let mut logic = bingtray::calc_bingimage::CalcBingimage::new()?;
-        logic.initialize()?;
-
-        bingtray::cli::run_cli_mode(&mut logic)?;
+        bingtray::cli::run_cli_mode()?;
     } else {
         // Tray mode (default for double-click on Windows - no terminal, no flags)
         log::info!("Running in tray mode (default - no terminal detected)");

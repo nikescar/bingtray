@@ -8,8 +8,6 @@ rust-version.workspace = true
 
 [features]
 default = ["serde"]
-desktop = []
-cli-only = []
 serde = ["dep:serde", "dep:serde_json"]
 
 [lib]
@@ -19,8 +17,8 @@ crate-type = ["cdylib", "rlib"]
 [[bin]]
 name = "bingtray"
 path = "src/main.rs"
-# Binary is desktop-only (Android uses lib entry point via android_main)
-required-features = ["desktop"]
+# Binary supports all modes: GUI, tray, and CLI
+# Android uses lib entry point via android_main
 
 [dependencies]
 # Core dependencies
@@ -33,7 +31,7 @@ chrono = "0.4"
 # Database
 diesel = { version = "2.3.0", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
 diesel_migrations = "2.3.0"
-asupersync = { git = "https://github.com/Dicklesworthstone/asupersync" }
+asupersync = "0.3.4"
 
 # UI framework
 egui = { workspace = true }

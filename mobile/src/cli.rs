@@ -1,17 +1,34 @@
 //! CLI interface for Bingtray (Desktop only)
 //!
 //! Provides a simple menu-driven REPL for managing Bing wallpapers
-//! 
-//! For CLI interface, since there is no ui, set/keep/black operation 
+//!
+//! For CLI interface, since there is no ui, set/keep/black operation
 //! is based on current wallpaper image on desktop.
-//! 
+//!
 
-use crate::calc_bingimage::CalcBingimage;
-use anyhow::Result;
+use crate::viewmodel::ViewModel;
+use anyhow::{Context, Result};
 use std::io::{self, Write};
+use std::path::PathBuf;
 
 /// Run the CLI mode with a REPL loop
-pub fn run_cli_mode(logic: &mut CalcBingimage) -> Result<()> {
+pub fn run_cli_mode() -> Result<()> {
+    // Get platform-specific config directory
+    // Linux: ~/.config/bingtray/bingtray.db
+    // Windows: %APPDATA%\bingtray\bingtray.db
+    // macOS: ~/Library/Application Support/bingtray/bingtray.db
+    let db_path = dirs::config_dir()
+        .context("Could not determine config directory")?
+        .join("bingtray")
+        .join("bingtray.db");
+
+    // Create config directory if it doesn't exist
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let viewmodel = ViewModel::new_sync(db_path)?;
+
     println!(
         "Bingtray v{} - Bing Wallpaper Manager",
         env!("CARGO_PKG_VERSION")
@@ -21,7 +38,7 @@ pub fn run_cli_mode(logic: &mut CalcBingimage) -> Result<()> {
 
     loop {
         // Display menu
-        print_menu(logic);
+        print_menu();
 
         // Read user input
         print!("\nEnter your choice: ");
@@ -36,83 +53,23 @@ pub fn run_cli_mode(logic: &mut CalcBingimage) -> Result<()> {
         match choice {
             "0" => {
                 // Open cache directory
-                match logic.open_cache_directory() {
-                    Ok(_) => println!("✓ Opened cache directory"),
-                    Err(e) => println!("✗ Error: {}", e),
-                }
+                handle_open_cache_directory()?;
             }
             "1" => {
-                // Next market wallpaper
-                println!("⏳ Downloading and setting next wallpaper...");
-                match logic.set_next_market_wallpaper() {
-                    Ok(true) => {
-                        println!("✓ Wallpaper set successfully!");
-                        println!("  Current: {}", logic.get_current_image_title());
-                    }
-                    Ok(false) => {
-                        println!("⚠ No wallpapers available. Please download more images.");
-                    }
-                    Err(e) => println!("✗ Error: {}", e),
-                }
+                // Download & Set Next Wallpaper
+                handle_download_and_set_next(&viewmodel)?;
             }
             "2" => {
-                // Keep current image
-                if logic.can_keep() {
-                    println!("⏳ Moving to favorites...");
-                    match logic.keep_current_image() {
-                        Ok(_) => {
-                            println!("✓ Image moved to favorites!");
-                            if logic.can_keep() {
-                                println!("  Current: {}", logic.get_current_image_title());
-                            } else {
-                                println!("  No more images available");
-                            }
-                        }
-                        Err(e) => println!("✗ Error: {}", e),
-                    }
-                } else {
-                    println!("⚠ No current image to keep");
-                }
+                // Keep Current Wallpaper
+                handle_keep_current_wallpaper(&viewmodel)?;
             }
             "3" => {
-                // Blacklist current image
-                if logic.can_blacklist() {
-                    let title = logic.get_current_image_title();
-                    println!("⏳ Blacklisting \"{}\"...", title);
-                    match logic.blacklist_current_image() {
-                        Ok(_) => {
-                            println!("✓ Image blacklisted!");
-                            if logic.can_blacklist() {
-                                println!("  Current: {}", logic.get_current_image_title());
-                            } else {
-                                println!("  No more images available");
-                            }
-                        }
-                        Err(e) => println!("✗ Error: {}", e),
-                    }
-                } else {
-                    println!("⚠ No current image to blacklist");
-                }
+                // Blacklist Current Wallpaper
+                handle_blacklist_current_wallpaper(&viewmodel)?;
             }
             "4" => {
-                // Set random favorite wallpaper
-                if logic.has_kept_wallpapers() {
-                    println!("⏳ Setting random favorite wallpaper...");
-                    match logic.set_kept_wallpaper() {
-                        Ok(true) => {
-                            println!("✓ Favorite wallpaper set!");
-                            println!("  Current: {}", logic.get_current_image_title());
-                        }
-                        Ok(false) => {
-                            println!("⚠ No favorite wallpapers available");
-                        }
-                        Err(e) => println!("✗ Error: {}", e),
-                    }
-                } else {
-                    println!(
-                        "⚠ No favorite wallpapers available. Use option 2 to keep some first."
-                    );
-                }
+                // Set Random Favorite
+                handle_set_random_favorite(&viewmodel)?;
             }
             "5" | "q" | "quit" | "exit" => {
                 println!("\nGoodbye!");
@@ -133,49 +90,90 @@ pub fn run_cli_mode(logic: &mut CalcBingimage) -> Result<()> {
     Ok(())
 }
 
-/// Print the menu with current state
-fn print_menu(logic: &CalcBingimage) {
+/// Print the menu
+fn print_menu() {
     println!("═══════════════════════════════════════════════════════════");
     println!("MENU:");
     println!("  0. Open Cache Directory");
-    println!(
-        "  1. Download & Set Next Wallpaper{}\n     {}",
-        if logic.has_next_available() {
-            ""
-        } else {
-            " (downloading...)"
-        },
-        logic.get_wallpaper_page_status()
-    );
-
-    // Display current wallpaper title
-    let current_title = logic.get_current_image_title();
-    if !current_title.is_empty() {
-        println!("     📷 Current: \"{}\"", current_title);
-    } else {
-        println!("     📷 Current: (no wallpaper set)");
-    }
-
-    if logic.can_keep() {
-        println!("  2. Keep \"{}\"", logic.get_current_image_title());
-    } else {
-        println!("  2. Keep Current Image (no current image)");
-    }
-
-    if logic.can_blacklist() {
-        println!("  3. Blacklist \"{}\"", logic.get_current_image_title());
-    } else {
-        println!("  3. Blacklist Current Image (no current image)");
-    }
-
-    println!(
-        "  4. Random Favorite Wallpaper{}",
-        if logic.has_kept_wallpapers() {
-            ""
-        } else {
-            " (no favorites yet)"
-        }
-    );
+    println!("  1. Download & Set Next Wallpaper");
+    println!("  2. Keep Current Wallpaper");
+    println!("  3. Blacklist Current Wallpaper");
+    println!("  4. Set Random Favorite");
     println!("  5. Exit");
     println!("═══════════════════════════════════════════════════════════");
+}
+
+/// Handle option 0: Open Cache Directory
+fn handle_open_cache_directory() -> Result<()> {
+    let cache_dir = dirs::cache_dir()
+        .context("Could not determine cache directory")?
+        .join("bingtray");
+
+    // Create cache directory if it doesn't exist
+    std::fs::create_dir_all(&cache_dir)?;
+
+    opener::open(&cache_dir)?;
+    println!("✓ Opened cache directory");
+    Ok(())
+}
+
+/// Handle option 1: Download & Set Next Wallpaper
+fn handle_download_and_set_next(viewmodel: &ViewModel) -> Result<()> {
+    println!("⏳ Downloading and setting wallpaper...");
+    match viewmodel.download_and_set_next_wallpaper_sync() {
+        Ok(result) => {
+            println!("✓ Wallpaper set successfully!");
+            println!("  Title: {}", result.title);
+        }
+        Err(e) => println!("✗ Error: {}", e),
+    }
+    Ok(())
+}
+
+/// Handle option 2: Keep Current Wallpaper
+fn handle_keep_current_wallpaper(viewmodel: &ViewModel) -> Result<()> {
+    println!("⏳ Marking current wallpaper as favorite...");
+    match viewmodel.keep_current_wallpaper_sync() {
+        Ok(Some(title)) => {
+            println!("✓ Kept: \"{}\"", title);
+        }
+        Ok(None) => {
+            println!("⚠ No matching wallpaper found in database");
+            println!("  (Current wallpaper may not be from BingTray)");
+        }
+        Err(e) => println!("✗ Error: {}", e),
+    }
+    Ok(())
+}
+
+/// Handle option 3: Blacklist Current Wallpaper
+fn handle_blacklist_current_wallpaper(viewmodel: &ViewModel) -> Result<()> {
+    println!("⏳ Blacklisting current wallpaper...");
+    match viewmodel.blacklist_current_wallpaper_sync() {
+        Ok(Some(title)) => {
+            println!("✓ Blacklisted: \"{}\"", title);
+        }
+        Ok(None) => {
+            println!("⚠ No matching wallpaper found in database");
+            println!("  (Current wallpaper may not be from BingTray)");
+        }
+        Err(e) => println!("✗ Error: {}", e),
+    }
+    Ok(())
+}
+
+/// Handle option 4: Set Random Favorite
+fn handle_set_random_favorite(viewmodel: &ViewModel) -> Result<()> {
+    println!("⏳ Setting random favorite wallpaper...");
+    match viewmodel.set_random_favorite_wallpaper_sync() {
+        Ok(Some(title)) => {
+            println!("✓ Set favorite: \"{}\"", title);
+        }
+        Ok(None) => {
+            println!("⚠ No favorites available");
+            println!("  Use option 2 to keep some wallpapers first.");
+        }
+        Err(e) => println!("✗ Error: {}", e),
+    }
+    Ok(())
 }

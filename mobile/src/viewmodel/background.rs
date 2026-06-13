@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use super::{ViewModelCommand, ViewModelEvent};
 
 /// Background thread message loop (GUI/Android only)
-#[cfg(not(feature = "cli-only"))]
 pub fn run_background_loop(
     db_path: PathBuf,
     cmd_rx: Receiver<ViewModelCommand>,
@@ -33,7 +32,6 @@ pub fn run_background_loop(
     log::info!("ViewModel background thread stopped");
 }
 
-#[cfg(not(feature = "cli-only"))]
 fn handle_command(
     _runtime: &asupersync::runtime::Runtime,
     conn: &mut diesel::SqliteConnection,

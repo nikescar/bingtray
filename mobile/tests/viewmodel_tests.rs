@@ -1,5 +1,7 @@
 #[cfg(not(feature = "cli-only"))]
 use bingtray::viewmodel::{ViewModel, ViewModelCommand, ViewModelEvent};
+#[cfg(feature = "cli-only")]
+use bingtray::viewmodel::ViewModel;
 use bingtray::db::ImageStatus;
 use tempfile::TempDir;
 use std::thread;

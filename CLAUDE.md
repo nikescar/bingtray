@@ -106,15 +106,21 @@ bingtray/
 
 ## 6. Entry Points
 
-1. **Desktop GUI App**: `cargo run --features desktop`
+All entry points are available in a single binary. The mode is determined at runtime:
+
+1. **Desktop GUI App**: `cargo run -- --gui`
    - Tray icon + egui window
    - ViewModel in async mode
 
-2. **CLI**: `cargo run --features cli-only`
-   - Terminal-only interface
-   - ViewModel in sync mode
+2. **Tray Mode**: `cargo run -- --tray` (or default when no terminal)
+   - System tray icon only
+   - ViewModel in async mode
 
-3. **Android**: Built via gradle
+3. **CLI**: `cargo run` (when run from terminal)
+   - Terminal-only interface
+   - ViewModel in sync mode (no background thread overhead)
+
+4. **Android**: Built via gradle
    - Native activity
    - ViewModel in async mode
 
@@ -159,12 +165,16 @@ Used for structured concurrency in I/O tasks:
 
 ### ViewModel Threading
 
-Desktop/Android apps use background thread pattern from `reference/mvvm.rs`:
+**Runtime Mode Selection**:
+- **GUI/Tray/Android**: `ViewModel::new_async()` - Uses background thread with async runtime
+- **CLI**: `ViewModel::new_sync()` - Direct synchronous calls, no threading overhead
+
+Background thread pattern (GUI/Android) from `reference/mvvm.rs`:
 - UI thread: egui rendering + event polling
 - Background thread: Asupersync runtime processing ViewModelCommands
 - Communication: `std::sync::mpsc` channels
 
-CLI bypasses threading - direct synchronous calls to ViewModel methods.
+CLI mode uses direct function calls with no message passing.
 
 ## 9. Testing
 
@@ -191,14 +201,35 @@ CLI bypasses threading - direct synchronous calls to ViewModel methods.
 Run tests:
 ```bash
 cargo test --manifest-path mobile/Cargo.toml
-cargo test --features cli-only  # CLI-specific tests
 ```
 
-## 10. Build Profiles
+## 10. Build
+
+### Single Binary for All Modes
+
+A single `cargo build` produces a binary that supports all modes (GUI, tray, CLI):
+
+```bash
+# Development build (all modes included)
+cargo build
+
+# Release build (all modes included)
+cargo build --release
+```
+
+### Build Profiles
 
 - `dev`: Fast incremental builds (opt-level 0)
 - `dev-release`: Optimized without LTO for iteration
 - `release`: Full optimization with LTO and symbol stripping
+
+### Runtime Mode Selection
+
+The binary automatically selects the appropriate mode:
+- **Terminal detected**: CLI mode (sync ViewModel)
+- **`--gui` flag**: GUI window mode (async ViewModel)
+- **`--tray` flag**: Tray mode (async ViewModel)
+- **Double-click / no terminal**: Tray mode (async ViewModel)
 
 ## 11. Dependencies
 
@@ -247,9 +278,12 @@ cargo test --features cli-only  # CLI-specific tests
 ## 13. Development Workflow
 
 1. **Start development**: Edit code in `mobile/src/`
-2. **Run locally**: `cargo run --features desktop`
+2. **Run locally**:
+   - GUI mode: `cargo run -- --gui`
+   - Tray mode: `cargo run -- --tray`
+   - CLI mode: `cargo run` (from terminal)
 3. **Test**: `cargo test --manifest-path mobile/Cargo.toml`
-4. **Build release**: `cargo build --release --features desktop`
+4. **Build release**: `cargo build --release`
 5. **Format**: `cargo fmt`
 6. **Lint**: `cargo clippy`
 
@@ -264,7 +298,7 @@ cargo test --features cli-only  # CLI-specific tests
 ### CLI
 
 - Entry point: `mobile/src/cli.rs`
-- Feature flag: `cli-only`
+- Detection: Terminal detected via `std::io::stdout().is_terminal()`
 - ViewModel: Uses sync mode (no background thread)
 
 ### Desktop
