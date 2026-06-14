@@ -465,3 +465,98 @@ pub fn download_and_set_next_wallpaper_sync(conn: &mut SqliteConnection) -> Resu
         url: image.url.clone(),
     })
 }
+
+// ============================================================================
+// Instant Keep/Blacklist Operations (using cache)
+// ============================================================================
+
+use super::cache_manager::CacheManager;
+use std::sync::Arc;
+
+/// Keep current wallpaper as favorite, set next wallpaper instantly
+pub fn keep_current_wallpaper_instant_sync(
+    conn: &mut SqliteConnection,
+    cache_mgr: &Arc<CacheManager>,
+) -> Result<String> {
+    use crate::db::operations;
+
+    // 1. Get current wallpaper URL
+    let url = get_current_desktop_wallpaper_url_sync(conn)?
+        .ok_or_else(|| anyhow::anyhow!("No current wallpaper"))?;
+
+    log::info!("Keeping current wallpaper: {}", url);
+
+    // 2. Mark as favorite (instant database update)
+    operations::update_image_status(conn, &url, ImageStatus::KeepFavorite)?;
+
+    // 3. Get next cached image (pre-downloaded)
+    let next_image = cache_mgr.get_next_cached_image()?
+        .ok_or_else(|| anyhow::anyhow!("No cached images available"))?;
+
+    log::info!("Setting next wallpaper: {}", next_image.title);
+
+    // 4. Load from local cache (instant, no network)
+    let bytes = cache_mgr.load_cached_bytes(&next_image.url)?;
+
+    // 5. Set wallpaper
+    crate::api_setwallpaper::set_wallpaper_from_bytes(&bytes)?;
+
+    // 6. Update current wallpaper tracking
+    operations::set_config(conn, "current_wallpaper_url", &next_image.url)?;
+
+    // 7. Trigger background cache refill if count < 3
+    if cache_mgr.needs_refill()? {
+        let cache_clone = cache_mgr.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = cache_clone.refill_background() {
+                log::error!("Background refill failed: {}", e);
+            }
+        });
+    }
+
+    Ok(next_image.title)
+}
+
+/// Blacklist current wallpaper, set next wallpaper instantly
+pub fn blacklist_current_wallpaper_instant_sync(
+    conn: &mut SqliteConnection,
+    cache_mgr: &Arc<CacheManager>,
+) -> Result<String> {
+    use crate::db::operations;
+
+    // 1. Get current wallpaper URL
+    let url = get_current_desktop_wallpaper_url_sync(conn)?
+        .ok_or_else(|| anyhow::anyhow!("No current wallpaper"))?;
+
+    log::info!("Blacklisting current wallpaper: {}", url);
+
+    // 2. Mark as blacklisted (instant database update)
+    operations::update_image_status(conn, &url, ImageStatus::Blacklisted)?;
+
+    // 3. Get next cached image (pre-downloaded)
+    let next_image = cache_mgr.get_next_cached_image()?
+        .ok_or_else(|| anyhow::anyhow!("No cached images available"))?;
+
+    log::info!("Setting next wallpaper: {}", next_image.title);
+
+    // 4. Load from local cache (instant, no network)
+    let bytes = cache_mgr.load_cached_bytes(&next_image.url)?;
+
+    // 5. Set wallpaper
+    crate::api_setwallpaper::set_wallpaper_from_bytes(&bytes)?;
+
+    // 6. Update current wallpaper tracking
+    operations::set_config(conn, "current_wallpaper_url", &next_image.url)?;
+
+    // 7. Trigger background cache refill if count < 3
+    if cache_mgr.needs_refill()? {
+        let cache_clone = cache_mgr.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = cache_clone.refill_background() {
+                log::error!("Background refill failed: {}", e);
+            }
+        });
+    }
+
+    Ok(next_image.title)
+}

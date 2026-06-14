@@ -2,6 +2,7 @@ use crate::db::{BingImage, ImageStatus};
 use diesel::prelude::*;
 use std::sync::mpsc::{Sender, Receiver};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 pub mod background;
 pub mod commands;
@@ -44,6 +45,7 @@ pub struct ViewModel {
     db_path: PathBuf,
     command_tx: Option<Sender<ViewModelCommand>>,
     event_rx: Option<Receiver<ViewModelEvent>>,
+    cache_manager: Option<Arc<cache_manager::CacheManager>>,
 }
 
 use anyhow::Result;
@@ -55,6 +57,27 @@ impl ViewModel {
         let (cmd_tx, cmd_rx) = channel();
         let (evt_tx, evt_rx) = channel();
 
+        // Initialize cache manager
+        let cache_dir = db_path.parent()
+            .ok_or_else(|| anyhow::anyhow!("Invalid db_path"))?
+            .join("cache")
+            .join("images");
+
+        let sources = Arc::new(sources::ImageSource::new(None));
+        let cache_manager = Arc::new(cache_manager::CacheManager::new(
+            cache_dir,
+            db_path.clone(),
+            Some(sources),
+        ));
+
+        // Initialize cache on startup (3 images) in background
+        let cache_clone = cache_manager.clone();
+        std::thread::spawn(move || {
+            if let Err(e) = cache_clone.initialize() {
+                log::error!("Cache initialization failed: {}", e);
+            }
+        });
+
         let db_path_clone = db_path.clone();
         std::thread::spawn(move || {
             background::run_background_loop(db_path_clone, cmd_rx, evt_tx);
@@ -64,6 +87,7 @@ impl ViewModel {
             db_path,
             command_tx: Some(cmd_tx),
             event_rx: Some(evt_rx),
+            cache_manager: Some(cache_manager),
         })
     }
 
@@ -85,11 +109,35 @@ impl ViewModel {
 
     /// Create sync ViewModel (CLI only)
     pub fn new_sync(db_path: PathBuf) -> Result<Self> {
+        // Initialize cache manager
+        let cache_dir = db_path.parent()
+            .ok_or_else(|| anyhow::anyhow!("Invalid db_path"))?
+            .join("cache")
+            .join("images");
+
+        let sources = Arc::new(sources::ImageSource::new(None));
+        let cache_manager = Arc::new(cache_manager::CacheManager::new(
+            cache_dir,
+            db_path.clone(),
+            Some(sources),
+        ));
+
         Ok(Self {
             db_path,
             command_tx: None,
             event_rx: None,
+            cache_manager: Some(cache_manager),
         })
+    }
+
+    /// Check if ViewModel has cache manager
+    pub fn has_cache_manager(&self) -> bool {
+        self.cache_manager.is_some()
+    }
+
+    /// Get cache manager reference
+    pub fn cache_manager(&self) -> Option<&Arc<cache_manager::CacheManager>> {
+        self.cache_manager.as_ref()
     }
 
     // ========================================================================
@@ -177,5 +225,23 @@ impl ViewModel {
     /// Get database connection (for testing purposes)
     pub fn db_connection(&self) -> Result<SqliteConnection> {
         Ok(crate::db::establish_connection(&self.db_path))
+    }
+
+    /// Keep current wallpaper as favorite, set next instantly (CLI only)
+    pub fn keep_current_wallpaper_instant_sync(&self) -> Result<String> {
+        let mut conn = crate::db::establish_connection(&self.db_path);
+        let cache_mgr = self.cache_manager.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Cache manager not available"))?;
+
+        commands::keep_current_wallpaper_instant_sync(&mut conn, cache_mgr)
+    }
+
+    /// Blacklist current wallpaper, set next instantly (CLI only)
+    pub fn blacklist_current_wallpaper_instant_sync(&self) -> Result<String> {
+        let mut conn = crate::db::establish_connection(&self.db_path);
+        let cache_mgr = self.cache_manager.as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Cache manager not available"))?;
+
+        commands::blacklist_current_wallpaper_instant_sync(&mut conn, cache_mgr)
     }
 }
