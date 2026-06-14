@@ -14,10 +14,10 @@ pub fn extract_identifier(url: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// Extract markdown content from HTML response (for GitHub blob URLs with ?plain=1)
-/// Returns the original text if it's already markdown (not HTML)
+/// Extract markdown content from HTML/JSON response (for GitHub blob URLs with ?plain=1)
+/// Returns the original text if it's already markdown (not HTML/JSON)
 fn extract_markdown_from_html(text: &str) -> std::borrow::Cow<str> {
-    // Check if the content is HTML
+    // Check if the content is HTML/JSON
     let trimmed = text.trim_start();
     if !trimmed.starts_with("<!DOCTYPE") && !trimmed.starts_with("<html") && !trimmed.starts_with("<HTML") {
         // Not HTML, return as-is (already markdown)
@@ -26,21 +26,79 @@ fn extract_markdown_from_html(text: &str) -> std::borrow::Cow<str> {
 
     log::info!("Detected HTML response, extracting markdown content");
 
-    // For GitHub's ?plain=1 URLs, the content is usually in a <table class="highlight">
-    // or similar structure. We'll look for lines that match the expected pattern.
-    // Extract all lines that look like our markdown format: "YYYY-MM-DD | [...](...)"
-    let mut extracted_lines = Vec::new();
+    // GitHub's ?plain=1 response contains embedded JSON with rawLines
+    // Look for: "rawLines":["line1","line2",...]
+    if let Some(raw_lines_start) = text.find(r#""rawLines":["#) {
+        let start_pos = raw_lines_start + r#""rawLines":["#.len();
 
+        // Find the closing bracket - need to handle nested quotes carefully
+        let mut extracted_lines = Vec::new();
+        let mut current_line = String::new();
+        let mut in_string = false;
+        let mut escape_next = false;
+        let remaining = &text[start_pos..];
+
+        for ch in remaining.chars() {
+            if escape_next {
+                // Handle escape sequences
+                match ch {
+                    'n' => current_line.push('\n'),
+                    't' => current_line.push('\t'),
+                    'r' => current_line.push('\r'),
+                    '"' => current_line.push('"'),
+                    '\\' => current_line.push('\\'),
+                    _ => {
+                        current_line.push('\\');
+                        current_line.push(ch);
+                    }
+                }
+                escape_next = false;
+                continue;
+            }
+
+            match ch {
+                '\\' if in_string => {
+                    escape_next = true;
+                }
+                '"' if in_string => {
+                    // End of string
+                    in_string = false;
+                    if !current_line.is_empty() {
+                        extracted_lines.push(current_line.clone());
+                        current_line.clear();
+                    }
+                }
+                '"' if !in_string => {
+                    // Start of string
+                    in_string = true;
+                }
+                ']' if !in_string => {
+                    // End of array
+                    break;
+                }
+                _ if in_string => {
+                    current_line.push(ch);
+                }
+                _ => {
+                    // Skip characters outside strings (commas, spaces, etc.)
+                }
+            }
+        }
+
+        if !extracted_lines.is_empty() {
+            log::info!("Extracted {} markdown lines from JSON", extracted_lines.len());
+            return std::borrow::Cow::Owned(extracted_lines.join("\n"));
+        }
+    }
+
+    // Fallback: Look for lines in HTML that match the pattern
+    let mut extracted_lines = Vec::new();
     for line in text.lines() {
         let trimmed_line = line.trim();
 
-        // Look for lines containing our date pattern and markdown links
-        // This is more robust than trying to parse HTML structure
         if trimmed_line.contains(" | [") && trimmed_line.contains("](https://") {
-            // Check if it starts with a date pattern (YYYY-MM-DD)
             let potential_date = trimmed_line.split('|').next().unwrap_or("").trim();
             if potential_date.len() == 10 && potential_date.chars().nth(4) == Some('-') && potential_date.chars().nth(7) == Some('-') {
-                // Decode HTML entities if present
                 let decoded = trimmed_line
                     .replace("&lt;", "<")
                     .replace("&gt;", ">")
@@ -52,7 +110,6 @@ fn extract_markdown_from_html(text: &str) -> std::borrow::Cow<str> {
             }
         }
 
-        // Also check for header line
         if trimmed_line.starts_with("## Bing Wallpaper") {
             extracted_lines.push(trimmed_line.to_string());
         }
