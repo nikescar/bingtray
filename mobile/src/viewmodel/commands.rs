@@ -360,83 +360,49 @@ pub fn download_and_set_next_wallpaper_sync(conn: &mut SqliteConnection) -> Resu
         log::info!("Using existing unprocessed image: {}", img.title);
         img
     } else {
-        // Step 2b: No unprocessed images - auto-download from API
-        log::info!("No unprocessed images found - downloading from Bing API");
-        
-        let (market_code, offset) = get_market_state_sync(conn)?;
-        log::info!("Market state: code={}, offset={}", market_code, offset);
-        
-        // Fetch from Bing API (synchronous)
-        let url = format!(
-            "https://www.bing.com/HPImageArchive.aspx?format=js&idx={}&n=8&mkt={}",
-            offset, market_code
-        );
-        
-        let (tx, rx) = std::sync::mpsc::channel();
-        let mut request = ehttp::Request::get(&url);
-        request.headers.insert(
-            "User-Agent".to_string(),
-            format!("bingtray/{}", env!("CARGO_PKG_VERSION")),
-        );
-        
-        ehttp::fetch(request, move |response| {
-            let _ = tx.send(response);
-        });
-        
-        let response = rx.recv_timeout(std::time::Duration::from_secs(30))
-            .map_err(|_| anyhow::anyhow!("API request timeout"))?;
-        
-        let resp = response.map_err(|e| anyhow::anyhow!("API request failed: {}", e))?;
-        
-        if !resp.ok {
-            anyhow::bail!("API returned error: {} {}", resp.status, resp.status_text);
+        // Step 2b: No unprocessed images - auto-download from dual sources (Bing API + GitHub)
+        log::info!("No unprocessed images found - downloading from sources");
+
+        let (market_code, _offset) = get_market_state_sync(conn)?;
+
+        // Use ImageSource to fetch from both Bing API and GitHub archive
+        let sources = crate::viewmodel::sources::ImageSource::new(None);
+        let images = sources.fetch_images(20)
+            .context("Failed to fetch images from sources")?;
+
+        if images.is_empty() {
+            anyhow::bail!("No images returned from sources");
         }
-        
-        // Parse JSON response
-        let json_text = resp.text().ok_or_else(|| anyhow::anyhow!("No response body"))?;
-        let bing_response: crate::BingResponse = serde_json::from_str(json_text)
-            .map_err(|e| anyhow::anyhow!("Failed to parse JSON: {}", e))?;
-        
-        log::info!("Downloaded {} images from Bing API", bing_response.images.len());
-        
+
+        log::info!("Downloaded {} images from dual sources (Bing + GitHub)", images.len());
+
         // Insert images into database with status='unprocessed'
         use std::time::{SystemTime, UNIX_EPOCH};
         let current_timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs() as i32;
-        
-        for bing_img in &bing_response.images {
-            let full_url = if bing_img.url.starts_with("http") {
-                bing_img.url.clone()
-            } else {
-                format!("https://www.bing.com{}", bing_img.url)
-            };
-            
+
+        for img in &images {
             let new_img = NewBingImage {
-                url: &full_url,
-                title: &bing_img.title,
-                copyright: bing_img.copyright.as_deref(),
-                copyright_link: bing_img.copyright_link.as_deref(),
+                url: &img.url,
+                title: &img.title,
+                copyright: img.copyright.as_deref(),
+                copyright_link: img.copyright_link.as_deref(),
                 market_code: &market_code,
                 status: "unprocessed",
                 fetched_at: current_timestamp,
                 created_at: current_timestamp,
                 updated_at: current_timestamp,
             };
-            
+
             operations::upsert_image(conn, &new_img)?;
         }
-        
-        // Increment offset and save
-        increment_market_offset_sync(conn)?;
-        log::info!("Market offset incremented to {}", offset + 8);
-        
-        // Pick first newly inserted image
-        bing_response.images.first()
-            .ok_or_else(|| anyhow::anyhow!("No images returned from API"))?;
-        
-        // Reload from database to get full record
+
+        // No need to increment offset - we're using dual sources now
+        log::info!("Inserted {} images into database", images.len());
+
+        // Reload from database to get full record (newest unprocessed)
         bing_images::table
             .filter(bing_images::status.eq("unprocessed"))
             .order(bing_images::fetched_at.desc())
