@@ -6,6 +6,7 @@ use std::path::PathBuf;
 pub mod background;
 pub mod commands;
 pub mod sources;
+pub mod cache_manager;
 
 /// Commands sent from UI to ViewModel background thread
 #[derive(Debug, Clone)]
