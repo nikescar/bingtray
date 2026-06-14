@@ -1052,8 +1052,10 @@ impl BingtrayApp {
 
             // Check if we need to load more images when scrolling to the right
             // Calculate total content width and trigger threshold
+            // IMPORTANT: Use filtered_images.len() not carousel_images.len()
+            // because the carousel widget scrolls based on filtered images
             let item_extent = 200.0;
-            let total_content_width = self.carousel_images.len() as f32 * item_extent;
+            let total_content_width = filtered_images.len() as f32 * item_extent;
             let viewport_width = ui.available_width();
 
             // Maximum scroll position is total_content_width minus viewport
@@ -1067,7 +1069,7 @@ impl BingtrayApp {
             // 1. Content overflows viewport (max_scroll > 0)
             // 2. User has scrolled close to the end
             // 3. Not already loading
-            // 4. Have at least 8 images already
+            // 4. Have at least 8 images already (use total images, not filtered)
             let content_overflows = total_content_width > viewport_width;
 
             if content_overflows && self.carousel_scroll_offset >= scroll_trigger_point && !self.loading_more && self.carousel_images.len() >= 8 {
@@ -1495,9 +1497,14 @@ impl BingtrayApp {
                 );
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Determine current status
-                    let mut is_favorite = main_image.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false);
-                    let mut is_blacklisted = main_image.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false);
+                    // Determine current status - read from self.main_panel_image, not the cloned main_image
+                    // to avoid stale status values after updates
+                    let mut is_favorite = self.main_panel_image.as_ref()
+                        .and_then(|img| img.status.as_ref().map(|s| s == "keepfavorite"))
+                        .unwrap_or(false);
+                    let mut is_blacklisted = self.main_panel_image.as_ref()
+                        .and_then(|img| img.status.as_ref().map(|s| s == "blacklisted"))
+                        .unwrap_or(false);
 
                     // Extract base URL (remove size parameters) for database operations
                     // The database stores using base URLs without &w=1920&h=1080 parameters
@@ -2185,15 +2192,20 @@ fn ui_mainpanel(
     ui.horizontal(|ui| {
         // Filter select
         ui.label(tr!("filter"));
-        let filter_select = select(carousel_filter)
-            .variant(SelectVariant::Filled)
-            .label(tr!("status-filter"))
-            .option(0, tr!("status-all"))
-            .option(1, tr!("status-keep-favorite"))
-            .option(2, tr!("status-blacklisted"))
-            .option(3, tr!("status-unprocessed"))
-            .width(150.0);
-        ui.add(filter_select);
+        egui::ComboBox::from_label(tr!("status-filter"))
+            .selected_text(match carousel_filter {
+                Some(0) => tr!("status-all"),
+                Some(1) => tr!("status-keep-favorite"),
+                Some(2) => tr!("status-blacklisted"),
+                Some(3) => tr!("status-unprocessed"),
+                _ => tr!("status-all"),
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(carousel_filter, Some(0), tr!("status-all"));
+                ui.selectable_value(carousel_filter, Some(1), tr!("status-keep-favorite"));
+                ui.selectable_value(carousel_filter, Some(2), tr!("status-blacklisted"));
+                ui.selectable_value(carousel_filter, Some(3), tr!("status-unprocessed"));
+            });
 
         ui.add_space(5.0);
 
