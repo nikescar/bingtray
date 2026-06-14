@@ -14,6 +14,59 @@ pub fn extract_identifier(url: &str) -> Option<String> {
         .map(|s| s.to_string())
 }
 
+/// Extract markdown content from HTML response (for GitHub blob URLs with ?plain=1)
+/// Returns the original text if it's already markdown (not HTML)
+fn extract_markdown_from_html(text: &str) -> std::borrow::Cow<str> {
+    // Check if the content is HTML
+    let trimmed = text.trim_start();
+    if !trimmed.starts_with("<!DOCTYPE") && !trimmed.starts_with("<html") && !trimmed.starts_with("<HTML") {
+        // Not HTML, return as-is (already markdown)
+        return std::borrow::Cow::Borrowed(text);
+    }
+
+    log::info!("Detected HTML response, extracting markdown content");
+
+    // For GitHub's ?plain=1 URLs, the content is usually in a <table class="highlight">
+    // or similar structure. We'll look for lines that match the expected pattern.
+    // Extract all lines that look like our markdown format: "YYYY-MM-DD | [...](...)"
+    let mut extracted_lines = Vec::new();
+
+    for line in text.lines() {
+        let trimmed_line = line.trim();
+
+        // Look for lines containing our date pattern and markdown links
+        // This is more robust than trying to parse HTML structure
+        if trimmed_line.contains(" | [") && trimmed_line.contains("](https://") {
+            // Check if it starts with a date pattern (YYYY-MM-DD)
+            let potential_date = trimmed_line.split('|').next().unwrap_or("").trim();
+            if potential_date.len() == 10 && potential_date.chars().nth(4) == Some('-') && potential_date.chars().nth(7) == Some('-') {
+                // Decode HTML entities if present
+                let decoded = trimmed_line
+                    .replace("&lt;", "<")
+                    .replace("&gt;", ">")
+                    .replace("&amp;", "&")
+                    .replace("&quot;", "\"")
+                    .replace("&#39;", "'");
+                extracted_lines.push(decoded);
+                continue;
+            }
+        }
+
+        // Also check for header line
+        if trimmed_line.starts_with("## Bing Wallpaper") {
+            extracted_lines.push(trimmed_line.to_string());
+        }
+    }
+
+    if !extracted_lines.is_empty() {
+        log::info!("Extracted {} markdown lines from HTML", extracted_lines.len());
+        std::borrow::Cow::Owned(extracted_lines.join("\n"))
+    } else {
+        log::warn!("Could not extract markdown from HTML, returning original text");
+        std::borrow::Cow::Borrowed(text)
+    }
+}
+
 /// Bing API image source (en-US market only)
 pub struct BingApiSource {
     ehttp_cache: Option<Arc<crate::ehttp_cache::EhttpCache>>,
@@ -86,35 +139,59 @@ impl BingApiSource {
     }
 }
 
-/// Parse a markdown table row from GitHub archive
-/// Format: | Date | Title | [Download](URL) | Copyright |
+/// Parse a markdown row from GitHub archive
+/// Format: YYYY-MM-DD | [Title (© Copyright)](URL)
 pub fn parse_markdown_row(row: &str) -> Option<BingImage> {
-    let parts: Vec<&str> = row.split('|').map(|s| s.trim()).collect();
-    if parts.len() < 5 {
+    // Skip empty lines and headers
+    let line = row.trim();
+    if line.is_empty() || line.starts_with('#') {
         return None;
     }
 
-    let title = parts[2].to_string();
+    // Parse format: "YYYY-MM-DD | [Title (© Copyright)](URL)"
+    let (date_part, rest) = line.split_once('|')?;
+    let date = date_part.trim();
+    let rest = rest.trim();
 
-    // Extract URL from markdown link [Download](URL)
-    let url_regex = Regex::new(r"\[.*?\]\((.*?)\)").ok()?;
-    let url = url_regex
-        .captures(parts[3])?
-        .get(1)?
-        .as_str()
-        .to_string();
+    // Validate date format YYYY-MM-DD
+    if date.len() != 10 || date.chars().nth(4) != Some('-') || date.chars().nth(7) != Some('-') {
+        return None;
+    }
 
-    let copyright = if parts[4].is_empty() {
-        None
+    // Extract markdown link: [text](url)
+    let link_start = rest.find('[')?;
+    let link_end = rest.find("](")?;
+    let url_end = rest.rfind(')')?;
+
+    let content = &rest[link_start + 1..link_end];
+    let url = &rest[link_end + 2..url_end];
+
+    // Split content into title and copyright
+    let (title, copyright) = if let Some(copyright_start) = content.find("(©") {
+        let title = content[..copyright_start].trim();
+        let copyright = content[copyright_start + 1..].trim_end_matches(')').trim();
+        (title, Some(copyright.to_string()))
     } else {
-        Some(parts[4].to_string())
+        (content, None)
     };
 
+    // Normalize URL: cn.bing.com -> www.bing.com
+    let normalized_url = url.replace("cn.bing.com", "www.bing.com");
+
+    // Generate copyright link
+    let fullstartdate = date.replace('-', "") + "0000";
+    let title_query = title.to_lowercase().replace(' ', "+");
+    let startdate = &fullstartdate[..8]; // YYYYMMDD
+    let copyright_link = format!(
+        "https://www.bing.com/search?q={}&form=hpcapt&filters=HpDate%3A%22{}_0700%22",
+        title_query, startdate
+    );
+
     Some(BingImage {
-        url,
-        title,
+        url: normalized_url,
+        title: title.to_string(),
         copyright,
-        copyright_link: None,
+        copyright_link: Some(copyright_link),
     })
 }
 
@@ -156,11 +233,11 @@ impl GitHubArchiveSource {
             anyhow::bail!("HTTP {}: {}", resp.status, resp.status_text);
         }
 
-        // Parse markdown
+        // Parse markdown - extract from HTML if needed
         let text = resp.text().context("Invalid UTF-8")?;
-        let images: Vec<BingImage> = text
+        let markdown_text = extract_markdown_from_html(&text);
+        let images: Vec<BingImage> = markdown_text
             .lines()
-            .filter(|line| line.starts_with('|') && !line.contains("Date"))
             .filter_map(parse_markdown_row)
             .collect();
 
