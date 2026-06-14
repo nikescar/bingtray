@@ -6,12 +6,9 @@
 use crate::{BingImage, Config, Settings};
 pub use crate::dlg_settings_stt::DlgSettings;
 use crate::calc_bingimage::sanitize_filename;
-// Removed: DataFusion replaced with Diesel\n// use crate::datafusion_bingimage::BingImageDb;
+use crate::calc_bingimage::CalcBingimage;
 use image;
 use crate::install;
-
-// Desktop-only imports
-use crate::calc_bingimage::CalcBingimage;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use crate::api_setwallpaper::check_user_mismatch;
 use eframe::egui;
