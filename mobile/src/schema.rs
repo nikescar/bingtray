@@ -11,7 +11,8 @@ diesel::table! {
         fetched_at -> Integer,
         status -> Text,
         created_at -> Integer,
-        updated_at -> Integer
+        updated_at -> Integer,
+        cached_at -> Nullable<Integer>,
     }
 }
 
