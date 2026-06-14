@@ -112,8 +112,22 @@ fn handle_open_cache_directory() -> Result<()> {
     // Create cache directory if it doesn't exist
     std::fs::create_dir_all(&cache_dir)?;
 
+    // Determine which application will open it
+    let app_name = if cfg!(target_os = "linux") {
+        "xdg-open"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else if cfg!(target_os = "windows") {
+        "explorer"
+    } else {
+        "default file manager"
+    };
+
+    println!("⏳ Opening cache directory with {}...", app_name);
+    println!("   Path: {}", cache_dir.display());
+
     opener::open(&cache_dir)?;
-    println!("✓ Opened cache directory");
+    println!("✓ Cache directory opened");
     Ok(())
 }
 

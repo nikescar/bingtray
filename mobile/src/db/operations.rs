@@ -22,7 +22,7 @@ pub fn upsert_image(conn: &mut SqliteConnection, record: &NewBingImage) -> Resul
         .optional()?;
 
     if let Some(existing_img) = existing {
-        // Update existing record
+        // Update existing record but preserve status (don't overwrite user's keep/blacklist)
         diesel::update(bing_images::table.find(existing_img.id))
             .set((
                 bing_images::title.eq(record.title),
@@ -30,7 +30,7 @@ pub fn upsert_image(conn: &mut SqliteConnection, record: &NewBingImage) -> Resul
                 bing_images::copyright_link.eq(record.copyright_link),
                 bing_images::market_code.eq(record.market_code),
                 bing_images::fetched_at.eq(record.fetched_at),
-                bing_images::status.eq(record.status),
+                // DO NOT update status - preserve user's keep/blacklist choices
                 bing_images::updated_at.eq(current_timestamp()),
             ))
             .execute(conn)?;

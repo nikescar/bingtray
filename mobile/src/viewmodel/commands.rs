@@ -231,42 +231,58 @@ pub fn get_current_desktop_wallpaper_url_sync(conn: &mut SqliteConnection) -> Re
 /// Returns image title if successful, None if no match found
 pub fn keep_current_wallpaper_sync(conn: &mut SqliteConnection) -> Result<Option<String>> {
     use crate::db::operations;
-    
+
     // Get current wallpaper URL
     let url = match get_current_desktop_wallpaper_url_sync(conn)? {
         Some(u) => u,
         None => return Ok(None),
     };
-    
+
     // Get image to retrieve title
     let image = operations::get_image(conn, &url)?
         .ok_or_else(|| anyhow::anyhow!("Image not found in database"))?;
-    
+
+    let title = image.title.clone();
+
     // Update status to keepfavorite
     operations::update_image_status(conn, &url, ImageStatus::KeepFavorite)?;
-    
-    Ok(Some(image.title))
+
+    // Auto-advance: set next wallpaper
+    log::info!("Auto-advancing to next wallpaper after keep");
+    if let Err(e) = download_and_set_next_wallpaper_sync(conn) {
+        log::warn!("Failed to auto-advance to next wallpaper: {}", e);
+    }
+
+    Ok(Some(title))
 }
 
 /// Mark current desktop wallpaper as blacklisted
 /// Returns image title if successful, None if no match found
 pub fn blacklist_current_wallpaper_sync(conn: &mut SqliteConnection) -> Result<Option<String>> {
     use crate::db::operations;
-    
+
     // Get current wallpaper URL
     let url = match get_current_desktop_wallpaper_url_sync(conn)? {
         Some(u) => u,
         None => return Ok(None),
     };
-    
+
     // Get image to retrieve title
     let image = operations::get_image(conn, &url)?
         .ok_or_else(|| anyhow::anyhow!("Image not found in database"))?;
-    
+
+    let title = image.title.clone();
+
     // Update status to blacklisted
     operations::update_image_status(conn, &url, ImageStatus::Blacklisted)?;
-    
-    Ok(Some(image.title))
+
+    // Auto-advance: set next wallpaper
+    log::info!("Auto-advancing to next wallpaper after blacklist");
+    if let Err(e) = download_and_set_next_wallpaper_sync(conn) {
+        log::warn!("Failed to auto-advance to next wallpaper: {}", e);
+    }
+
+    Ok(Some(title))
 }
 
 /// Set a random favorite as desktop wallpaper
