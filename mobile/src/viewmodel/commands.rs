@@ -1,5 +1,5 @@
 use diesel::prelude::*;
-use anyhow::Result;
+use anyhow::{Result, Context};
 use crate::db::ImageStatus;
 use crate::db::models::NewBingImage;
 use std::path::PathBuf;
