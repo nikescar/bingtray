@@ -13,6 +13,7 @@ pub struct BingImage {
     pub status: String,
     pub created_at: i32,
     pub updated_at: i32,
+    pub cached_at: Option<i32>,
 }
 
 #[derive(Debug, Insertable)]
