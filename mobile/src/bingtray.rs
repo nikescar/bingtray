@@ -2183,6 +2183,54 @@ impl BingtrayApp {
         }
     }
 
+    /// Helper: Wrap text at specified width
+    fn wrap_text(text: &str, max_width: usize) -> String {
+        if text.len() <= max_width {
+            return text.to_string();
+        }
+
+        let mut result = String::new();
+        let mut current_line = String::new();
+
+        for word in text.split_whitespace() {
+            if current_line.is_empty() {
+                // First word on line
+                if word.len() > max_width {
+                    // Word itself is too long, hard break it
+                    result.push_str(&word[..max_width]);
+                    result.push('\n');
+                    current_line = word[max_width..].to_string();
+                } else {
+                    current_line = word.to_string();
+                }
+            } else if current_line.len() + 1 + word.len() <= max_width {
+                // Word fits on current line
+                current_line.push(' ');
+                current_line.push_str(word);
+            } else {
+                // Word doesn't fit, start new line
+                result.push_str(&current_line);
+                result.push('\n');
+
+                if word.len() > max_width {
+                    // Word itself is too long, hard break it
+                    result.push_str(&word[..max_width]);
+                    result.push('\n');
+                    current_line = word[max_width..].to_string();
+                } else {
+                    current_line = word.to_string();
+                }
+            }
+        }
+
+        // Add remaining text
+        if !current_line.is_empty() {
+            result.push_str(&current_line);
+        }
+
+        result
+    }
+
     fn show_navigation_menu(&mut self, ctx: &egui::Context) {
         if !self.menu_open {
             return;
@@ -2244,9 +2292,10 @@ impl BingtrayApp {
             .enabled(false); // Non-clickable, for display only
 
         let keep_text = if can_keep && !current_title.is_empty() {
-            // Wrap text with newline to prevent overflow
+            // Wrap text at 33 characters to prevent overflow
             let base_text = tr!("tray-keep-current");
-            format!("{}\n{}", base_text, current_title)
+            let wrapped_title = Self::wrap_text(&current_title, 33);
+            format!("{}\n{}", base_text, wrapped_title)
         } else {
             format!("{}", tr!("tray-keep-current"))
         };
@@ -2263,9 +2312,10 @@ impl BingtrayApp {
         };
 
         let blacklist_text = if can_blacklist && !current_title.is_empty() {
-            // Wrap text with newline to prevent overflow
+            // Wrap text at 33 characters to prevent overflow
             let base_text = tr!("tray-blacklist-current");
-            format!("{}\n{}", base_text, current_title)
+            let wrapped_title = Self::wrap_text(&current_title, 33);
+            format!("{}\n{}", base_text, wrapped_title)
         } else {
             format!("{}", tr!("tray-blacklist-current"))
         };

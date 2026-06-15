@@ -26,8 +26,16 @@ format!("{}", tr!("tray-keep-with-title", { title: current_title.clone() }))
 // This expands to: "Keep: Very long image title..."
 ```
 
-## Solution
-Added newline wrapping to Keep and Blacklist menu items to match the Next Wallpaper pattern:
+## Solution (Updated)
+Added intelligent text wrapping at 33 characters to Keep and Blacklist menu items.
+
+Implemented `wrap_text()` helper function that:
+1. Splits text by whitespace (preserves word boundaries)
+2. Builds lines up to 33 characters max
+3. Hard breaks words longer than 33 characters
+4. Returns multi-line wrapped text
+
+## Implementation
 
 ### Keep Current
 ```rust
