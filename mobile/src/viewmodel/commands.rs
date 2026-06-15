@@ -178,50 +178,65 @@ pub fn increment_market_offset_sync(conn: &mut SqliteConnection) -> Result<()> {
 pub fn get_current_desktop_wallpaper_url_sync(conn: &mut SqliteConnection) -> Result<Option<String>> {
     use crate::db::operations;
     use crate::schema::bing_images;
-    
-    // First, try to get the tracked wallpaper URL from config
+
+    // First, try to get the tracked wallpaper URL from config (fast path)
     if let Ok(Some(tracked_url)) = operations::get_config(conn, "current_wallpaper_url") {
         log::debug!("Found tracked wallpaper URL: {}", tracked_url);
         // Verify it exists in database
         let images: Vec<crate::db::BingImage> = bing_images::table
             .filter(bing_images::url.eq(&tracked_url))
             .load(conn)?;
-        
+
         if !images.is_empty() {
             return Ok(Some(tracked_url));
         }
         log::warn!("Tracked wallpaper URL not found in database, falling back to file detection");
     }
-    
-    // Fallback: Try to detect from desktop environment (may not work on all systems)
-    match crate::api_setwallpaper::get_wallpaper() {
-        Ok(wallpaper_path_str) => {
+
+    // Fallback: Try to detect from desktop environment with timeout
+    // This can be slow on some systems, so we add a timeout
+    log::debug!("Attempting desktop environment wallpaper detection with 2s timeout");
+
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    std::thread::spawn(move || {
+        let result = crate::api_setwallpaper::get_wallpaper();
+        let _ = tx.send(result);
+    });
+
+    // Wait for result with 2 second timeout
+    match rx.recv_timeout(std::time::Duration::from_secs(2)) {
+        Ok(Ok(wallpaper_path_str)) => {
             use std::path::Path;
             let wallpaper_path = Path::new(&wallpaper_path_str);
-            
+
             // Extract filename stem (without extension)
             let filename = wallpaper_path
                 .file_stem()
                 .and_then(|s| s.to_str())
                 .ok_or_else(|| anyhow::anyhow!("Invalid wallpaper path"))?;
-            
+
             // Extract core identifier (remove OHR_ prefix if present)
             let core_id = filename
                 .strip_prefix("OHR_")
                 .unwrap_or(filename);
-            
+
             // Query database for URLs containing this identifier
             let pattern = format!("%{}%", core_id);
             let images: Vec<crate::db::BingImage> = bing_images::table
                 .filter(bing_images::url.like(pattern))
                 .order(bing_images::fetched_at.desc())
                 .load(conn)?;
-            
+
             // Return first match (most recent if multiple)
             Ok(images.first().map(|img| img.url.clone()))
         }
-        Err(e) => {
-            log::warn!("Could not detect wallpaper from desktop environment: {}", e);
+        Ok(Err(e)) => {
+            log::warn!("Desktop environment detection failed: {}", e);
+            Ok(None)
+        }
+        Err(_) => {
+            log::warn!("Desktop environment detection timed out after 2s - skipping wallpaper tracking");
             Ok(None)
         }
     }
