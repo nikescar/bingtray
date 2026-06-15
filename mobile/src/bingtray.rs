@@ -1985,11 +1985,8 @@ impl BingtrayApp {
         // Get current wallpaper info
         let (can_keep, can_blacklist, current_title) = if let Ok(Some(url)) = get_current_desktop_wallpaper_url_sync(&mut conn) {
             if let Ok(Some(image)) = operations::get_image(&mut conn, &url) {
-                let title = if image.title.len() > 40 {
-                    format!("{}...", &image.title[..40])
-                } else {
-                    image.title.clone()
-                };
+                // Don't truncate here - let wrap_text() handle it properly
+                let title = image.title.clone();
 
                 let can_keep = image.status != crate::db::ImageStatus::KeepFavorite.as_str();
                 let can_blacklist = true;
@@ -2283,9 +2280,17 @@ impl BingtrayApp {
 
         // Display current wallpaper title (non-clickable)
         let current_title_display = if !current_title.is_empty() {
-            // Wrap title at 33 characters (accounting for emoji prefix)
-            let wrapped_title = Self::wrap_text(&current_title, 31); // 31 + "📷 " = ~33
-            format!("📷 {}", wrapped_title)
+            // Wrap title at 33 characters total (including emoji)
+            // The emoji takes ~2 chars, so use 31 for the actual text
+            let wrapped_title = Self::wrap_text(&current_title, 31);
+            // Add emoji to first line only, then the wrapped content
+            if wrapped_title.contains('\n') {
+                // Multi-line: emoji on first line only
+                format!("📷 {}", wrapped_title)
+            } else {
+                // Single line: emoji + title
+                format!("📷 {}", wrapped_title)
+            }
         } else {
             format!("📷 {}", tr!("tray-no-wallpaper"))
         };
