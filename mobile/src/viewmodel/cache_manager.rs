@@ -83,8 +83,15 @@ impl CacheManager {
 
         let mut conn = crate::db::establish_connection(&self.db_path);
 
-        // Fetch images from sources
-        let images = sources.fetch_images(count * 2)?; // Fetch extra in case some fail
+        // Get existing URLs to skip
+        use diesel::prelude::*;
+        use crate::schema::bing_images;
+        let existing_urls: Vec<String> = bing_images::table
+            .select(bing_images::url)
+            .load(&mut conn)?;
+
+        // Fetch images from sources (fetch extra in case some fail)
+        let images = sources.fetch_images(count * 2, &existing_urls)?;
 
         let mut downloaded = 0;
 

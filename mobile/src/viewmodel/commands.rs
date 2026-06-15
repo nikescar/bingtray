@@ -383,8 +383,9 @@ pub fn download_and_set_next_wallpaper_sync(conn: &mut SqliteConnection) -> Resu
         log::info!("Found {} existing URLs in database", existing_urls.len());
 
         // Use ImageSource to fetch from both Bing API and GitHub archive
+        // Pass existing URLs so it can skip them and return next batch
         let sources = crate::viewmodel::sources::ImageSource::new(None);
-        let images = sources.fetch_images(20)
+        let images = sources.fetch_images(20, &existing_urls)
             .context("Failed to fetch images from sources")?;
 
         if images.is_empty() {

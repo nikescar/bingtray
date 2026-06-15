@@ -349,7 +349,11 @@ impl ImageSource {
     }
 
     /// Fetch images from both sources, merge and deduplicate
-    pub fn fetch_images(&self, count: usize) -> Result<Vec<BingImage>> {
+    ///
+    /// # Arguments
+    /// * `count` - Number of new images to return
+    /// * `existing_urls` - URLs already in database (to skip)
+    pub fn fetch_images(&self, count: usize, existing_urls: &[String]) -> Result<Vec<BingImage>> {
         // Fetch from Bing API (always fetch 8, the max)
         let bing_images = match self.bing_api.fetch(8) {
             Ok(imgs) => imgs,
@@ -371,7 +375,14 @@ impl ImageSource {
         // Merge and deduplicate (Bing takes priority)
         let merged = deduplicate(bing_images, github_images);
 
-        // Return requested count
-        Ok(merged.into_iter().take(count).collect())
+        // Filter out already-existing URLs and return requested count
+        let new_images: Vec<BingImage> = merged
+            .into_iter()
+            .filter(|img| !existing_urls.contains(&img.url))
+            .take(count)
+            .collect();
+
+        log::info!("Returning {} new images (filtered out existing URLs)", new_images.len());
+        Ok(new_images)
     }
 }
