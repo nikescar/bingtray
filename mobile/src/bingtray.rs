@@ -52,6 +52,35 @@ static MENU_RANDOM_FAVORITE: AtomicBool = AtomicBool::new(false);
 static MENU_INSTALL: AtomicBool = AtomicBool::new(false);
 static MENU_QUIT: AtomicBool = AtomicBool::new(false);
 
+/// Carousel filter type
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum CarouselFilter {
+    All,
+    Favorite,
+    Blacklisted,
+    Unprocessed,
+}
+
+impl CarouselFilter {
+    fn to_image_status(&self) -> Option<crate::db::ImageStatus> {
+        match self {
+            CarouselFilter::All => None,
+            CarouselFilter::Favorite => Some(crate::db::ImageStatus::KeepFavorite),
+            CarouselFilter::Blacklisted => Some(crate::db::ImageStatus::Blacklisted),
+            CarouselFilter::Unprocessed => Some(crate::db::ImageStatus::Unprocessed),
+        }
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            CarouselFilter::All => "All",
+            CarouselFilter::Favorite => "Favorites",
+            CarouselFilter::Blacklisted => "Blacklisted",
+            CarouselFilter::Unprocessed => "Unprocessed",
+        }
+    }
+}
+
 /// Trait for platform-specific wallpaper setting
 pub trait WallpaperSetter: Send + Sync {
     fn set_wallpaper_from_bytes(&self, bytes: &[u8]) -> std::io::Result<bool>;
@@ -258,13 +287,39 @@ pub struct BingtrayApp {
     #[cfg_attr(feature = "serde", serde(skip))]
     // db: Option<Arc<BingImageDb>>, // Removed - replaced by ViewModel
     // Carousel filter state
-    carousel_filter: Option<usize>,
+    _old_carousel_filter: Option<usize>,  // Deprecated - replaced by new ViewModel carousel
     // Track if we've loaded cached main panel image
     #[cfg_attr(feature = "serde", serde(skip))]
     cached_image_loaded: bool,
     // Page navigation input
     #[cfg_attr(feature = "serde", serde(skip))]
     page_input: String,
+
+    // NEW: Carousel state (ViewModel-driven)
+    #[cfg_attr(feature = "serde", serde(skip))]
+    carousel_filter: CarouselFilter,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    carousel_scroll_positions: HashMap<CarouselFilter, f32>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    carousel_pages: HashMap<(CarouselFilter, usize), Vec<CarouselImage>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    carousel_current_page: usize,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    carousel_total_count: Option<usize>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    carousel_loading: bool,
+
+    // NEW: Main panel state
+    #[cfg_attr(feature = "serde", serde(skip))]
+    selected_image_url: Option<String>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    main_image_bytes: Option<Vec<u8>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    main_image_loading: bool,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    crop_coords: Option<crate::viewmodel::CropCoords>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    show_crop_selector: bool,
 }
 
 impl Default for BingtrayApp {
@@ -430,12 +485,27 @@ impl Default for BingtrayApp {
             // HTTP cache
             ehttp_cache,
             // Database removed - now handled by ViewModel
-            // Carousel filter (0: All, 1: Favorite, 2: Blacklisted)
-            carousel_filter: Some(0),
+            // Old carousel filter (deprecated)
+            _old_carousel_filter: Some(0),
             // Track if cached image has been loaded
             cached_image_loaded: false,
             // Page navigation
             page_input: String::from("1"),
+
+            // NEW: Carousel state (ViewModel-driven)
+            carousel_filter: CarouselFilter::All,
+            carousel_scroll_positions: HashMap::new(),
+            carousel_pages: HashMap::new(),
+            carousel_current_page: 0,
+            carousel_total_count: None,
+            carousel_loading: false,
+
+            // NEW: Main panel state
+            selected_image_url: None,
+            main_image_bytes: None,
+            main_image_loading: false,
+            crop_coords: None,
+            show_crop_selector: false,
         }
     }
 }
@@ -617,7 +687,7 @@ impl BingtrayApp {
 
         // ##################### TOP APP BAR #####################
         let prev_url = self.url.clone();
-        let trigger_fetch = ui_mainpanel(ui, &mut self.menu_anchor_rect, &mut self.carousel_filter, &mut self.carousel_scroll_offset, &mut self.page_input, &self.carousel_images);
+        let trigger_fetch = ui_mainpanel(ui, &mut self.menu_anchor_rect, &mut self._old_carousel_filter, &mut self.carousel_scroll_offset, &mut self.page_input, &self.carousel_images);
 
         // Check menu toggle flag set by top app bar callback
         if MENU_TOGGLE.swap(false, Ordering::Relaxed) {
@@ -727,7 +797,7 @@ impl BingtrayApp {
                 .iter()
                 .enumerate()
                 .filter(|(_, img)| {
-                    match self.carousel_filter {
+                    match self._old_carousel_filter {
                         Some(0) => true, // All images
                         Some(1) => img.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false), // Keep Favorite
                         Some(2) => img.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false), // Blacklisted
