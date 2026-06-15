@@ -20,7 +20,6 @@ pub mod viewmodel;
 pub mod shared_store;
 pub mod bingtray;
 pub mod api_bingimage;
-pub mod calc_bingimage; // DEPRECATED: Being replaced by ViewModel - use viewmodel module instead
 pub mod utils; // Utility functions (sanitize_filename, wallpaper setter, cache)
 pub mod dlg_settings_stt;
 pub mod dlg_settings;

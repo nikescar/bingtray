@@ -10,7 +10,29 @@ pub mod operations;
 pub use models::{BingImage, ImageStatus, MarketCode, ConfigKv};
 
 #[cfg(not(target_arch = "wasm32"))]
-const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+
+/// Get database file path
+#[cfg(not(target_arch = "wasm32"))]
+pub fn get_database_path() -> anyhow::Result<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    #[cfg(target_os = "android")]
+    {
+        Ok(PathBuf::from("/data/data/pe.nikescar.bingtray/files/bingtray.db"))
+    }
+
+    #[cfg(not(target_os = "android"))]
+    {
+        let config_dir = directories::ProjectDirs::from("com", "nikescar", "bingtray")
+            .ok_or_else(|| anyhow::anyhow!("Could not determine config directory"))?
+            .config_dir()
+            .to_path_buf();
+
+        std::fs::create_dir_all(&config_dir)?;
+        Ok(config_dir.join("bingtray.db"))
+    }
+}
 
 /// Establish SQLite database connection
 #[cfg(not(target_arch = "wasm32"))]
