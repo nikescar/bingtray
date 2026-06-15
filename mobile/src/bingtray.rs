@@ -904,7 +904,7 @@ impl BingtrayApp {
                 page += 1;
             }
 
-            // Use new carousel if we have pages loaded, otherwise fall back to old carousel
+            // Use new carousel if we have pages loaded, otherwise show empty state or fall back
             let use_new_carousel = !new_carousel_images.is_empty();
 
             if use_new_carousel {
@@ -1120,6 +1120,22 @@ impl BingtrayApp {
                         ui.label("Click an image from the carousel above to view");
                     });
                 }
+            } else if self.carousel_loading {
+                // Show loading state while initial page loads
+                ui.centered_and_justified(|ui| {
+                    ui.add_space(40.0);
+                    ui.spinner();
+                    ui.label("Loading carousel images...");
+                    ui.add_space(40.0);
+                });
+            } else if self.carousel_total_count == Some(0) {
+                // Database is empty
+                ui.centered_and_justified(|ui| {
+                    ui.add_space(40.0);
+                    ui.label("No images in database.");
+                    ui.label("Use the menu (☰) → 'Download & Set Next Wallpaper' to fetch images.");
+                    ui.add_space(40.0);
+                });
             }
 
             // ==================== OLD CAROUSEL (Fallback/Legacy) ====================
@@ -2333,6 +2349,17 @@ impl BingtrayApp {
         let mut conn = self.get_db_connection()?;
         let result = download_and_set_next_wallpaper_sync(&mut conn)?;
         info!("Set next wallpaper: {}", result.title);
+
+        // Reload carousel to show newly downloaded images
+        if let Some(ref viewmodel) = self.viewmodel {
+            self.carousel_pages.clear();
+            self.carousel_loading = true;
+            viewmodel.send_command(crate::viewmodel::ViewModelCommand::LoadCarouselPage {
+                filter: self.carousel_filter.to_image_status(),
+                page: 0,
+            }).ok();
+        }
+
         Ok(())
     }
 
