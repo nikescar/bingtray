@@ -1968,6 +1968,46 @@ impl BingtrayApp {
             anyhow::bail!("No favorite wallpapers available")
         }
     }
+
+    // Helper: Get menu state (for navigation menu)
+    // Returns: (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status)
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    fn get_menu_state(&self) -> anyhow::Result<(bool, bool, bool, bool, String, String)> {
+        use crate::db::operations;
+        use crate::viewmodel::commands::get_current_desktop_wallpaper_url_sync;
+
+        let mut conn = self.get_db_connection()?;
+
+        // Get unprocessed count for status
+        let unprocessed_count = operations::count_by_status(&mut conn, crate::db::ImageStatus::Unprocessed)?;
+        let wallpaper_status = format!("({} available)", unprocessed_count);
+
+        // Get current wallpaper info
+        let (can_keep, can_blacklist, current_title) = if let Ok(Some(url)) = get_current_desktop_wallpaper_url_sync(&mut conn) {
+            if let Ok(Some(image)) = operations::get_image(&mut conn, &url) {
+                let title = if image.title.len() > 40 {
+                    format!("{}...", &image.title[..40])
+                } else {
+                    image.title.clone()
+                };
+
+                let can_keep = image.status != crate::db::ImageStatus::KeepFavorite.as_str();
+                let can_blacklist = true;
+
+                (can_keep, can_blacklist, title)
+            } else {
+                (false, false, String::new())
+            }
+        } else {
+            (false, false, String::new())
+        };
+
+        // Check if there are kept wallpapers
+        let has_kept_wallpapers = operations::count_by_status(&mut conn, crate::db::ImageStatus::KeepFavorite)? > 0;
+
+        // has_next_available is always true (auto-download when needed)
+        Ok((true, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status))
+    }
 }
 
 /// Open a directory in the file manager (Desktop only)
@@ -2148,11 +2188,18 @@ impl BingtrayApp {
             return;
         }
 
-        // Get current state
+        // Get current state from database
         // has_next_available is always true because download_and_set_next_wallpaper_sync auto-downloads if needed
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-        let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status) =
-            (true, false, false, false, String::new(), String::new());
+        let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status) = {
+            match self.get_menu_state() {
+                Ok(state) => state,
+                Err(e) => {
+                    error!("Failed to get menu state: {}", e);
+                    (true, false, false, false, String::new(), String::new())
+                }
+            }
+        };
 
         #[cfg(any(target_os = "android", target_arch = "wasm32"))]
         let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status) =

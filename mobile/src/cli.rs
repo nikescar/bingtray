@@ -92,15 +92,35 @@ pub fn run_cli_mode() -> Result<()> {
 
 /// Print the menu
 fn print_menu() {
+    // Get unprocessed count for status display
+    let unprocessed_count = get_unprocessed_count().unwrap_or(0);
+    let status = if unprocessed_count > 0 {
+        format!(" ({} available)", unprocessed_count)
+    } else {
+        String::new()
+    };
+
     println!("═══════════════════════════════════════════════════════════");
     println!("MENU:");
     println!("  0. Open Cache Directory");
-    println!("  1. Download & Set Next Wallpaper");
+    println!("  1. Download & Set Next Wallpaper{}", status);
     println!("  2. Keep Current Wallpaper");
     println!("  3. Blacklist Current Wallpaper");
     println!("  4. Set Random Favorite");
     println!("  5. Exit");
     println!("═══════════════════════════════════════════════════════════");
+}
+
+/// Get count of unprocessed images
+fn get_unprocessed_count() -> Result<i64> {
+    use diesel::prelude::*;
+    let db_path = dirs::config_dir()
+        .context("Could not determine config directory")?
+        .join("bingtray")
+        .join("bingtray.db");
+
+    let mut conn = diesel::SqliteConnection::establish(&db_path.to_string_lossy())?;
+    crate::db::operations::count_by_status(&mut conn, crate::db::ImageStatus::Unprocessed)
 }
 
 /// Handle option 0: Open Cache Directory
