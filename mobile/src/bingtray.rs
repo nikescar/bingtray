@@ -2283,7 +2283,9 @@ impl BingtrayApp {
 
         // Display current wallpaper title (non-clickable)
         let current_title_display = if !current_title.is_empty() {
-            format!("📷 {}", current_title)
+            // Wrap title at 33 characters (accounting for emoji prefix)
+            let wrapped_title = Self::wrap_text(&current_title, 31); // 31 + "📷 " = ~33
+            format!("📷 {}", wrapped_title)
         } else {
             format!("📷 {}", tr!("tray-no-wallpaper"))
         };
