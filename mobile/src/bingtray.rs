@@ -2244,7 +2244,9 @@ impl BingtrayApp {
             .enabled(false); // Non-clickable, for display only
 
         let keep_text = if can_keep && !current_title.is_empty() {
-            format!("{}", tr!("tray-keep-with-title", { title: current_title.clone() }))
+            // Wrap text with newline to prevent overflow
+            let base_text = tr!("tray-keep-current");
+            format!("{}\n{}", base_text, current_title)
         } else {
             format!("{}", tr!("tray-keep-current"))
         };
@@ -2261,7 +2263,9 @@ impl BingtrayApp {
         };
 
         let blacklist_text = if can_blacklist && !current_title.is_empty() {
-            format!("{}", tr!("tray-blacklist-with-title", { title: current_title.clone() }))
+            // Wrap text with newline to prevent overflow
+            let base_text = tr!("tray-blacklist-current");
+            format!("{}\n{}", base_text, current_title)
         } else {
             format!("{}", tr!("tray-blacklist-current"))
         };
