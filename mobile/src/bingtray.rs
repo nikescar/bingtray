@@ -836,14 +836,10 @@ impl BingtrayApp {
         }
         // ##################### TOP APP BAR #####################
 
-        // ##################### Carousel Image Bar #####################
-        if !self.carousel_images.is_empty() {
-            trace!("Rendering carousel with {} images, scroll offset: {:.0}",
-                   self.carousel_images.len(), self.carousel_scroll_offset);
+        // ==================== NEW CAROUSEL (ViewModel-driven) ====================
+        ui.add_space(10.0);
 
-            ui.add_space(10.0);
-
-            // ==================== NEW CAROUSEL FILTER BAR ====================
+        // ==================== NEW CAROUSEL FILTER BAR ====================
             ui.horizontal(|ui| {
                 ui.add_space(10.0);
                 ui.label("Filter:");
@@ -1138,7 +1134,11 @@ impl BingtrayApp {
                 });
             }
 
-            // ==================== OLD CAROUSEL (Fallback/Legacy) ====================
+        // ==================== OLD CAROUSEL (Fallback/Legacy) ====================
+        // Only show old carousel if old carousel_images vector has data
+        if !self.carousel_images.is_empty() {
+            trace!("Rendering old fallback carousel with {} images", self.carousel_images.len());
+
             // Filter carousel images based on selected filter
             let filtered_images: Vec<(usize, &CarouselImage)> = self.carousel_images
                 .iter()
