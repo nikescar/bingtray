@@ -603,3 +603,57 @@ pub fn blacklist_current_wallpaper_instant_sync(
 
     Ok(next_image.title)
 }
+
+// ============================================================================
+// Image Cache Helpers (for carousel/main panel)
+// ============================================================================
+
+/// Load image bytes from cache if available
+pub fn load_cached_image(url: &str) -> Result<Option<Vec<u8>>> {
+    let cache_dir = get_cache_dir()?;
+    let filename = get_cache_filename(url);
+    let cache_path = cache_dir.join(&filename);
+
+    if cache_path.exists() {
+        log::debug!("Cache hit: {:?}", cache_path);
+        let bytes = std::fs::read(&cache_path)?;
+        Ok(Some(bytes))
+    } else {
+        log::debug!("Cache miss: {}", url);
+        Ok(None)
+    }
+}
+
+/// Download image from network (blocking)
+pub fn download_image(url: &str) -> Result<Vec<u8>> {
+    log::info!("Downloading image: {}", url);
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    ehttp::fetch(ehttp::Request::get(url), move |response| {
+        let _ = tx.send(response);
+    });
+
+    let response = rx.recv_timeout(std::time::Duration::from_secs(30))
+        .context("Image download timeout")?;
+
+    let resp = response
+        .map_err(|e| anyhow::anyhow!("Network error: {}", e))?;
+
+    if !resp.ok {
+        anyhow::bail!("HTTP {}: {}", resp.status, resp.status_text);
+    }
+
+    Ok(resp.bytes)
+}
+
+/// Save image bytes to cache
+pub fn save_to_cache(url: &str, bytes: &[u8]) -> Result<()> {
+    let cache_dir = get_cache_dir()?;
+    let filename = get_cache_filename(url);
+    let cache_path = cache_dir.join(&filename);
+
+    std::fs::write(&cache_path, bytes)?;
+    log::debug!("Saved to cache: {:?} ({} bytes)", cache_path, bytes.len());
+
+    Ok(())
+}
