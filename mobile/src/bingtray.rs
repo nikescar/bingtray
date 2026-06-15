@@ -541,16 +541,30 @@ impl eframe::App for BingtrayApp {
                         log::info!("Carousel page {} loaded: {} images, {} total",
                                    page, images.len(), total_count);
 
-                        // Convert BingImage to CarouselImage
+                        // Convert BingImage to CarouselImage with proper thumbnail URLs
                         let carousel_images: Vec<CarouselImage> = images.into_iter()
-                            .map(|img| CarouselImage {
-                                title: img.title.clone(),
-                                copyright: img.copyright.clone().unwrap_or_default(),
-                                copyright_link: img.copyright_link.clone().unwrap_or_default(),
-                                thumbnail_url: img.url.clone(),
-                                full_url: img.url.clone(),
-                                image_bytes: None,  // Loaded on demand
-                                status: Some(img.status),
+                            .map(|img| {
+                                // Generate base URL
+                                let base_url = if img.url.starts_with("http") {
+                                    img.url.clone()
+                                } else {
+                                    format!("https://bing.com{}", img.url)
+                                };
+
+                                // Create thumbnail and full URLs with size parameters
+                                let separator = if base_url.contains('?') { "&" } else { "?" };
+                                let thumbnail_url = format!("{}{}w=320&h=240", base_url, separator);
+                                let full_url = format!("{}{}w=1920&h=1080", base_url, separator);
+
+                                CarouselImage {
+                                    title: img.title.clone(),
+                                    copyright: img.copyright.clone().unwrap_or_default(),
+                                    copyright_link: img.copyright_link.clone().unwrap_or_default(),
+                                    thumbnail_url,
+                                    full_url,
+                                    image_bytes: None,  // Loaded on demand
+                                    status: Some(img.status),
+                                }
                             })
                             .collect();
 
@@ -999,113 +1013,247 @@ impl BingtrayApp {
                     self.carousel_scroll_offset
                 );
 
-                // ==================== MAIN PANEL ====================
+                // ==================== MAIN PANEL (Using old working code) ====================
                 ui.add_space(20.0);
                 ui.separator();
                 ui.add_space(10.0);
 
+                // Transfer ViewModel data to main_panel_image for compatibility with old code
                 if let Some(ref image_bytes) = self.main_image_bytes {
-                    ui.vertical(|ui| {
-                        // Find metadata
-                        if let Some(ref url) = self.selected_image_url {
-                            let metadata = new_carousel_images.iter()
-                                .find(|img| img.full_url == *url);
+                    if let Some(ref url) = self.selected_image_url {
+                        // Find metadata from carousel
+                        if let Some(carousel_img) = new_carousel_images.iter().find(|img| img.full_url == *url) {
+                            // Create/update main_panel_image from ViewModel data
+                            self.main_panel_image = Some(CarouselImage {
+                                title: carousel_img.title.clone(),
+                                copyright: carousel_img.copyright.clone(),
+                                copyright_link: carousel_img.copyright_link.clone(),
+                                thumbnail_url: carousel_img.thumbnail_url.clone(),
+                                full_url: carousel_img.full_url.clone(),
+                                image_bytes: Some(image_bytes.clone()),
+                                status: carousel_img.status.clone(),
+                            });
+                        }
+                    }
+                }
 
-                            if let Some(img) = metadata {
-                                ui.heading(&img.title);
+                // Render main panel using old working code
+                let has_main_image = self.main_panel_image.is_some()
+                    && self.main_panel_image.as_ref().unwrap().image_bytes.is_some();
 
-                                if !img.copyright.is_empty() {
-                                    ui.horizontal(|ui| {
-                                        ui.label(&img.copyright);
-                                        if !img.copyright_link.is_empty() {
-                                            if ui.link("More info").clicked() {
-                                                opener::open(&img.copyright_link).ok();
-                                            }
+                if has_main_image {
+                    let main_image = self.main_panel_image.as_ref().unwrap().clone();
+
+                    // Title and status toggles
+                    ui.horizontal(|ui| {
+                        let total_available_width = ui.available_width();
+                        let button_area_width = 250.0;
+                        let title_max_width = (total_available_width - button_area_width).max(100.0);
+
+                        // Title
+                        ui.allocate_ui_with_layout(
+                            egui::vec2(title_max_width, ui.available_height()),
+                            egui::Layout::left_to_right(egui::Align::Center),
+                            |ui| {
+                                ui.label(&main_image.title);
+                            }
+                        );
+
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            // Get current status
+                            let mut is_favorite = main_image.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false);
+                            let mut is_blacklisted = main_image.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false);
+
+                            // Extract base URL
+                            let base_url = main_image.full_url.split("&w=").next().unwrap_or(&main_image.full_url).to_string();
+
+                            // Blacklist switch
+                            let blacklist_switch = switch(&mut is_blacklisted)
+                                .with_icons(ICON_BLOCK, ICON_BLOCK)
+                                .show_track_outline(true);
+                            if ui.add(blacklist_switch).changed() {
+                                if let Some(ref viewmodel) = self.viewmodel {
+                                    if is_blacklisted {
+                                        // Set to blacklisted
+                                        viewmodel.send_command(
+                                            crate::viewmodel::ViewModelCommand::BlacklistImage { url: base_url.clone() }
+                                        ).ok();
+                                        // Update local state
+                                        if let Some(ref mut panel_img) = self.main_panel_image {
+                                            panel_img.status = Some("blacklisted".to_string());
                                         }
-                                    });
+                                    } else {
+                                        // Remove blacklist (back to unprocessed)
+                                        // Use ToggleFavorite with false to unmark
+                                        // Actually we need an "unmark" command - for now just toggle favorite twice
+                                        log::warn!("Need unmark command - setting to unprocessed");
+                                        if let Some(ref mut panel_img) = self.main_panel_image {
+                                            panel_img.status = Some("unprocessed".to_string());
+                                        }
+                                    }
                                 }
-                                ui.add_space(10.0);
+                            }
+                            ui.label(tr!("switch-blacklist"));
+
+                            ui.add_space(10.0);
+
+                            // Favorite switch
+                            let favorite_switch = switch(&mut is_favorite)
+                                .with_icons(ICON_STAR, ICON_STAR_OUTLINE)
+                                .show_track_outline(true);
+                            if ui.add(favorite_switch).changed() {
+                                if let Some(ref viewmodel) = self.viewmodel {
+                                    if is_favorite {
+                                        // Set to favorite (this should auto-remove from blacklist)
+                                        viewmodel.send_command(
+                                            crate::viewmodel::ViewModelCommand::ToggleFavorite { url: base_url.clone() }
+                                        ).ok();
+                                        // Update local state
+                                        if let Some(ref mut panel_img) = self.main_panel_image {
+                                            panel_img.status = Some("keepfavorite".to_string());
+                                        }
+                                    } else {
+                                        // Remove favorite (toggle off)
+                                        viewmodel.send_command(
+                                            crate::viewmodel::ViewModelCommand::ToggleFavorite { url: base_url.clone() }
+                                        ).ok();
+                                        if let Some(ref mut panel_img) = self.main_panel_image {
+                                            panel_img.status = Some("unprocessed".to_string());
+                                        }
+                                    }
+                                }
+                            }
+                            ui.label(tr!("switch-favorite"));
+                        });
+                    });
+
+                    // Copyright
+                    if !main_image.copyright.is_empty() {
+                        ui.label(&main_image.copyright);
+                    }
+
+                    // Wallpaper buttons
+                    ui.horizontal(|ui| {
+                        // Normal wallpaper button
+                        if ui.button(tr!("button-set-wallpaper")).clicked() {
+                            if let Some(bytes) = &main_image.image_bytes {
+                                let image_data = bytes.clone();
+                                let setter = self.wallpaper_setter.clone();
+                                std::thread::spawn(move || {
+                                    if let Some(setter) = setter {
+                                        let _ = setter.set_wallpaper_from_bytes(&image_data);
+                                    }
+                                });
                             }
                         }
 
-                        // Action buttons
-                        ui.horizontal(|ui| {
-                            // Favorite toggle
-                            if ui.button("⭐ Favorite").clicked() {
-                                if let Some(ref url) = self.selected_image_url {
-                                    if let Some(ref viewmodel) = self.viewmodel {
-                                        viewmodel.send_command(
-                                            crate::viewmodel::ViewModelCommand::ToggleFavorite {
-                                                url: url.clone(),
-                                            }
-                                        ).ok();
+                        // Cropped wallpaper button
+                        if ui.button(tr!("button-set-cropped-wallpaper")).clicked() {
+                            if let Some(bytes) = &main_image.image_bytes {
+                                // Use square_corners for crop
+                                let crop_rect = {
+                                    let (bitmap_width, bitmap_height) = if let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(bytes))
+                                        .with_guessed_format()
+                                    {
+                                        if let Ok(img) = reader.decode() {
+                                            (img.width() as i32, img.height() as i32)
+                                        } else {
+                                            (1920, 1080)
+                                        }
+                                    } else {
+                                        (1920, 1080)
+                                    };
+
+                                    if let Some(display_rect) = self.image_display_rect {
+                                        let left = (self.square_corners[0].x.max(0.0) as i32).max(0).min(bitmap_width - 1);
+                                        let top = (self.square_corners[0].y.max(0.0) as i32).max(0).min(bitmap_height - 1);
+                                        let right = bitmap_width;
+                                        let bottom = (self.square_corners[2].y.max(0.0) as i32).max(top + 1).min(bitmap_height);
+                                        Some((left, top, right, bottom))
+                                    } else {
+                                        None
                                     }
-                                }
-                            }
+                                };
 
-                            // Blacklist toggle
-                            if ui.button("🚫 Blacklist").clicked() {
-                                if let Some(ref url) = self.selected_image_url {
-                                    if let Some(ref viewmodel) = self.viewmodel {
-                                        viewmodel.send_command(
-                                            crate::viewmodel::ViewModelCommand::BlacklistImage {
-                                                url: url.clone(),
+                                let image_data = bytes.clone();
+                                let final_image_data = if let Some((left, top, right, bottom)) = crop_rect {
+                                    if let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(&image_data))
+                                        .with_guessed_format()
+                                    {
+                                        if let Ok(mut img) = reader.decode() {
+                                            let cropped = img.crop(
+                                                left as u32,
+                                                top as u32,
+                                                (right - left) as u32,
+                                                (bottom - top) as u32
+                                            );
+                                            let mut output = Vec::new();
+                                            if cropped.write_to(&mut std::io::Cursor::new(&mut output), image::ImageFormat::Jpeg).is_ok() {
+                                                output
+                                            } else {
+                                                image_data
                                             }
-                                        ).ok();
+                                        } else {
+                                            image_data
+                                        }
+                                    } else {
+                                        image_data
                                     }
-                                }
-                            }
+                                } else {
+                                    image_data
+                                };
 
-                            if ui.button("Set Wallpaper").clicked() {
-                                if let Some(ref url) = self.selected_image_url {
-                                    log::info!("Setting wallpaper: {}", url);
-                                    if let Some(ref viewmodel) = self.viewmodel {
-                                        viewmodel.send_command(
-                                            crate::viewmodel::ViewModelCommand::SetWallpaper {
-                                                url: url.clone(),
-                                            }
-                                        ).ok();
+                                let setter = self.wallpaper_setter.clone();
+                                std::thread::spawn(move || {
+                                    if let Some(setter) = setter {
+                                        let _ = setter.set_wallpaper_from_bytes(&final_image_data);
                                     }
-                                }
-                            }
-
-                            if ui.checkbox(&mut self.show_crop_selector, "Crop").changed() {
-                                log::info!("Crop selector: {}", self.show_crop_selector);
-                            }
-                        });
-
-                        ui.add_space(10.0);
-
-                        // Main image
-                        let image = egui::Image::from_bytes(
-                            format!("bytes://main_image"),
-                            image_bytes.clone()
-                        )
-                        .max_width(800.0)
-                        .sense(Sense::hover());
-
-                        let response = ui.add(image);
-
-                        // Simple crop indicator (full interactive crop selector omitted for token efficiency)
-                        if self.show_crop_selector {
-                            if self.crop_coords.is_none() {
-                                self.crop_coords = Some(crate::viewmodel::CropCoords {
-                                    x: 0.1,
-                                    y: 0.1,
-                                    width: 0.8,
-                                    height: 0.8,
                                 });
                             }
+                        }
 
-                            if let Some(coords) = self.crop_coords {
-                                ui.label(format!(
-                                    "Crop: {:.0}% × {:.0}% (interactive crop coming soon)",
-                                    coords.width * 100.0,
-                                    coords.height * 100.0
-                                ));
+                        // More info button
+                        if !main_image.copyright.is_empty() && !main_image.copyright_link.is_empty() {
+                            if ui.button(tr!("button-more-info")).clicked() {
+                                if let Some(copyright_url) = Self::resolve_url(&main_image.copyright_link) {
+                                    let _ = opener::open(&copyright_url);
+                                }
                             }
                         }
                     });
+
+                    // Update screen ratio
+                    self.update_screen_ratio(ui);
+
+                    // Display image with crop overlay (ALWAYS shown)
+                    if let Some(image_bytes) = &main_image.image_bytes {
+                        let available_width = ui.available_width();
+                        let target_height = available_width * 9.0 / 16.0;
+                        let image_widget = egui::Image::from_bytes(
+                            format!("bytes://main_panel_image_{}", main_image.full_url),
+                            image_bytes.clone()
+                        ).fit_to_exact_size(egui::Vec2::new(available_width, target_height));
+
+                        let image_response = ui.add(image_widget);
+                        let overlay_rect = image_response.rect;
+                        self.image_display_rect = Some(overlay_rect);
+
+                        // Reset rectangle for new image
+                        if self.reset_rectangle_for_new_image {
+                            let (actual_screen_width, actual_screen_height) = self.get_actual_screen_size();
+                            let actual_screen_size = Vec2::new(actual_screen_width, actual_screen_height);
+                            self.initialize_rectangle_for_image(overlay_rect, actual_screen_size);
+                            self.reset_rectangle_for_new_image = false;
+                        }
+
+                        // Render crop square overlay (ALWAYS shown)
+                        ui.scope_builder(
+                            egui::UiBuilder::new().max_rect(overlay_rect),
+                            |ui| {
+                                self.render_square_shape(ui, overlay_rect);
+                            }
+                        );
+                    }
                 } else if self.main_image_loading {
                     ui.centered_and_justified(|ui| {
                         ui.spinner();
