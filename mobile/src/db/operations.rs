@@ -204,3 +204,37 @@ pub fn should_download_manifest(conn: &mut SqliteConnection, manifest_type: &str
         _ => true,
     }
 }
+
+/// Update crop coordinates for an image
+pub fn update_crop_coords(
+    conn: &mut SqliteConnection,
+    url: &str,
+    crop_coords: Option<&str>,
+) -> Result<()> {
+    use crate::schema::bing_images;
+
+    diesel::update(bing_images::table.filter(bing_images::url.eq(url)))
+        .set((
+            bing_images::crop_coords.eq(crop_coords),
+            bing_images::updated_at.eq(current_timestamp()),
+        ))
+        .execute(conn)?;
+
+    Ok(())
+}
+
+/// Get crop coordinates for an image
+pub fn get_crop_coords(
+    conn: &mut SqliteConnection,
+    url: &str,
+) -> Result<Option<String>> {
+    use crate::schema::bing_images;
+
+    bing_images::table
+        .filter(bing_images::url.eq(url))
+        .select(bing_images::crop_coords)
+        .first(conn)
+        .optional()
+        .map_err(Into::into)
+        .map(|opt| opt.flatten())
+}

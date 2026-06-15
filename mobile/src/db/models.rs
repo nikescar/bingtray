@@ -14,6 +14,7 @@ pub struct BingImage {
     pub created_at: i32,
     pub updated_at: i32,
     pub cached_at: Option<i32>,
+    pub crop_coords: Option<String>,
 }
 
 #[derive(Debug, Insertable)]
