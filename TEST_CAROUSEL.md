@@ -9,10 +9,13 @@ rm -rf ~/.config/bingtray/bingtray.db*
 # 2. Run the app
 cargo run --manifest-path mobile/Cargo.toml -- --gui
 
-# 3. Expected behavior on first run:
-#    - Filter bar shows: All | Favorites | Blacklisted | Unprocessed
-#    - Message: "No images in database. Use menu → Download & Set Next Wallpaper"
-#    - Loading spinner appears briefly
+# 3. Expected behavior on first run (BELOW the top app bar):
+#    - Filter bar appears: All | Favorites | Blacklisted | Unprocessed
+#    - Loading spinner shows briefly  
+#    - Then message: "No images in database. Use menu → Download & Set Next Wallpaper"
+#    
+#    ✅ Carousel section is now VISIBLE below top app bar!
+#    (Previous bug: was hidden inside wrong conditional)
 
 # 4. Download images:
 #    - Click hamburger menu (☰) in top-right
