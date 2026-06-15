@@ -465,6 +465,14 @@ impl eframe::App for BingtrayApp {
                     ViewModelEvent::Error { message } => {
                         log::error!("ViewModel error: {}", message);
                     }
+
+                    // NEW: Carousel/crop events (will handle in Task 8)
+                    ViewModelEvent::CarouselPageLoaded { .. } |
+                    ViewModelEvent::MainImageLoaded { .. } |
+                    ViewModelEvent::MainImageRefreshed { .. } |
+                    ViewModelEvent::CropCoordsSaved { .. } => {
+                        log::debug!("Carousel/crop event received (not yet handled)");
+                    }
                 }
             }
         }

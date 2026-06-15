@@ -138,5 +138,12 @@ fn handle_command(
             log::info!("Shutdown command received");
             // Break from message loop (handled by cmd_rx iterator ending)
         }
+
+        // NEW: Carousel/crop commands (will implement in Task 5)
+        ViewModelCommand::LoadCarouselPage { .. } |
+        ViewModelCommand::LoadMainImage { .. } |
+        ViewModelCommand::UpdateCropCoords { .. } => {
+            log::warn!("Carousel/crop command received but not yet implemented");
+        }
     }
 }
