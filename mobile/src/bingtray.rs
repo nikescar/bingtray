@@ -2148,14 +2148,15 @@ impl BingtrayApp {
             return;
         }
 
-        // Get current state - DISABLED (tray_logic removed)
+        // Get current state
+        // has_next_available is always true because download_and_set_next_wallpaper_sync auto-downloads if needed
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status) =
-            (false, false, false, false, String::new(), String::new());
+            (true, false, false, false, String::new(), String::new());
 
         #[cfg(any(target_os = "android", target_arch = "wasm32"))]
         let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status) =
-            (false, false, false, false, String::new(), String::new());
+            (true, false, false, false, String::new(), String::new());
 
         let cache_dir_item = menu_item(&format!("{}", tr!("tray-cache-dir")))
             .leading_icon("folder_open")

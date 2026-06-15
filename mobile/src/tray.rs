@@ -9,7 +9,6 @@
 //! to allow the GUI to be opened on the main thread (required by winit's EventLoop).
 //!
 
-use crate::calc_bingimage::CalcBingimage;
 use anyhow::Result;
 use egui_i18n::tr;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -48,52 +47,50 @@ pub fn init_tray_event_handlers() {
     log::info!("Initializing global tray event handlers (one-time setup)");
 
     // Initialize queues
-    let tray_queue = Arc::new(SegQueue::new());
-    let menu_queue = Arc::new(SegQueue::new());
+    TRAY_ICON_EVENTS.get_or_init(|| Arc::new(SegQueue::new()));
+    MENU_EVENTS.get_or_init(|| Arc::new(SegQueue::new()));
 
-    TRAY_ICON_EVENTS.get_or_init(|| tray_queue.clone());
-    MENU_EVENTS.get_or_init(|| menu_queue.clone());
-
-    // Set up global event handlers that push to queues
-    let tray_queue_for_handler = tray_queue.clone();
-    TrayIconEvent::set_event_handler(Some(move |event| {
-        log::debug!("TrayIconEvent received, pushing to global queue: {:?}", event);
-        tray_queue_for_handler.push(event);
+    // Set up global tray icon event handler
+    TrayIconEvent::set_event_handler(Some(|event: TrayIconEvent| {
+        if let Some(queue) = TRAY_ICON_EVENTS.get() {
+            queue.push(event);
+        }
     }));
 
-    let menu_queue_for_handler = menu_queue.clone();
-    MenuEvent::set_event_handler(Some(move |event| {
-        log::info!(">>> MenuEvent handler fired, pushing to global queue: {:?}", event);
-        menu_queue_for_handler.push(event);
+    // Set up global menu event handler
+    MenuEvent::set_event_handler(Some(|event: MenuEvent| {
+        if let Some(queue) = MENU_EVENTS.get() {
+            queue.push(event);
+        }
     }));
 
     log::info!("Global tray event handlers initialized successfully");
 }
 
-/// Menu item identifiers
+/// Menu items for tracking clicks
+#[derive(Debug)]
 struct MenuItems {
     show_app: MenuId,
     cache_dir: MenuId,
     next_market: MenuId,
-    current_title: MenuId,  // Display current wallpaper title
+    current_title: MenuId,
     keep_current: MenuId,
     blacklist_current: MenuId,
     random_favorite: MenuId,
     quit: MenuId,
 }
 
-/// Load the embedded icon
-fn load_icon() -> Icon {
+/// Load tray icon from embedded asset
+fn load_tray_icon() -> Icon {
     let start_time = std::time::Instant::now();
     log::debug!("Loading tray icon...");
 
-    let icon_bytes = include_bytes!("../app/src/main/play_store_512.png");
-
     let t0 = std::time::Instant::now();
-    let image = image::load_from_memory(icon_bytes).expect("Failed to load icon");
-    log::debug!("  image::load_from_memory(): {:?}", t0.elapsed());
+    let icon_bytes = include_bytes!("../resources/logo.png");
+    log::debug!("  include_bytes!(): {:?}", t0.elapsed());
 
     let t1 = std::time::Instant::now();
+    let image = image::load_from_memory(icon_bytes).expect("Failed to load icon");
     let rgba = image.to_rgba8();
     log::debug!("  to_rgba8(): {:?}", t1.elapsed());
 
@@ -106,97 +103,218 @@ fn load_icon() -> Icon {
     icon
 }
 
+/// Tray logic wrapper using ViewModel (sync mode)
+struct TrayLogic {
+    conn: diesel::SqliteConnection,
+}
+
+impl TrayLogic {
+    fn new() -> Result<Self> {
+        use diesel::Connection;
+        let db_path = crate::db::get_database_path()?;
+        let mut conn = diesel::SqliteConnection::establish(&db_path.to_string_lossy())?;
+
+        // Run migrations
+        use diesel_migrations::MigrationHarness;
+        conn.run_pending_migrations(crate::db::MIGRATIONS)
+            .map_err(|e| anyhow::anyhow!("Migration failed: {}", e))?;
+
+        Ok(Self { conn })
+    }
+
+    fn get_wallpaper_page_status(&mut self) -> String {
+        // Simple status - just show count of unprocessed images
+        match crate::db::operations::count_by_status(&mut self.conn, crate::db::ImageStatus::Unprocessed) {
+            Ok(count) => format!("({} available)", count),
+            Err(_) => String::new(),
+        }
+    }
+
+    fn has_next_available(&mut self) -> bool {
+        // Always return true because download_and_set_next_wallpaper_sync will auto-download if needed
+        // (when unprocessed count < 7, it fetches new images from sources)
+        true
+    }
+
+    fn get_current_image_title(&mut self) -> String {
+        use crate::viewmodel::commands::get_current_desktop_wallpaper_url_sync;
+
+        if let Ok(Some(url)) = get_current_desktop_wallpaper_url_sync(&mut self.conn) {
+            if let Ok(Some(image)) = crate::db::operations::get_image(&mut self.conn, &url) {
+                let title = &image.title;
+                if title.len() > 40 {
+                    format!("{}...", &title[..40])
+                } else {
+                    title.clone()
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    }
+
+    fn can_keep(&mut self) -> bool {
+        // Can keep if there's a current wallpaper and it's not already a favorite
+        use crate::viewmodel::commands::get_current_desktop_wallpaper_url_sync;
+
+        if let Ok(Some(url)) = get_current_desktop_wallpaper_url_sync(&mut self.conn) {
+            if let Ok(Some(image)) = crate::db::operations::get_image(&mut self.conn, &url) {
+                image.status != crate::db::ImageStatus::KeepFavorite.as_str()
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
+    fn can_blacklist(&mut self) -> bool {
+        // Can blacklist if there's a current wallpaper
+        use crate::viewmodel::commands::get_current_desktop_wallpaper_url_sync;
+        get_current_desktop_wallpaper_url_sync(&mut self.conn).ok().flatten().is_some()
+    }
+
+    fn has_kept_wallpapers(&mut self) -> bool {
+        crate::db::operations::count_by_status(&mut self.conn, crate::db::ImageStatus::KeepFavorite)
+            .map(|count| count > 0)
+            .unwrap_or(false)
+    }
+
+    fn open_cache_directory(&self) -> Result<()> {
+        let config = crate::Config::new()?;
+        let path = &config.cached_dir;
+
+        #[cfg(target_os = "linux")]
+        {
+            std::process::Command::new("xdg-open")
+                .arg(path)
+                .spawn()?;
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg(path)
+                .spawn()?;
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("explorer")
+                .arg(path)
+                .spawn()?;
+        }
+
+        log::info!("Opened cache directory: {:?}", path);
+        Ok(())
+    }
+
+    fn set_next_market_wallpaper(&mut self) -> Result<bool> {
+        use crate::viewmodel::commands::download_and_set_next_wallpaper_sync;
+
+        match download_and_set_next_wallpaper_sync(&mut self.conn) {
+            Ok(_result) => Ok(true),
+            Err(e) => {
+                log::error!("Failed to set next wallpaper: {}", e);
+                Err(e)
+            }
+        }
+    }
+
+    fn keep_current_image(&mut self) -> Result<()> {
+        use crate::viewmodel::commands::keep_current_wallpaper_sync;
+
+        if let Some(_title) = keep_current_wallpaper_sync(&mut self.conn)? {
+            log::info!("Kept current image");
+            Ok(())
+        } else {
+            anyhow::bail!("No current wallpaper to keep")
+        }
+    }
+
+    fn blacklist_current_image(&mut self) -> Result<()> {
+        use crate::viewmodel::commands::blacklist_current_wallpaper_sync;
+
+        if let Some(_title) = blacklist_current_wallpaper_sync(&mut self.conn)? {
+            log::info!("Blacklisted current image");
+            Ok(())
+        } else {
+            anyhow::bail!("No current wallpaper to blacklist")
+        }
+    }
+
+    fn set_kept_wallpaper(&mut self) -> Result<bool> {
+        use crate::viewmodel::commands::set_random_favorite_wallpaper_sync;
+
+        match set_random_favorite_wallpaper_sync(&mut self.conn) {
+            Ok(Some(_title)) => Ok(true),
+            Ok(None) => {
+                log::warn!("No favorite wallpapers available");
+                Ok(false)
+            }
+            Err(e) => {
+                log::error!("Failed to set random favorite: {}", e);
+                Err(e)
+            }
+        }
+    }
+}
 
 /// Create the tray menu based on current application state
-fn create_tray_menu(logic: &CalcBingimage) -> (Menu, MenuItems) {
+fn create_tray_menu(logic: &mut TrayLogic) -> (Menu, MenuItems) {
     let start_time = std::time::Instant::now();
     log::debug!("=== Creating tray menu ===");
 
     let menu = Menu::new();
 
-    let t0 = std::time::Instant::now();
     let show_app = MenuItem::new(format!("{}", tr!("tray-show-app")), true, None);
-    log::debug!("  show_app item: {:?}", t0.elapsed());
-
-    let t1 = std::time::Instant::now();
     let cache_dir = MenuItem::new(format!("{}", tr!("tray-cache-dir")), true, None);
-    log::debug!("  cache_dir item: {:?}", t1.elapsed());
 
-    let t2 = std::time::Instant::now();
     let wallpaper_status = logic.get_wallpaper_page_status();
-    log::debug!("  get_wallpaper_page_status(): {:?}", t2.elapsed());
-
-    let t3 = std::time::Instant::now();
     let has_next = logic.has_next_available();
-    log::debug!("  has_next_available(): {:?}", t3.elapsed());
-
-    let t4 = std::time::Instant::now();
     let next_market = MenuItem::new(
         format!("{}\n{}", tr!("tray-next-market"), wallpaper_status),
         has_next,
         None
     );
-    log::debug!("  next_market item: {:?}", t4.elapsed());
 
     // Display current wallpaper title (non-clickable)
-    let t5 = std::time::Instant::now();
     let current_title_text = logic.get_current_image_title();
-    log::debug!("  get_current_image_title(): {:?}", t5.elapsed());
-
-    let t6 = std::time::Instant::now();
     let current_title_display = if !current_title_text.is_empty() {
         format!("📷 {}", current_title_text)
     } else {
         format!("📷 {}", tr!("tray-no-wallpaper"))
     };
-    let current_title_item = MenuItem::new(current_title_display, false, None); // disabled = not clickable
-    log::debug!("  current_title item: {:?}", t6.elapsed());
-
+    let current_title_item = MenuItem::new(current_title_display, false, None);
     let current_title = current_title_text;
 
-    let t7 = std::time::Instant::now();
     let can_keep = logic.can_keep();
-    log::debug!("  can_keep(): {:?}", t7.elapsed());
-
-    let t8 = std::time::Instant::now();
     let keep_text = if can_keep {
         format!("{}", tr!("tray-keep-with-title", { title: current_title.clone() }))
     } else {
         format!("{}", tr!("tray-keep-current"))
     };
     let keep_current = MenuItem::new(keep_text, can_keep, None);
-    log::debug!("  keep_current item: {:?}", t8.elapsed());
 
-    let t9 = std::time::Instant::now();
     let can_blacklist = logic.can_blacklist();
-    log::debug!("  can_blacklist(): {:?}", t9.elapsed());
-
-    let t10 = std::time::Instant::now();
     let blacklist_text = if can_blacklist {
         format!("{}", tr!("tray-blacklist-with-title", { title: current_title.clone() }))
     } else {
         format!("{}", tr!("tray-blacklist-current"))
     };
     let blacklist_current = MenuItem::new(blacklist_text, can_blacklist, None);
-    log::debug!("  blacklist_current item: {:?}", t10.elapsed());
 
-    let t11 = std::time::Instant::now();
     let has_kept = logic.has_kept_wallpapers();
-    log::debug!("  has_kept_wallpapers(): {:?}", t11.elapsed());
-
-    let t12 = std::time::Instant::now();
     let random_favorite = MenuItem::new(
         format!("{}", tr!("tray-random-favorite")),
         has_kept,
         None,
     );
-    log::debug!("  random_favorite item: {:?}", t12.elapsed());
 
-    let t13 = std::time::Instant::now();
     let quit = MenuItem::new(format!("{}", tr!("tray-quit")), true, None);
-    log::debug!("  quit item: {:?}", t13.elapsed());
 
-    let t14 = std::time::Instant::now();
     let menu_items = MenuItems {
         show_app: show_app.id().clone(),
         cache_dir: cache_dir.id().clone(),
@@ -207,23 +325,19 @@ fn create_tray_menu(logic: &CalcBingimage) -> (Menu, MenuItems) {
         random_favorite: random_favorite.id().clone(),
         quit: quit.id().clone(),
     };
-    log::debug!("  MenuItems struct: {:?}", t14.elapsed());
 
-    let t15 = std::time::Instant::now();
     menu.append(&show_app).ok();
     menu.append(&MenuItem::new("", false, None)).ok(); // Separator
     menu.append(&cache_dir).ok();
     menu.append(&next_market).ok();
-    menu.append(&current_title_item).ok(); // Current wallpaper title
+    menu.append(&current_title_item).ok();
     menu.append(&keep_current).ok();
     menu.append(&blacklist_current).ok();
     menu.append(&random_favorite).ok();
     menu.append(&MenuItem::new("", false, None)).ok(); // Separator
     menu.append(&quit).ok();
-    log::debug!("  Menu append operations: {:?}", t15.elapsed());
 
-    let total_time = start_time.elapsed();
-    log::info!("=== Tray menu created in {:?} ===", total_time);
+    log::info!("=== Tray menu created in {:?} ===", start_time.elapsed());
 
     (menu, menu_items)
 }
@@ -231,23 +345,15 @@ fn create_tray_menu(logic: &CalcBingimage) -> (Menu, MenuItems) {
 /// Update the tray menu with new state
 fn update_tray_menu(
     tray_icon: &TrayIcon,
-    logic: &CalcBingimage,
+    logic: &mut TrayLogic,
     menu_items: &mut MenuItems,
 ) {
     let start_time = std::time::Instant::now();
     log::info!("=== Updating tray menu ===");
 
-    let t0 = std::time::Instant::now();
     let (new_menu, new_menu_items) = create_tray_menu(logic);
-    log::debug!("  create_tray_menu(): {:?}", t0.elapsed());
-
-    let t1 = std::time::Instant::now();
     *menu_items = new_menu_items;
-    log::debug!("  update menu_items: {:?}", t1.elapsed());
-
-    let t2 = std::time::Instant::now();
     tray_icon.set_menu(Some(Box::new(new_menu)));
-    log::debug!("  tray_icon.set_menu(): {:?}", t2.elapsed());
 
     log::info!("=== Tray menu updated in {:?} ===", start_time.elapsed());
 }
@@ -257,8 +363,7 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
     log::info!("=== Starting tray mode ===");
 
     // Create application logic
-    let mut app = CalcBingimage::new()?;
-    app.initialize()?;
+    let mut app = TrayLogic::new()?;
 
     // Create event loop (must be mutable for run_return)
     log::info!("Creating new event loop");
@@ -270,7 +375,7 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
     let menu_queue = MENU_EVENTS.get().expect("Menu event handlers not initialized! Call init_tray_event_handlers() first");
     log::info!("Got references to global event queues");
 
-    // Track exit action - use Arc<Mutex<>> to share between closure and return
+    // Track exit action
     let exit_action = Arc::new(Mutex::new(TrayExitAction::Quit));
     let exit_action_for_return = exit_action.clone();
 
@@ -282,11 +387,9 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
     let tray_queue = tray_queue.clone();
     let menu_queue = menu_queue.clone();
 
-    // Run event loop with run_return (allows returning to caller)
+    // Run event loop with run_return
     log::info!("Starting event loop...");
     event_loop.run_return(move |event, _, control_flow| {
-        // Use Poll mode to ensure system events are processed immediately
-        // We'll manually sleep if there are no events to keep CPU usage low
         *control_flow = ControlFlow::Poll;
 
         // Process events from global queues
@@ -298,42 +401,29 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
             log::info!(">>> Menu event received from queue: {:?}", menu_event);
 
             if let Some(ref items) = menu_items {
-                log::debug!("Menu items available, checking which item was clicked");
                 if menu_event.id == items.show_app {
                     log::info!(">>> 'Show App' menu item clicked!");
-                    // Open GUI window on main thread
-                    // EventLoop can only be created once per process, so we exit tray mode
-                    // and let main.rs open the GUI on the main thread
-                    log::info!("Exiting tray event loop to open GUI on main thread");
                     *exit_action_for_return.lock().unwrap() = TrayExitAction::OpenGui;
                     *control_flow = ControlFlow::Exit;
-                    log::info!("Control flow set to Exit");
-                    continue; // Skip further processing
+                    continue;
                 } else if menu_event.id == items.cache_dir {
-                    // Open cache directory
                     log::info!("Opening cache directory");
                     if let Err(e) = app.open_cache_directory() {
                         log::error!("Failed to open cache directory: {}", e);
                     }
                 } else if menu_event.id == items.next_market {
-                    // Next market wallpaper
                     log::info!("Setting next market wallpaper");
                     match app.set_next_market_wallpaper() {
                         Ok(true) => {
                             log::info!("Wallpaper set successfully!");
                             if let Some(ref icon) = tray_icon {
-                                update_tray_menu(icon, &app, &mut menu_items.as_mut().unwrap());
+                                update_tray_menu(icon, &mut app, &mut menu_items.as_mut().unwrap());
                             }
                         }
-                        Ok(false) => {
-                            log::warn!("No wallpapers available");
-                        }
-                        Err(e) => {
-                            log::error!("Failed to set wallpaper: {}", e);
-                        }
+                        Ok(false) => log::warn!("No wallpapers available"),
+                        Err(e) => log::error!("Failed to set wallpaper: {}", e),
                     }
                 } else if menu_event.id == items.keep_current {
-                    // Keep current image
                     if app.can_keep() {
                         log::info!("Keeping current image");
                         if let Err(e) = app.keep_current_image() {
@@ -341,12 +431,11 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
                         } else {
                             log::info!("Image moved to favorites!");
                             if let Some(ref icon) = tray_icon {
-                                update_tray_menu(icon, &app, &mut menu_items.as_mut().unwrap());
+                                update_tray_menu(icon, &mut app, &mut menu_items.as_mut().unwrap());
                             }
                         }
                     }
                 } else if menu_event.id == items.blacklist_current {
-                    // Blacklist current image
                     if app.can_blacklist() {
                         log::info!("Blacklisting current image");
                         if let Err(e) = app.blacklist_current_image() {
@@ -354,88 +443,59 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
                         } else {
                             log::info!("Image blacklisted!");
                             if let Some(ref icon) = tray_icon {
-                                update_tray_menu(icon, &app, &mut menu_items.as_mut().unwrap());
+                                update_tray_menu(icon, &mut app, &mut menu_items.as_mut().unwrap());
                             }
                         }
                     }
                 } else if menu_event.id == items.random_favorite {
-                    // Set random favorite wallpaper
-                    if app.has_kept_wallpapers() {
-                        log::info!("Setting random favorite wallpaper");
-                        match app.set_kept_wallpaper() {
-                            Ok(true) => {
-                                log::info!("Favorite wallpaper set!");
-                                if let Some(ref icon) = tray_icon {
-                                    update_tray_menu(icon, &app, &mut menu_items.as_mut().unwrap());
-                                }
-                            }
-                            Ok(false) => {
-                                log::warn!("No favorite wallpapers available");
-                            }
-                            Err(e) => {
-                                log::error!("Failed to set favorite wallpaper: {}", e);
+                    log::info!("Setting random favorite wallpaper");
+                    match app.set_kept_wallpaper() {
+                        Ok(true) => {
+                            log::info!("Random favorite set successfully!");
+                            if let Some(ref icon) = tray_icon {
+                                update_tray_menu(icon, &mut app, &mut menu_items.as_mut().unwrap());
                             }
                         }
+                        Ok(false) => log::warn!("No favorite wallpapers available"),
+                        Err(e) => log::error!("Failed to set favorite: {}", e),
                     }
                 } else if menu_event.id == items.quit {
-                    // Quit application
-                    log::info!("Quitting application");
-                    *exit_action_for_return.lock().unwrap() = TrayExitAction::Quit;
-                    tray_icon.take(); // Drop tray icon
+                    log::info!("Quit menu item clicked");
                     *control_flow = ControlFlow::Exit;
                 }
             }
         }
 
+        // Handle window events
         match event {
-            Event::NewEvents(tao::event::StartCause::Init) => {
-                let init_start = std::time::Instant::now();
-                log::info!("=== Event loop Init event - creating tray icon ===");
+            Event::NewEvents(_) => {
+                // Lazy initialization of tray icon
+                if tray_icon.is_none() {
+                    log::info!("Lazy initialization of tray icon...");
+                    let icon = load_tray_icon();
+                    let (menu, items) = create_tray_menu(&mut app);
 
-                let t0 = std::time::Instant::now();
-                let icon = load_icon();
-                log::debug!("  load_icon(): {:?}", t0.elapsed());
-
-                let t1 = std::time::Instant::now();
-                let (tray_menu, items) = create_tray_menu(&app);
-                log::debug!("  create_tray_menu(): {:?}", t1.elapsed());
-
-                let t2 = std::time::Instant::now();
-                tray_icon = Some(
-                    TrayIconBuilder::new()
-                        .with_menu(Box::new(tray_menu))
-                        .with_tooltip("Bingtray - Bing Wallpaper Manager")
+                    let new_tray_icon = TrayIconBuilder::new()
+                        .with_menu(Box::new(menu))
+                        .with_tooltip("BingTray")
                         .with_icon(icon)
                         .build()
-                        .expect("Failed to create tray icon"),
-                );
-                log::debug!("  TrayIconBuilder.build(): {:?}", t2.elapsed());
+                        .expect("Failed to build tray icon");
 
-                menu_items = Some(items);
-                log::info!("=== Tray icon created in {:?} ===", init_start.elapsed());
-
-                // Wake up macOS run loop if needed
-                #[cfg(target_os = "macos")]
-                unsafe {
-                    use objc2_core_foundation::CFRunLoop;
-                    if let Some(rl) = CFRunLoop::main() {
-                        rl.wake_up();
-                    }
+                    tray_icon = Some(new_tray_icon);
+                    menu_items = Some(items);
+                    log::info!("Tray icon initialized successfully");
                 }
+
+                // Sleep briefly to reduce CPU usage
+                std::thread::sleep(std::time::Duration::from_millis(50));
             }
-
             _ => {}
-        }
-
-        // In Poll mode, sleep briefly if we're not exiting to avoid high CPU usage
-        // This gives time for system events to be delivered while keeping responsiveness
-        if *control_flow != ControlFlow::Exit {
-            std::thread::sleep(std::time::Duration::from_millis(10));
         }
     });
 
-    log::info!("Event loop has exited (run_return completed)");
-    let action = *exit_action.lock().unwrap();
-    log::info!("=== Tray mode exited with action: {:?} ===", action);
-    Ok(action)
+    log::info!("Event loop exited");
+    let result = *exit_action.lock().unwrap();
+    log::info!("=== Tray mode exiting with action: {:?} ===", result);
+    Ok(result)
 }
