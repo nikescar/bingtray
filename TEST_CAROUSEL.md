@@ -29,9 +29,16 @@ cargo run --manifest-path mobile/Cargo.toml -- --gui
 #    - Total count: "(X images)"
 
 # 6. Test carousel interaction:
+#    - Thumbnails load (320x240 optimized size)
 #    - Click an image thumbnail → main panel loads below
-#    - Main panel shows: title, copyright, image
-#    - Action buttons: Favorite, Blacklist, Set Wallpaper, Crop checkbox
+#    - Main panel shows:
+#      * Title and copyright
+#      * Material3 toggle switches (Favorite ⭐ / Blacklist 🚫)
+#      * Set Wallpaper button
+#      * Set Cropped Wallpaper button
+#      * More Info button
+#      * Full-size image (1920x1080)
+#      * GREEN CROP SQUARE overlay (always visible, draggable corners)
 
 # 7. Test filter switching:
 #    - Click ⭐ Favorite button on an image
