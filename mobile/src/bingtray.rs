@@ -536,14 +536,65 @@ impl eframe::App for BingtrayApp {
                         log::error!("ViewModel error: {}", message);
                     }
 
-                    // NEW: Carousel/crop events (will handle in Task 8)
-                    ViewModelEvent::CarouselPageLoaded { .. } |
-                    ViewModelEvent::MainImageLoaded { .. } |
-                    ViewModelEvent::MainImageRefreshed { .. } |
-                    ViewModelEvent::CropCoordsSaved { .. } => {
-                        log::debug!("Carousel/crop event received (not yet handled)");
+                    // NEW: Carousel events
+                    ViewModelEvent::CarouselPageLoaded { page, images, total_count } => {
+                        log::info!("Carousel page {} loaded: {} images, {} total",
+                                   page, images.len(), total_count);
+
+                        // Convert BingImage to CarouselImage
+                        let carousel_images: Vec<CarouselImage> = images.into_iter()
+                            .map(|img| CarouselImage {
+                                title: img.title.clone(),
+                                copyright: img.copyright.clone().unwrap_or_default(),
+                                copyright_link: img.copyright_link.clone().unwrap_or_default(),
+                                thumbnail_url: img.url.clone(),
+                                full_url: img.url.clone(),
+                                image_bytes: None,  // Loaded on demand
+                                status: Some(img.status),
+                            })
+                            .collect();
+
+                        // Store in page cache
+                        self.carousel_pages.insert(
+                            (self.carousel_filter, page),
+                            carousel_images
+                        );
+                        self.carousel_total_count = Some(total_count);
+                        self.carousel_loading = false;
+                    }
+
+                    ViewModelEvent::MainImageLoaded { url, image_bytes, cached } => {
+                        log::info!("Main image loaded: {} ({} bytes, cached: {})",
+                                   url, image_bytes.len(), cached);
+
+                        self.main_image_bytes = Some(image_bytes);
+                        self.main_image_loading = false;
+                    }
+
+                    ViewModelEvent::MainImageRefreshed { url, image_bytes } => {
+                        log::info!("Main image refreshed: {}", url);
+                        // Only update if same image still selected
+                        if self.selected_image_url.as_ref() == Some(&url) {
+                            self.main_image_bytes = Some(image_bytes);
+                        }
+                    }
+
+                    ViewModelEvent::CropCoordsSaved { url } => {
+                        log::info!("Crop coords saved for: {}", url);
                     }
                 }
+            }
+        }
+
+        // Load initial carousel page if not loaded
+        if let Some(ref viewmodel) = self.viewmodel {
+            if self.carousel_pages.is_empty() && !self.carousel_loading {
+                log::info!("Loading initial carousel page");
+                self.carousel_loading = true;
+                viewmodel.send_command(crate::viewmodel::ViewModelCommand::LoadCarouselPage {
+                    filter: None,  // All
+                    page: 0,
+                }).ok();
             }
         }
 
@@ -2082,6 +2133,52 @@ impl BingtrayApp {
 
         // has_next_available is always true (auto-download when needed)
         Ok((true, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status))
+    }
+
+    /// Change carousel filter and restore scroll position
+    fn change_filter(&mut self, new_filter: CarouselFilter) {
+        if new_filter == self.carousel_filter {
+            return;  // No change
+        }
+
+        log::info!("Changing filter from {:?} to {:?}", self.carousel_filter, new_filter);
+
+        // Save current scroll position for old filter
+        self.carousel_scroll_positions.insert(
+            self.carousel_filter,
+            self.carousel_scroll_offset
+        );
+
+        // Change filter
+        self.carousel_filter = new_filter;
+
+        // Restore scroll position for new filter (or default to 0)
+        self.carousel_scroll_offset = self.carousel_scroll_positions
+            .get(&new_filter)
+            .copied()
+            .unwrap_or(0.0);
+
+        // Check if we have cached pages for this filter
+        if !self.carousel_pages.contains_key(&(new_filter, 0)) {
+            // Load first page for this filter
+            self.load_carousel_page(0);
+        }
+    }
+
+    /// Load a carousel page via ViewModel
+    fn load_carousel_page(&mut self, page: usize) {
+        if let Some(ref viewmodel) = self.viewmodel {
+            log::info!("Loading carousel page {} with filter {:?}", page, self.carousel_filter);
+
+            self.carousel_loading = true;
+            self.carousel_current_page = page;
+
+            let filter_status = self.carousel_filter.to_image_status();
+            viewmodel.send_command(crate::viewmodel::ViewModelCommand::LoadCarouselPage {
+                filter: filter_status,
+                page,
+            }).ok();
+        }
     }
 }
 
