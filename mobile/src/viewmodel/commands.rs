@@ -247,7 +247,7 @@ pub fn keep_current_wallpaper_sync(conn: &mut SqliteConnection) -> Result<Option
     // Update status to keepfavorite
     operations::update_image_status(conn, &url, ImageStatus::KeepFavorite)?;
 
-    // Auto-advance: set next wallpaper
+    // Auto-advance: set next wallpaper (with rotation and auto-download)
     log::info!("Auto-advancing to next wallpaper after keep");
     if let Err(e) = download_and_set_next_wallpaper_sync(conn) {
         log::warn!("Failed to auto-advance to next wallpaper: {}", e);
@@ -276,7 +276,7 @@ pub fn blacklist_current_wallpaper_sync(conn: &mut SqliteConnection) -> Result<O
     // Update status to blacklisted
     operations::update_image_status(conn, &url, ImageStatus::Blacklisted)?;
 
-    // Auto-advance: set next wallpaper
+    // Auto-advance: set next wallpaper (with rotation and auto-download)
     log::info!("Auto-advancing to next wallpaper after blacklist");
     if let Err(e) = download_and_set_next_wallpaper_sync(conn) {
         log::warn!("Failed to auto-advance to next wallpaper: {}", e);
@@ -347,23 +347,25 @@ pub fn set_random_favorite_wallpaper_sync(conn: &mut SqliteConnection) -> Result
 pub fn download_and_set_next_wallpaper_sync(conn: &mut SqliteConnection) -> Result<crate::viewmodel::WallpaperSetResult> {
     use crate::db::operations;
     use crate::schema::bing_images;
-    
-    // Step 1: Check for unprocessed images
-    let unprocessed = bing_images::table
-        .filter(bing_images::status.eq("unprocessed"))
-        .order(bing_images::fetched_at.desc())
-        .first::<crate::db::BingImage>(conn)
-        .optional()?;
-    
-    let image = if let Some(img) = unprocessed {
-        // Step 2a: Use existing unprocessed image
-        log::info!("Using existing unprocessed image: {}", img.title);
-        img
-    } else {
-        // Step 2b: No unprocessed images - auto-download from dual sources (Bing API + GitHub)
-        log::info!("No unprocessed images found - downloading from sources");
 
-        let (market_code, _offset) = get_market_state_sync(conn)?;
+    // Step 1: Check count of unprocessed images
+    let unprocessed_count = operations::count_by_status(conn, crate::db::ImageStatus::Unprocessed)?;
+    log::info!("Unprocessed images count: {}", unprocessed_count);
+
+    // Step 2: If count < 7, download new page
+    if unprocessed_count < 7 {
+        log::info!("Unprocessed count ({}) < 7, downloading new page", unprocessed_count);
+
+        let (market_code_str, _offset) = get_market_state_sync(conn)?;
+
+        // Get all existing URLs to avoid re-downloading
+        let existing_urls: Vec<String> = {
+            use crate::schema::bing_images::dsl::*;
+            bing_images
+                .select(url)
+                .load(conn)?
+        };
+        log::info!("Found {} existing URLs in database", existing_urls.len());
 
         // Use ImageSource to fetch from both Bing API and GitHub archive
         let sources = crate::viewmodel::sources::ImageSource::new(None);
@@ -374,39 +376,82 @@ pub fn download_and_set_next_wallpaper_sync(conn: &mut SqliteConnection) -> Resu
             anyhow::bail!("No images returned from sources");
         }
 
-        log::info!("Downloaded {} images from dual sources (Bing + GitHub)", images.len());
+        let fetched_count = images.len();
+        log::info!("Fetched {} images from dual sources (Bing + GitHub)", fetched_count);
 
-        // Insert images into database with status='unprocessed'
-        use std::time::{SystemTime, UNIX_EPOCH};
-        let current_timestamp = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs() as i32;
+        // Filter out already-downloaded images
+        let new_images: Vec<_> = images.into_iter()
+            .filter(|img| !existing_urls.contains(&img.url))
+            .collect();
 
-        for img in &images {
-            let new_img = NewBingImage {
-                url: &img.url,
-                title: &img.title,
-                copyright: img.copyright.as_deref(),
-                copyright_link: img.copyright_link.as_deref(),
-                market_code: &market_code,
-                status: "unprocessed",
-                fetched_at: current_timestamp,
-                created_at: current_timestamp,
-                updated_at: current_timestamp,
-            };
+        if !new_images.is_empty() {
+            log::info!("Found {} new images (filtered {} duplicates)",
+                new_images.len(),
+                fetched_count - new_images.len()
+            );
 
-            operations::upsert_image(conn, &new_img)?;
+            // Insert new images into database with status='unprocessed'
+            use std::time::{SystemTime, UNIX_EPOCH};
+            let current_timestamp = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i32;
+
+            for img in &new_images {
+                let new_img = NewBingImage {
+                    url: &img.url,
+                    title: &img.title,
+                    copyright: img.copyright.as_deref(),
+                    copyright_link: img.copyright_link.as_deref(),
+                    market_code: &market_code_str,
+                    status: "unprocessed",
+                    fetched_at: current_timestamp,
+                    created_at: current_timestamp,
+                    updated_at: current_timestamp,
+                };
+
+                operations::upsert_image(conn, &new_img)?;
+            }
+
+            log::info!("Inserted {} new images into database", new_images.len());
+        } else {
+            log::warn!("All fetched images already exist in database - no new images to add");
         }
+    }
 
-        // No need to increment offset - we're using dual sources now
-        log::info!("Inserted {} images into database", images.len());
+    // Step 3: Get next unprocessed image (with rotation if at end)
+    let unprocessed_list = bing_images::table
+        .filter(bing_images::status.eq("unprocessed"))
+        .order(bing_images::fetched_at.desc())
+        .load::<crate::db::BingImage>(conn)?;
 
-        // Reload from database to get full record (newest unprocessed)
-        bing_images::table
-            .filter(bing_images::status.eq("unprocessed"))
-            .order(bing_images::fetched_at.desc())
-            .first::<crate::db::BingImage>(conn)?
+    if unprocessed_list.is_empty() {
+        anyhow::bail!("No unprocessed images available");
+    }
+
+    // Try to find next image after current wallpaper
+    let current_url_opt = operations::get_config(conn, "current_wallpaper_url")?;
+
+    let image = if let Some(current_url) = current_url_opt {
+        // Find index of current image
+        if let Some(current_idx) = unprocessed_list.iter().position(|img| img.url == current_url) {
+            // Get next image (or rotate to first if at end)
+            if current_idx + 1 < unprocessed_list.len() {
+                log::info!("Using next unprocessed image in sequence");
+                unprocessed_list[current_idx + 1].clone()
+            } else {
+                log::info!("At end of unprocessed list, rotating to first image");
+                unprocessed_list[0].clone()
+            }
+        } else {
+            // Current wallpaper not in unprocessed list, use first unprocessed
+            log::info!("Current wallpaper not in unprocessed list, using first unprocessed");
+            unprocessed_list[0].clone()
+        }
+    } else {
+        // No current wallpaper tracked, use first unprocessed
+        log::info!("No current wallpaper tracked, using first unprocessed image");
+        unprocessed_list[0].clone()
     };
     
     // Step 3: Download image bytes on-demand (with caching)

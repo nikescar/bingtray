@@ -5,8 +5,7 @@
 
 use crate::{BingImage, Config, Settings};
 pub use crate::dlg_settings_stt::DlgSettings;
-use crate::calc_bingimage::sanitize_filename;
-use crate::calc_bingimage::CalcBingimage;
+use crate::utils::sanitize_filename;
 use image;
 use crate::install;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
@@ -196,8 +195,9 @@ pub struct BingtrayApp {
     showing_cached: bool,
     #[cfg_attr(feature = "serde", serde(skip))]
     cached_page_index: usize,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    tray_logic: Option<CalcBingimage>,
+    // Legacy tray logic - DEPRECATED, use ViewModel instead
+    // #[cfg_attr(feature = "serde", serde(skip))]
+    // tray_logic: Option<CalcBingimage>,
     // ViewModel for new architecture
     #[cfg_attr(feature = "serde", serde(skip))]
     viewmodel: Option<crate::viewmodel::ViewModel>,
@@ -387,7 +387,7 @@ impl Default for BingtrayApp {
             wallpaper_setter: {
                 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
                 {
-                    Some(Arc::new(crate::calc_bingimage::DesktopWallpaperSetter::new()))
+                    Some(Arc::new(crate::utils::DesktopWallpaperSetter::new()))
                 }
                 #[cfg(any(target_os = "android", target_arch = "wasm32"))]
                 {
@@ -395,7 +395,7 @@ impl Default for BingtrayApp {
                 }
             },
             screen_size_provider: None,
-            tray_logic: CalcBingimage::new().ok(),
+            // tray_logic: CalcBingimage::new().ok(), // DEPRECATED - use ViewModel
             viewmodel,
             user_mismatch_warning,
             // Menu state
@@ -473,7 +473,7 @@ impl eframe::App for BingtrayApp {
         if !self.cached_image_loaded {
             self.cached_image_loaded = true;
             if let Some(ref config) = self.config {
-                if let Some(cached_image) = crate::calc_bingimage::load_main_panel_selection(config) {
+                if let Some(cached_image) = crate::utils::load_main_panel_selection(config) {
                     info!("Restoring last selected main panel image: {}", cached_image.title);
 
                     // Create a CarouselImage from the cached data
@@ -597,89 +597,14 @@ impl BingtrayApp {
         // Ensure the UI never exceeds window width
         ui.set_max_width(ui.available_width());
 
-        // Load initial images if carousel is empty and we have config
-        if self.carousel_images.is_empty() && self.bing_api_promise.is_none() {
-            if let Some(ref _cfg) = self.config {
-                // PRIORITY 1: Try loading Bing images from current market + historical data
-                // Unified for all platforms - uses CalcBingimage
-                if !self.current_market_codes.is_empty() {
-                    let market_code = self.current_market_codes[0].clone();
-
-                    info!("🚀 INIT: Loading Bing images for market: {} (checking 7-day cache)", market_code);
-                    self.showing_historical = true;
-
-                    // Open loading dialog
-                    self.bing_loading_dialog_open = true;
-                    self.bing_loading_status = tr!("status-fetching-all").to_string();
-
-                    // Create shared progress status for background thread
-                    let progress_status = Arc::new(std::sync::Mutex::new(tr!("status-fetching-images").to_string()));
-                    self.bing_loading_progress = Some(progress_status.clone());
-                    let progress_status_clone = progress_status.clone();
-
-                    let ctx = ui.ctx().clone();
-                    let (sender, promise) = Promise::new();
-
-                    std::thread::spawn(move || {
-                        info!("🧵 INIT: Background thread started for initial image loading");
-
-                        // Create CalcBingimage instance for this thread
-                        let calc_bing = match CalcBingimage::new() {
-                            Ok(cb) => {
-                                info!("✅ INIT: CalcBingimage instance created successfully");
-                                cb
-                            }
-                            Err(e) => {
-                                error!("❌ INIT: Failed to create CalcBingimage: {}", e);
-                                sender.send(Ok(Vec::new()));
-                                return;
-                            }
-                        };
-
-                        // First get Bing images
-                        info!("📥 INIT: Fetching current Bing images for market: {}", market_code);
-                        let mut combined_images = match calc_bing.get_bing_images_manifest_cached(
-                            &market_code,
-                            8,
-                            0
-                        ) {
-                            Ok(images) => {
-                                info!("✅ INIT: Loaded {} Bing images", images.len());
-                                images
-                            }
-                            Err(e) => {
-                                warn!("⚠️  INIT: Failed to load Bing images: {}", e);
-                                Vec::new()
-                            }
-                        };
-
-                        // Update progress status
-                        if let Ok(mut status) = progress_status_clone.lock() {
-                            *status = tr!("status-downloading-history").to_string();
-                        }
-                        ctx.request_repaint();
-
-                        // Then append historical images
-                        info!("📚 INIT: Downloading historical data from GitHub...");
-                        match calc_bing.download_historical_data_with_progress(0, progress_status_clone.clone(), ctx.clone()) {
-                            Ok(historical_images) => {
-                                info!("✅ INIT: Downloaded {} historical images", historical_images.len());
-                                info!("➕ INIT: Appending historical images to {} Bing images", combined_images.len());
-                                combined_images.extend(historical_images);
-                            }
-                            Err(e) => {
-                                error!("❌ INIT: Failed to load historical images: {}", e);
-                            }
-                        }
-
-                        info!("🏁 INIT: Completed with {} total images", combined_images.len());
-                        ctx.request_repaint();
-                        sender.send(Ok(combined_images));
-                    });
-
-                    self.bing_api_promise = Some(promise);
-                }
-            }
+        // TODO: Carousel image loading disabled - CalcBingimage removed
+        // This feature needs migration to ViewModel
+        // The carousel view was loading from Bing API + GitHub archive using CalcBingimage
+        // For now, carousel remains empty until ViewModel provides equivalent functionality
+        if false {
+            // Disabled block - was: Load initial images if carousel is empty
+            let _ = self.carousel_images.is_empty();
+            let _ = self.bing_api_promise.is_none();
         }
 
         // ##################### TOP APP BAR #####################
@@ -707,100 +632,36 @@ impl BingtrayApp {
         {
             if MENU_CACHE_DIR.swap(false, Ordering::Relaxed) {
                 info!("Opening cache directory");
-                if let Some(ref mut logic) = self.tray_logic {
-                    if let Err(e) = logic.open_cache_directory() {
-                        error!("Failed to open cache directory: {}", e);
-                    } else {
-                        info!("Cache directory opened successfully");
-                    }
+                if let Err(e) = self.open_cache_directory() {
+                    error!("Failed to open cache directory: {}", e);
                 }
             }
 
             if MENU_NEXT_MARKET.swap(false, Ordering::Relaxed) {
                 info!("Setting next market wallpaper");
-                let mut should_load_to_panel = false;
-                if let Some(ref mut logic) = self.tray_logic {
-                    match logic.set_next_market_wallpaper() {
-                        Ok(true) => {
-                            info!("Wallpaper set successfully!");
-                            should_load_to_panel = true;
-                            ui.ctx().request_repaint();
-                        }
-                        Ok(false) => {
-                            warn!("No wallpapers available. Please download more images.");
-                        }
-                        Err(e) => {
-                            error!("Failed to set wallpaper: {}", e);
-                        }
-                    }
-                }
-                if should_load_to_panel {
-                    self.load_current_wallpaper_to_main_panel();
+                if let Err(e) = self.set_next_market_wallpaper() {
+                    error!("Failed to set next wallpaper: {}", e);
                 }
             }
 
             if MENU_KEEP_CURRENT.swap(false, Ordering::Relaxed) {
-                let mut should_load_to_panel = false;
-                if let Some(ref mut logic) = self.tray_logic {
-                    if logic.can_keep() {
-                        info!("Keeping current image");
-                        if let Err(e) = logic.keep_current_image() {
-                            error!("Failed to keep image: {}", e);
-                        } else {
-                            info!("Image moved to favorites!");
-                            should_load_to_panel = true;
-                            ui.ctx().request_repaint();
-                        }
-                    } else {
-                        warn!("No current image to keep");
-                    }
-                }
-                if should_load_to_panel {
-                    self.load_current_wallpaper_to_main_panel();
+                info!("Keeping current wallpaper");
+                if let Err(e) = self.keep_current_wallpaper() {
+                    error!("Failed to keep wallpaper: {}", e);
                 }
             }
 
             if MENU_BLACKLIST_CURRENT.swap(false, Ordering::Relaxed) {
-                let mut should_load_to_panel = false;
-                if let Some(ref mut logic) = self.tray_logic {
-                    if logic.can_blacklist() {
-                        let title = logic.get_current_image_title();
-                        info!("Blacklisting \"{}\"", title);
-                        if let Err(e) = logic.blacklist_current_image() {
-                            error!("Failed to blacklist image: {}", e);
-                        } else {
-                            info!("Image blacklisted!");
-                            should_load_to_panel = true;
-                            ui.ctx().request_repaint();
-                        }
-                    } else {
-                        warn!("No current image to blacklist");
-                    }
-                }
-                if should_load_to_panel {
-                    self.load_current_wallpaper_to_main_panel();
+                info!("Blacklisting current wallpaper");
+                if let Err(e) = self.blacklist_current_wallpaper() {
+                    error!("Failed to blacklist wallpaper: {}", e);
                 }
             }
 
             if MENU_RANDOM_FAVORITE.swap(false, Ordering::Relaxed) {
-                if let Some(ref mut logic) = self.tray_logic {
-                    if logic.has_kept_wallpapers() {
-                        info!("Setting random favorite wallpaper");
-                        match logic.set_kept_wallpaper() {
-                            Ok(true) => {
-                                info!("Favorite wallpaper set!");
-                                ui.ctx().request_repaint();
-                            }
-                            Ok(false) => {
-                                warn!("No favorite wallpapers available");
-                            }
-                            Err(e) => {
-                                error!("Failed to set favorite wallpaper: {}", e);
-                            }
-                        }
-                    } else {
-                        warn!("No favorite wallpapers available. Use Keep option to save some first.");
-                    }
+                info!("Setting random favorite");
+                if let Err(e) = self.set_random_favorite_wallpaper() {
+                    error!("Failed to set random favorite: {}", e);
                 }
             }
         }
@@ -968,13 +829,13 @@ impl BingtrayApp {
 
                         // Save the selection to cache for persistence
                         if let Some(ref config) = self.config {
-                            if let Err(e) = crate::calc_bingimage::save_main_panel_selection(
+                            if let Err(e) = crate::utils::save_main_panel_selection(
                                 config,
-                                carousel_image.title.clone(),
-                                carousel_image.copyright.clone(),
-                                carousel_image.copyright_link.clone(),
-                                carousel_image.thumbnail_url.clone(),
-                                carousel_image.full_url.clone(),
+                                &carousel_image.title,
+                                &carousel_image.copyright,
+                                &carousel_image.copyright_link,
+                                &carousel_image.thumbnail_url,
+                                &carousel_image.full_url,
                                 carousel_image.status.clone(),
                             ) {
                                 warn!("Failed to save main panel selection to cache: {}", e);
@@ -1098,48 +959,12 @@ impl BingtrayApp {
                     info!("🌍 CAROUSEL: Using market code: {}, current offset: {}", market_code, current_count);
 
                     std::thread::spawn(move || {
-                        info!("🧵 THREAD: Background thread started for image loading");
-
-                        let result = match CalcBingimage::new() {
-                            Ok(calc_bing) => {
-                                info!("✅ THREAD: CalcBingimage instance created successfully");
-
-                                // Try to load historical data first
-                                info!("🔍 THREAD: Attempting to get next historical page...");
-                                match calc_bing.get_next_historical_page() {
-                                    Ok(page_num) => {
-                                        info!("📚 THREAD: Historical page {} available, loading images", page_num);
-                                        let result = calc_bing.load_historical_images_paginated(page_num);
-                                        match &result {
-                                            Ok(images) => info!("✅ THREAD: Loaded {} historical images from page {}", images.len(), page_num),
-                                            Err(e) => error!("❌ THREAD: Failed to load historical images: {}", e),
-                                        }
-                                        result
-                                    }
-                                    Err(e) => {
-                                        // Historical data should have been downloaded at startup
-                                        // If it fails here, something went wrong with initialization
-                                        error!("❌ THREAD: Failed to get next historical page: {}", e);
-                                        error!("❌ THREAD: Historical data should have been downloaded at startup");
-                                        Err(e)
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                error!("❌ THREAD: Failed to create CalcBingimage instance: {}", e);
-                                Err(e)
-                            }
-                        };
-
-                        match &result {
-                            Ok(images) => info!("🏁 THREAD: Image loading completed successfully, {} images to send to UI", images.len()),
-                            Err(e) => error!("🏁 THREAD: Image loading completed with error: {}", e),
-                        }
-
-                        let bing_images = result.map_err(|e| e.to_string());
+                        info!("🧵 THREAD: Background thread started for image loading - DISABLED (CalcBingimage removed)");
+                        // TODO: Implement using ViewModel
+                        let bing_images: Result<Vec<crate::BingImage>, String> = Ok(Vec::new());
                         ctx.request_repaint();
                         sender.send(bing_images);
-                        info!("📤 THREAD: Result sent to UI via promise");
+                        info!("📤 THREAD: Empty result sent (carousel disabled)");
                     });
 
                     self.bing_api_promise = Some(promise);
@@ -1165,13 +990,13 @@ impl BingtrayApp {
                         self.image_cache.insert(full_res_image.full_url.clone(), full_res_image.clone());
                         // Save to persistent cache for app restart
                         if let Some(ref config) = self.config {
-                            if let Err(e) = crate::calc_bingimage::save_main_panel_selection(
+                            if let Err(e) = crate::utils::save_main_panel_selection(
                                 config,
-                                full_res_image.title.clone(),
-                                full_res_image.copyright.clone(),
-                                full_res_image.copyright_link.clone(),
-                                full_res_image.thumbnail_url.clone(),
-                                full_res_image.full_url.clone(),
+                                &full_res_image.title,
+                                &full_res_image.copyright,
+                                &full_res_image.copyright_link,
+                                &full_res_image.thumbnail_url,
+                                &full_res_image.full_url,
                                 full_res_image.status.clone(),
                             ) {
                                 warn!("Failed to save main panel selection to cache: {}", e);
@@ -1221,13 +1046,8 @@ impl BingtrayApp {
                     // Don't reset for scroll loads (which have only 3 images)
                     #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
                     if bing_images.len() > 10 {  // Initial load has 16 images, scroll loads have 3
-                        if let Some(ref tray_logic) = self.tray_logic {
-                            if let Err(e) = tray_logic.reset_historical_page(3) {
-                                warn!("Failed to reset historical page after initial load: {}", e);
-                            } else {
-                                info!("Reset historical page to 3 after initial load of {} images", bing_images.len());
-                            }
-                        }
+                        // TODO: Reset historical page after initial load
+                        // DISABLED - tray_logic removed
                     }
 
                     // Close loading dialog and clear progress
@@ -1515,41 +1335,8 @@ impl BingtrayApp {
                         .with_icons(ICON_BLOCK, ICON_BLOCK)
                         .show_track_outline(true);
                     if ui.add(blacklist_switch).changed() {
-                        if let Some(ref tray_logic) = self.tray_logic {
-                            if is_blacklisted {
-                                if let Err(e) = tray_logic.blacklist_image_by_url(&base_url) {
-                                    error!("Failed to blacklist image: {}", e);
-                                } else {
-                                    // Update the status in main_panel_image
-                                    if let Some(ref mut panel_img) = self.main_panel_image {
-                                        panel_img.status = Some("blacklisted".to_string());
-                                    }
-                                    // Update in carousel_images too
-                                    for carousel_img in &mut self.carousel_images {
-                                        if carousel_img.full_url == main_image.full_url {
-                                            carousel_img.status = Some("blacklisted".to_string());
-                                            break;
-                                        }
-                                    }
-                                }
-                            } else {
-                                if let Err(e) = tray_logic.unmark_image_by_url(&base_url) {
-                                    error!("Failed to unmark image: {}", e);
-                                } else {
-                                    // Update the status in main_panel_image
-                                    if let Some(ref mut panel_img) = self.main_panel_image {
-                                        panel_img.status = Some("unprocessed".to_string());
-                                    }
-                                    // Update in carousel_images too
-                                    for carousel_img in &mut self.carousel_images {
-                                        if carousel_img.full_url == main_image.full_url {
-                                            carousel_img.status = Some("unprocessed".to_string());
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        // TODO: Implement blacklist switch using ViewModel
+                        warn!("Blacklist switch disabled - tray_logic removed");
                     }
                     ui.label(tr!("switch-blacklist"));
 
@@ -1560,41 +1347,8 @@ impl BingtrayApp {
                         .with_icons(ICON_STAR, ICON_STAR_OUTLINE)
                         .show_track_outline(true);
                     if ui.add(favorite_switch).changed() {
-                        if let Some(ref tray_logic) = self.tray_logic {
-                            if is_favorite {
-                                if let Err(e) = tray_logic.keep_image_by_url(&base_url) {
-                                    error!("Failed to mark as favorite: {}", e);
-                                } else {
-                                    // Update the status in main_panel_image
-                                    if let Some(ref mut panel_img) = self.main_panel_image {
-                                        panel_img.status = Some("keepfavorite".to_string());
-                                    }
-                                    // Update in carousel_images too
-                                    for carousel_img in &mut self.carousel_images {
-                                        if carousel_img.full_url == main_image.full_url {
-                                            carousel_img.status = Some("keepfavorite".to_string());
-                                            break;
-                                        }
-                                    }
-                                }
-                            } else {
-                                if let Err(e) = tray_logic.unmark_image_by_url(&base_url) {
-                                    error!("Failed to unmark image: {}", e);
-                                } else {
-                                    // Update the status in main_panel_image
-                                    if let Some(ref mut panel_img) = self.main_panel_image {
-                                        panel_img.status = Some("unprocessed".to_string());
-                                    }
-                                    // Update in carousel_images too
-                                    for carousel_img in &mut self.carousel_images {
-                                        if carousel_img.full_url == main_image.full_url {
-                                            carousel_img.status = Some("unprocessed".to_string());
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        // TODO: Implement favorite switch using ViewModel
+                        warn!("Favorite switch disabled - tray_logic removed");
                     }
                     ui.label(tr!("switch-favorite"));
                 });
@@ -2115,6 +1869,105 @@ impl BingtrayApp {
 
         ctx.set_visuals(visuals);
     }
+
+    // Helper to get database connection
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    fn get_db_connection(&self) -> anyhow::Result<diesel::SqliteConnection> {
+        use diesel::Connection;
+        let db_path = crate::db::get_database_path()?;
+        let mut conn = diesel::SqliteConnection::establish(&db_path.to_string_lossy())?;
+
+        // Run migrations
+        use diesel_migrations::MigrationHarness;
+        conn.run_pending_migrations(crate::db::MIGRATIONS)
+            .map_err(|e| anyhow::anyhow!("Migration failed: {}", e))?;
+
+        Ok(conn)
+    }
+
+    // Menu action: Open cache directory
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    fn open_cache_directory(&self) -> anyhow::Result<()> {
+        let config = Config::new()?;
+        let path = &config.cached_dir;
+
+        #[cfg(target_os = "linux")]
+        {
+            std::process::Command::new("xdg-open")
+                .arg(path)
+                .spawn()?;
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            std::process::Command::new("open")
+                .arg(path)
+                .spawn()?;
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            std::process::Command::new("explorer")
+                .arg(path)
+                .spawn()?;
+        }
+
+        info!("Opened cache directory: {:?}", path);
+        Ok(())
+    }
+
+    // Menu action: Set next market wallpaper
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    fn set_next_market_wallpaper(&mut self) -> anyhow::Result<()> {
+        use crate::viewmodel::commands::download_and_set_next_wallpaper_sync;
+
+        let mut conn = self.get_db_connection()?;
+        let result = download_and_set_next_wallpaper_sync(&mut conn)?;
+        info!("Set next wallpaper: {}", result.title);
+        Ok(())
+    }
+
+    // Menu action: Keep current wallpaper
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    fn keep_current_wallpaper(&mut self) -> anyhow::Result<()> {
+        use crate::viewmodel::commands::keep_current_wallpaper_sync;
+
+        let mut conn = self.get_db_connection()?;
+        if let Some(title) = keep_current_wallpaper_sync(&mut conn)? {
+            info!("Kept current wallpaper: {}", title);
+            Ok(())
+        } else {
+            anyhow::bail!("No current wallpaper to keep")
+        }
+    }
+
+    // Menu action: Blacklist current wallpaper
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    fn blacklist_current_wallpaper(&mut self) -> anyhow::Result<()> {
+        use crate::viewmodel::commands::blacklist_current_wallpaper_sync;
+
+        let mut conn = self.get_db_connection()?;
+        if let Some(title) = blacklist_current_wallpaper_sync(&mut conn)? {
+            info!("Blacklisted current wallpaper: {}", title);
+            Ok(())
+        } else {
+            anyhow::bail!("No current wallpaper to blacklist")
+        }
+    }
+
+    // Menu action: Set random favorite wallpaper
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    fn set_random_favorite_wallpaper(&mut self) -> anyhow::Result<()> {
+        use crate::viewmodel::commands::set_random_favorite_wallpaper_sync;
+
+        let mut conn = self.get_db_connection()?;
+        if let Some(title) = set_random_favorite_wallpaper_sync(&mut conn)? {
+            info!("Set random favorite: {}", title);
+            Ok(())
+        } else {
+            anyhow::bail!("No favorite wallpapers available")
+        }
+    }
 }
 
 /// Open a directory in the file manager (Desktop only)
@@ -2295,24 +2148,10 @@ impl BingtrayApp {
             return;
         }
 
-        // Get current state from tray_logic for enabling/disabling menu items
-        // Cache these values to avoid calling expensive methods on every frame
+        // Get current state - DISABLED (tray_logic removed)
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status) =
-            if let Some(ref logic) = self.tray_logic {
-                // Only call these methods once per menu render, not per menu item
-                let status = logic.get_wallpaper_page_status();
-                (
-                    logic.has_next_available(),
-                    logic.can_keep(),
-                    logic.can_blacklist(),
-                    logic.has_kept_wallpapers(),
-                    logic.get_current_image_title(),
-                    status,
-                )
-            } else {
-                (false, false, false, false, String::new(), String::new())
-            };
+            (false, false, false, false, String::new(), String::new());
 
         #[cfg(any(target_os = "android", target_arch = "wasm32"))]
         let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status) =
@@ -2893,11 +2732,7 @@ impl BingtrayApp {
     /// Load the current wallpaper from CalcBingimage into the main panel
     fn load_current_wallpaper_to_main_panel(&mut self) {
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-        let current_path = if let Some(ref logic) = self.tray_logic {
-            logic.get_current_image_path()
-        } else {
-            None
-        };
+        let current_path: Option<std::path::PathBuf> = None; // DISABLED: tray_logic removed
 
         #[cfg(any(target_os = "android", target_arch = "wasm32"))]
         let current_path: Option<std::path::PathBuf> = None;
@@ -2916,11 +2751,7 @@ impl BingtrayApp {
             match std::fs::read(&current_path) {
                 Ok(image_bytes) => {
                     #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-                    let title = if let Some(ref logic) = self.tray_logic {
-                        logic.get_current_image_title()
-                    } else {
-                        String::from("Current Wallpaper")
-                    };
+                    let title = String::from("Current Wallpaper"); // DISABLED: tray_logic removed
 
                     #[cfg(any(target_os = "android", target_arch = "wasm32"))]
                     let title = String::from("Current Wallpaper");
@@ -2990,21 +2821,7 @@ impl BingtrayApp {
     }
 
     fn has_next_wallpaper_available(&self) -> bool {
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-        if let Some(ref tray_logic) = self.tray_logic {
-            // Market code functions removed - check historical data availability
-            if let Ok((current_page, total_pages)) = tray_logic.get_historical_page_info() {
-                // If no historical metadata file exists yet, we can still download initial historical data
-                if current_page == 0 && total_pages == 0 {
-                    return true; // We can download initial historical data
-                }
-                return current_page < total_pages;
-            } else {
-                // If there's an error loading historical page info, we can still try to download initial data
-                return true;
-            }
-        }
-
+        // DISABLED: tray_logic removed
         false
     }
     
