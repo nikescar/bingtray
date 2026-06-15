@@ -13,6 +13,7 @@ diesel::table! {
         created_at -> Integer,
         updated_at -> Integer,
         cached_at -> Nullable<Integer>,
+        crop_coords -> Nullable<Text>,
     }
 }
 
