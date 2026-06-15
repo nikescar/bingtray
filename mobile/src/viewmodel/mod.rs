@@ -3,11 +3,43 @@ use diesel::prelude::*;
 use std::sync::mpsc::{Sender, Receiver};
 use std::path::PathBuf;
 use std::sync::Arc;
+use serde::{Serialize, Deserialize};
 
 pub mod background;
 pub mod commands;
 pub mod sources;
 pub mod cache_manager;
+
+/// Crop coordinates (normalized 0.0-1.0 relative to image dimensions)
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CropCoords {
+    pub x: f32,      // 0.0-1.0, left edge
+    pub y: f32,      // 0.0-1.0, top edge
+    pub width: f32,  // 0.0-1.0, width
+    pub height: f32, // 0.0-1.0, height
+}
+
+impl CropCoords {
+    /// Validate and clamp coords to [0.0, 1.0] range
+    pub fn clamp(self) -> Self {
+        Self {
+            x: self.x.clamp(0.0, 1.0),
+            y: self.y.clamp(0.0, 1.0),
+            width: self.width.clamp(0.01, 1.0),  // Min 1% width
+            height: self.height.clamp(0.01, 1.0), // Min 1% height
+        }
+    }
+
+    /// Convert to JSON string for database storage
+    pub fn to_json(&self) -> Result<String, serde_json::Error> {
+        serde_json::to_string(self)
+    }
+
+    /// Parse from JSON string from database
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+}
 
 /// Commands sent from UI to ViewModel background thread
 #[derive(Debug, Clone)]
@@ -20,6 +52,21 @@ pub enum ViewModelCommand {
     GetImagesByMarket { market_code: String, page: usize },
     RefreshDatabase,
     Shutdown,
+
+    // NEW: Carousel operations
+    LoadCarouselPage {
+        filter: Option<ImageStatus>,  // None = All
+        page: usize,  // 0-indexed, 20 items per page
+    },
+
+    // NEW: Main panel operations
+    LoadMainImage {
+        url: String,
+    },
+    UpdateCropCoords {
+        url: String,
+        coords: CropCoords,
+    },
 }
 
 /// Events sent from ViewModel background thread to UI
@@ -31,6 +78,27 @@ pub enum ViewModelEvent {
     WallpaperSet { success: bool },
     StatusUpdated { url: String, status: ImageStatus },
     Error { message: String },
+
+    // NEW: Carousel responses
+    CarouselPageLoaded {
+        page: usize,
+        images: Vec<BingImage>,
+        total_count: usize,
+    },
+
+    // NEW: Main panel responses
+    MainImageLoaded {
+        url: String,
+        image_bytes: Vec<u8>,
+        cached: bool,
+    },
+    MainImageRefreshed {
+        url: String,
+        image_bytes: Vec<u8>,
+    },
+    CropCoordsSaved {
+        url: String,
+    },
 }
 
 /// Result returned when setting wallpaper (CLI)
