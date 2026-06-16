@@ -101,6 +101,7 @@ eframe = { workspace = true, default-features = false, features = ["default_font
 # Linux-specific dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
+x11rb = { version = "0.13", features = ["allow-unsafe-code"] }
 eframe = { workspace = true, default-features = false, features = ["default_fonts","glow","x11", "wayland"] }
 
 # WASM-specific dependencies
