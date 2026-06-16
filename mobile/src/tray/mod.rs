@@ -64,6 +64,8 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
 
     #[cfg(target_os = "linux")]
     {
+        use backend_xembed::XEmbedTrayBackend;
+
         match GtkTrayBackend::new(logic.clone()) {
             Ok(backend) => {
                 log::info!("Using GTK tray backend");
@@ -71,8 +73,23 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
             }
             Err(e) => {
                 log::warn!("GTK tray unavailable: {}, falling back to XEmbed", e);
-                // XEmbed fallback will be added later
-                Err(anyhow::anyhow!("XEmbed not yet implemented"))
+                match XEmbedTrayBackend::new(logic) {
+                    Ok(backend) => {
+                        log::info!("Using XEmbed tray backend");
+                        backend.run()
+                    }
+                    Err(xembed_err) => {
+                        Err(anyhow::anyhow!(
+                            "No tray backend available:\n\
+                             - GTK: {}\n\
+                             - XEmbed: {}\n\
+                             \n\
+                             Try: Install libayatana-appindicator or ensure X11 is running",
+                            e,
+                            xembed_err
+                        ))
+                    }
+                }
             }
         }
     }

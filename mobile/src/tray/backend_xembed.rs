@@ -99,6 +99,10 @@ impl XEmbedTrayBackend {
         icon_window: Window,
         screen: &Screen,
     ) -> Result<TrayExitAction> {
+        use super::menu_popup::MenuPopup;
+
+        let mut menu_popup: Option<MenuPopup> = None;
+
         loop {
             let event = conn.wait_for_event()
                 .map_err(|e| {
@@ -110,12 +114,39 @@ impl XEmbedTrayBackend {
                 Event::Expose(e) if e.window == icon_window => {
                     render_icon(&conn, icon_window, screen)?;
                 }
-                Event::ButtonPress(e) if e.window == icon_window => {
-                    log::info!("Icon clicked: button {}", e.detail);
-                    if e.detail == 3 {
-                        // Right-click - will add menu later
-                        log::info!("Right-click detected");
+                Event::Expose(e) if menu_popup.as_ref().map(|m| m.window == e.window).unwrap_or(false) => {
+                    if let Some(ref mut menu) = menu_popup {
+                        menu.render(&conn)?;
                     }
+                }
+                Event::ButtonPress(e) if e.window == icon_window => {
+                    match e.detail {
+                        1 => {
+                            // Left click - close menu
+                            menu_popup = None;
+                        }
+                        3 => {
+                            // Right click - show menu
+                            log::info!("Right-click at ({}, {})", e.root_x, e.root_y);
+                            menu_popup = Some(MenuPopup::new(
+                                &conn,
+                                screen,
+                                e.root_x,
+                                e.root_y,
+                                &mut self.logic,
+                            )?);
+                        }
+                        _ => {}
+                    }
+                }
+                Event::ButtonPress(e) if menu_popup.as_ref().map(|m| m.window == e.window).unwrap_or(false) => {
+                    // Menu clicked
+                    if let Some(ref mut menu) = menu_popup {
+                        if let Some(action) = menu.handle_click(e.event_x, e.event_y, &mut self.logic)? {
+                            return Ok(action);
+                        }
+                    }
+                    menu_popup = None;
                 }
                 _ => {}
             }
