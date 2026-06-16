@@ -247,9 +247,36 @@ The binary automatically selects the appropriate mode:
 - **Android**: ndk-context, jni, android-activity
 - **WASM**: wasm-bindgen (planned)
 
-## 12. Recent Changes (2026-06-12)
+### Linux Tray Icon
 
-### Diesel SQLite + MVVM Implementation
+**Primary**: GTK backend via `tray-icon` crate
+- Requires: `libayatana-appindicator3`
+
+**Fallback**: XEmbed protocol via `x11rb`
+- Activates when GTK unavailable
+- Requires: X11 display + system tray manager (i3bar, polybar, etc.)
+
+## 12. Recent Changes
+
+### XEmbed Tray Fallback (2026-06-16)
+
+**Completed**:
+- ✅ Trait-based tray backend abstraction
+- ✅ XEmbed protocol implementation using x11rb
+- ✅ Runtime fallback (GTK → XEmbed)
+- ✅ X11 popup menu system
+- ✅ Full feature parity between backends
+
+**Impact**:
+- Tray icon works on minimal X11 systems without GTK
+- Clear error messages when both backends fail
+- ~1.5MB binary size increase (x11rb dependency)
+
+**Documentation**:
+- Design spec: `docs/superpowers/specs/2026-06-16-xembed-tray-fallback-design.md`
+- Implementation plan: `docs/superpowers/plans/2026-06-16-xembed-tray-fallback.md`
+
+### Diesel SQLite + MVVM Implementation (2026-06-12)
 
 **Completed**:
 - ✅ Migrated from DataFusion/Parquet to Diesel/SQLite
