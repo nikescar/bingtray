@@ -1,6 +1,7 @@
 use diesel::prelude::*;
 use anyhow::{Result, Context};
 use crate::db::ImageStatus;
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use crate::db::models::NewBingImage;
 use std::path::PathBuf;
 

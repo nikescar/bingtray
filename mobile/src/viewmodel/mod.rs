@@ -257,30 +257,35 @@ impl ViewModel {
     }
 
     /// Get current desktop wallpaper URL by matching to database (CLI only)
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     pub fn get_current_desktop_wallpaper_url_sync(&self) -> Result<Option<String>> {
         let mut conn = crate::db::establish_connection(&self.db_path);
         commands::get_current_desktop_wallpaper_url_sync(&mut conn)
     }
 
     /// Download and set next wallpaper (CLI only)
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     pub fn download_and_set_next_wallpaper_sync(&self) -> Result<WallpaperSetResult> {
         let mut conn = crate::db::establish_connection(&self.db_path);
         commands::download_and_set_next_wallpaper_sync(&mut conn)
     }
 
     /// Mark current desktop wallpaper as favorite (CLI only)
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     pub fn keep_current_wallpaper_sync(&self) -> Result<Option<String>> {
         let mut conn = crate::db::establish_connection(&self.db_path);
         commands::keep_current_wallpaper_sync(&mut conn)
     }
 
     /// Mark current desktop wallpaper as blacklisted (CLI only)
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     pub fn blacklist_current_wallpaper_sync(&self) -> Result<Option<String>> {
         let mut conn = crate::db::establish_connection(&self.db_path);
         commands::blacklist_current_wallpaper_sync(&mut conn)
     }
 
     /// Set a random favorite as desktop wallpaper (CLI only)
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     pub fn set_random_favorite_wallpaper_sync(&self) -> Result<Option<String>> {
         let mut conn = crate::db::establish_connection(&self.db_path);
         commands::set_random_favorite_wallpaper_sync(&mut conn)
@@ -310,6 +315,7 @@ impl ViewModel {
     }
 
     /// Keep current wallpaper as favorite, set next instantly (CLI only)
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     pub fn keep_current_wallpaper_instant_sync(&self) -> Result<String> {
         let mut conn = crate::db::establish_connection(&self.db_path);
         let cache_mgr = self.cache_manager.as_ref()
@@ -319,6 +325,7 @@ impl ViewModel {
     }
 
     /// Blacklist current wallpaper, set next instantly (CLI only)
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     pub fn blacklist_current_wallpaper_instant_sync(&self) -> Result<String> {
         let mut conn = crate::db::establish_connection(&self.db_path);
         let cache_mgr = self.cache_manager.as_ref()

@@ -6,6 +6,7 @@
 use crate::{BingImage, Config, Settings};
 pub use crate::dlg_settings_stt::DlgSettings;
 use crate::utils::sanitize_filename;
+#[cfg(not(target_os = "android"))]
 use crate::install;
 use image;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]

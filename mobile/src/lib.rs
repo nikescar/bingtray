@@ -1,7 +1,9 @@
 #![allow(clippy::float_cmp)]
 #![allow(clippy::manual_range_contains)]
 
-use anyhow::{Context, Result};
+use anyhow::Result;
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
