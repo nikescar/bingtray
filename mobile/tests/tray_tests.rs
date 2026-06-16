@@ -5,6 +5,23 @@ mod backend_xembed_tests {
     use image::{Rgba, RgbaImage};
 
     #[test]
+    #[ignore] // Requires X11 display
+    fn test_atoms_new_interns_required_atoms() {
+        use x11rb::rust_connection::RustConnection;
+
+        let (conn, screen_num) = RustConnection::connect(None)
+            .expect("X11 not available - run with DISPLAY set or xvfb-run");
+
+        let atoms = bingtray::tray::backend_xembed::Atoms::new(&conn, screen_num)
+            .expect("Failed to intern atoms");
+
+        // Verify atoms are non-zero (successfully interned)
+        assert_ne!(atoms.tray_selection, 0);
+        assert_ne!(atoms.tray_opcode, 0);
+        assert_ne!(atoms.xembed_info, 0);
+    }
+
+    #[test]
     fn test_rgba_to_x11_format_converts_bgra() {
         let rgba = RgbaImage::from_pixel(1, 1, Rgba([255, 128, 64, 32]));
         let x11_data = bingtray::tray::backend_xembed::rgba_to_x11_format(&rgba);
