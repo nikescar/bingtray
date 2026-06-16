@@ -479,6 +479,7 @@ fn check_windows_registry(_paths: &InstallPaths) -> bool {
 /// Install the application
 pub fn do_install() -> InstallResult {
     let paths = get_install_paths();
+    #[cfg_attr(any(target_os = "android", target_arch = "wasm32"), allow(unused_variables))]
     let current_exe = match env::current_exe() {
         Ok(p) => p,
         Err(e) => return InstallResult::Error(format!("Failed to get current executable: {}", e)),
@@ -891,6 +892,7 @@ fn create_windows_shortcut(target: &PathBuf, shortcut_path: &PathBuf) -> Result<
 
 /// Uninstall the application
 pub fn do_uninstall() -> InstallResult {
+    #[cfg_attr(any(target_os = "android", target_arch = "wasm32"), allow(unused_variables))]
     let paths = get_install_paths();
 
     #[cfg(target_os = "linux")]

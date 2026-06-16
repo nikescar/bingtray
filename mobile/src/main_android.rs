@@ -72,10 +72,9 @@ pub fn android_main(app: AndroidApp) {
         Box::new(|cc| {
             // Load Material3 fonts and theme
             use egui_material3::theme::{
-                load_fonts, load_themes, setup_google_fonts,
+                load_fonts, load_themes,
                 setup_local_fonts_from_bytes, setup_local_theme,
             };
-            use egui_material3::*;
             // Prepare local fonts including Material Symbols (using include_bytes!)
             setup_local_fonts_from_bytes(
                 "MaterialSymbolsOutlined",

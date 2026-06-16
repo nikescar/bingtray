@@ -7,7 +7,6 @@ use crate::{BingImage, Config, Settings};
 pub use crate::dlg_settings_stt::DlgSettings;
 use crate::utils::sanitize_filename;
 use image;
-use crate::install;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 #[cfg(target_os = "linux")]
 use crate::api_setwallpaper::check_user_mismatch;
@@ -1292,7 +1291,14 @@ impl BingtrayApp {
                                 };
 
                                 if let Some(resolved_url) = Self::resolve_url(&info_url) {
-                                    let _ = opener::open(&resolved_url);
+                                    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+                                    {
+                                        let _ = opener::open(&resolved_url);
+                                    }
+                                    #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+                                    {
+                                        log::info!("Would open URL (not implemented on this platform): {}", resolved_url);
+                                    }
                                 }
                             }
                         }
@@ -2955,7 +2961,7 @@ impl BingtrayApp {
         };
 
         #[cfg(any(target_os = "android", target_arch = "wasm32"))]
-        let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title, wallpaper_status) =
+        let (has_next_available, can_keep, can_blacklist, has_kept_wallpapers, current_title, _wallpaper_status) =
             (true, false, false, false, String::new(), String::new());
 
         let cache_dir_item = menu_item(&format!("{}", tr!("tray-cache-dir")))

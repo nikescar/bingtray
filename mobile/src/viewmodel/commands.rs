@@ -60,11 +60,24 @@ pub fn unmark_image_sync(conn: &mut SqliteConnection, url: &str) -> Result<()> {
 // ============================================================================
 
 /// Get the cache directory path for storing downloaded images
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 fn get_cache_dir() -> Result<PathBuf> {
     let cache_dir = dirs::cache_dir()
         .ok_or_else(|| anyhow::anyhow!("Could not determine cache directory"))?
         .join("bingtray")
         .join("images");
+
+    // Create cache directory if it doesn't exist
+    std::fs::create_dir_all(&cache_dir)?;
+
+    Ok(cache_dir)
+}
+
+/// Get the cache directory path for storing downloaded images (Android)
+#[cfg(target_os = "android")]
+fn get_cache_dir() -> Result<PathBuf> {
+    // On Android, use the app's cache directory
+    let cache_dir = PathBuf::from("/data/data/pe.nikescar.bingtray/cache/images");
 
     // Create cache directory if it doesn't exist
     std::fs::create_dir_all(&cache_dir)?;
@@ -182,6 +195,7 @@ pub fn increment_market_offset_sync(conn: &mut SqliteConnection) -> Result<()> {
 
 /// Get the URL of the current desktop wallpaper by matching it to the database
 /// Returns None if no match found (wallpaper not from BingTray or database cleared)
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub fn get_current_desktop_wallpaper_url_sync(conn: &mut SqliteConnection) -> Result<Option<String>> {
     use crate::db::operations;
     use crate::schema::bing_images;
@@ -251,6 +265,7 @@ pub fn get_current_desktop_wallpaper_url_sync(conn: &mut SqliteConnection) -> Re
 
 /// Mark current desktop wallpaper as favorite
 /// Returns image title if successful, None if no match found
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub fn keep_current_wallpaper_sync(conn: &mut SqliteConnection) -> Result<Option<String>> {
     use crate::db::operations;
 
@@ -280,6 +295,7 @@ pub fn keep_current_wallpaper_sync(conn: &mut SqliteConnection) -> Result<Option
 
 /// Mark current desktop wallpaper as blacklisted
 /// Returns image title if successful, None if no match found
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub fn blacklist_current_wallpaper_sync(conn: &mut SqliteConnection) -> Result<Option<String>> {
     use crate::db::operations;
 
@@ -309,6 +325,7 @@ pub fn blacklist_current_wallpaper_sync(conn: &mut SqliteConnection) -> Result<O
 
 /// Set a random favorite as desktop wallpaper
 /// Returns image title if successful, None if no favorites available
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub fn set_random_favorite_wallpaper_sync(conn: &mut SqliteConnection) -> Result<Option<String>> {
     use crate::db::operations;
     use rand::seq::SliceRandom;
@@ -366,6 +383,7 @@ pub fn set_random_favorite_wallpaper_sync(conn: &mut SqliteConnection) -> Result
 
 /// Download next wallpaper if needed, then set it as desktop wallpaper
 /// Returns WallpaperSetResult with title and URL
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub fn download_and_set_next_wallpaper_sync(conn: &mut SqliteConnection) -> Result<crate::viewmodel::WallpaperSetResult> {
     use crate::db::operations;
     use crate::schema::bing_images;
@@ -520,10 +538,13 @@ pub fn download_and_set_next_wallpaper_sync(conn: &mut SqliteConnection) -> Resu
 // Instant Keep/Blacklist Operations (using cache)
 // ============================================================================
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use super::cache_manager::CacheManager;
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use std::sync::Arc;
 
 /// Keep current wallpaper as favorite, set next wallpaper instantly
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub fn keep_current_wallpaper_instant_sync(
     conn: &mut SqliteConnection,
     cache_mgr: &Arc<CacheManager>,
@@ -568,6 +589,7 @@ pub fn keep_current_wallpaper_instant_sync(
 }
 
 /// Blacklist current wallpaper, set next wallpaper instantly
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub fn blacklist_current_wallpaper_instant_sync(
     conn: &mut SqliteConnection,
     cache_mgr: &Arc<CacheManager>,
