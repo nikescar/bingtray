@@ -15,10 +15,9 @@ pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 /// Get database file path
 #[cfg(not(target_arch = "wasm32"))]
 pub fn get_database_path() -> anyhow::Result<std::path::PathBuf> {
-    use std::path::PathBuf;
-
     #[cfg(target_os = "android")]
     {
+        use std::path::PathBuf;
         Ok(PathBuf::from("/data/data/pe.nikescar.bingtray/files/bingtray.db"))
     }
 

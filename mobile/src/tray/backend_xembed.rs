@@ -2,9 +2,8 @@
 
 use anyhow::Result;
 use image::RgbaImage;
-use x11rb::protocol::xproto::{self, *};
+use x11rb::protocol::xproto::*;
 use x11rb::protocol::Event;
-use x11rb::protocol::shape;
 use x11rb::rust_connection::RustConnection;
 use x11rb::connection::Connection;
 use x11rb::wrapper::ConnectionExt as _;

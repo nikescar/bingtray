@@ -120,7 +120,8 @@ impl TrayBackend for GtkTrayBackend {
             }
         });
 
-        Ok(*exit_action.lock().unwrap())
+        let result = *exit_action.lock().unwrap();
+        Ok(result)
     }
 }
 
