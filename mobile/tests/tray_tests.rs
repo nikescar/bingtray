@@ -55,3 +55,70 @@ mod backend_xembed_tests {
         assert_eq!(x11_data[7], 255); // A
     }
 }
+
+#[cfg(target_os = "linux")]
+mod menu_popup_tests {
+    use bingtray::tray::menu_popup::{Rect, MenuItem, MenuAction, calculate_menu_size};
+
+    #[test]
+    fn test_rect_contains_point_inside() {
+        let rect = Rect {
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 50,
+        };
+
+        assert!(rect.contains(50, 30));  // Center
+        assert!(rect.contains(10, 20));  // Top-left corner
+        assert!(rect.contains(109, 69)); // Bottom-right (just inside)
+    }
+
+    #[test]
+    fn test_rect_contains_point_outside() {
+        let rect = Rect {
+            x: 10,
+            y: 20,
+            width: 100,
+            height: 50,
+        };
+
+        assert!(!rect.contains(5, 30));   // Left of rect
+        assert!(!rect.contains(150, 30)); // Right of rect
+        assert!(!rect.contains(50, 10));  // Above rect
+        assert!(!rect.contains(50, 100)); // Below rect
+    }
+
+    #[test]
+    fn test_calculate_menu_size_single_item() {
+        let items = vec![MenuItem::new(MenuAction::Quit, "Quit", true)];
+
+        let (width, height) = calculate_menu_size(&items);
+
+        assert!(width >= 100); // Minimum width
+        assert_eq!(height, 30); // 5px top + 25px item
+    }
+
+    #[test]
+    fn test_calculate_menu_size_with_separator() {
+        let items = vec![
+            MenuItem::new(MenuAction::ShowApp, "Show App", true),
+            MenuItem::separator(),
+            MenuItem::new(MenuAction::Quit, "Quit", true),
+        ];
+
+        let (width, height) = calculate_menu_size(&items);
+
+        assert_eq!(height, 30 + 10 + 30); // item + separator + item
+    }
+
+    #[test]
+    fn test_calculate_menu_size_long_label() {
+        let long_label = "This is a very long menu item label that should increase width";
+        let items = vec![MenuItem::new(MenuAction::ShowApp, long_label, true)];
+
+        let (width, _) = calculate_menu_size(&items);
+
+        assert!(width > 200); // Should be wider than minimum
+    }
+}
