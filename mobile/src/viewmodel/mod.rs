@@ -48,6 +48,7 @@ pub enum ViewModelCommand {
     SetWallpaper { url: String },
     ToggleFavorite { url: String },
     BlacklistImage { url: String },
+    UnmarkImage { url: String },  // Set image back to Unprocessed
     GetImagesByStatus { status: ImageStatus },
     GetImagesByMarket { market_code: String, page: usize },
     RefreshDatabase,
@@ -125,6 +126,12 @@ impl ViewModel {
         let (cmd_tx, cmd_rx) = channel();
         let (evt_tx, evt_rx) = channel();
 
+        // Initialize database FIRST (synchronously) to avoid race conditions
+        // This ensures WAL mode is set before any background threads start
+        log::info!("Initializing database before background threads...");
+        let _init_conn = crate::db::establish_connection(&db_path);
+        drop(_init_conn); // Close the connection
+
         // Initialize cache manager
         let cache_dir = db_path.parent()
             .ok_or_else(|| anyhow::anyhow!("Invalid db_path"))?
@@ -138,10 +145,17 @@ impl ViewModel {
             Some(sources),
         ));
 
-        // Initialize cache on startup (3 images) in background
+        // Populate database with historical data SYNCHRONOUSLY
+        // This must complete BEFORE UI loads to ensure carousel has data
+        log::info!("Populating database with historical data (synchronous)...");
+        if let Err(e) = cache_manager.populate_historical_images_sync() {
+            log::error!("Failed to populate historical images: {}", e);
+        }
+
+        // Cache 3 images in background (can be async since it's just for wallpaper)
         let cache_clone = cache_manager.clone();
         std::thread::spawn(move || {
-            if let Err(e) = cache_clone.initialize() {
+            if let Err(e) = cache_clone.cache_initial_images() {
                 log::error!("Cache initialization failed: {}", e);
             }
         });

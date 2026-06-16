@@ -93,6 +93,22 @@ fn handle_command(
             }
         }
 
+        UnmarkImage { url } => {
+            match super::commands::unmark_image_sync(conn, &url) {
+                Ok(_) => {
+                    evt_tx.send(ViewModelEvent::StatusUpdated {
+                        url,
+                        status: crate::db::ImageStatus::Unprocessed
+                    }).ok();
+                }
+                Err(e) => {
+                    evt_tx.send(ViewModelEvent::Error {
+                        message: format!("Failed to unmark: {}", e)
+                    }).ok();
+                }
+            }
+        }
+
         DownloadImages { market_code } => {
             // Placeholder: will implement async download with Asupersync later
             match super::commands::download_images_sync(conn, &market_code) {

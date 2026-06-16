@@ -99,6 +99,7 @@ pub struct CarouselImage {
     pub title: String,
     pub copyright: String,
     pub copyright_link: String,
+    pub base_url: String,        // Original database URL (without size params)
     pub thumbnail_url: String,
     pub full_url: String,
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -310,11 +311,23 @@ pub struct BingtrayApp {
     #[cfg_attr(feature = "serde", serde(skip))]
     carousel_loading: bool,
 
+    // Progressive carousel loading state
+    #[cfg_attr(feature = "serde", serde(skip))]
+    carousel_all_images: HashMap<CarouselFilter, Vec<CarouselImage>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    carousel_loaded_images: Vec<CarouselImage>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    carousel_next_batch_index: usize,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    carousel_last_scroll_center: usize,
+
     // NEW: Main panel state
     #[cfg_attr(feature = "serde", serde(skip))]
     selected_image_url: Option<String>,
     #[cfg_attr(feature = "serde", serde(skip))]
     main_image_bytes: Option<Vec<u8>>,
+    #[cfg_attr(feature = "serde", serde(skip))]
+    main_image_url: Option<String>,  // URL that main_image_bytes belongs to
     #[cfg_attr(feature = "serde", serde(skip))]
     main_image_loading: bool,
     #[cfg_attr(feature = "serde", serde(skip))]
@@ -501,9 +514,16 @@ impl Default for BingtrayApp {
             carousel_total_count: None,
             carousel_loading: false,
 
+            // Progressive carousel loading state
+            carousel_all_images: HashMap::new(),
+            carousel_loaded_images: Vec::new(),
+            carousel_next_batch_index: 0,
+            carousel_last_scroll_center: 0,
+
             // NEW: Main panel state
             selected_image_url: None,
             main_image_bytes: None,
+            main_image_url: None,
             main_image_loading: false,
             crop_coords: None,
             show_crop_selector: false,
@@ -532,6 +552,14 @@ impl eframe::App for BingtrayApp {
                     }
                     ViewModelEvent::StatusUpdated { url, status } => {
                         log::info!("ViewModel: Status updated for {}: {:?}", url, status);
+
+                        // Invalidate carousel cache for all filters since the image status changed
+                        // This ensures the carousel shows the updated state when switching filters
+                        self.carousel_pages.retain(|_key, _value| false);
+                        self.carousel_total_count = None;
+
+                        // Reload the current filter's first page
+                        self.load_carousel_page(0);
                     }
                     ViewModelEvent::Error { message } => {
                         log::error!("ViewModel error: {}", message);
@@ -545,7 +573,7 @@ impl eframe::App for BingtrayApp {
                         // Convert BingImage to CarouselImage with proper thumbnail URLs
                         let carousel_images: Vec<CarouselImage> = images.into_iter()
                             .map(|img| {
-                                // Generate base URL
+                                // Generate base URL (original database URL)
                                 let base_url = if img.url.starts_with("http") {
                                     img.url.clone()
                                 } else {
@@ -561,6 +589,7 @@ impl eframe::App for BingtrayApp {
                                     title: img.title.clone(),
                                     copyright: img.copyright.clone().unwrap_or_default(),
                                     copyright_link: img.copyright_link.clone().unwrap_or_default(),
+                                    base_url,  // Store original URL
                                     thumbnail_url,
                                     full_url,
                                     image_bytes: None,  // Loaded on demand
@@ -569,13 +598,31 @@ impl eframe::App for BingtrayApp {
                             })
                             .collect();
 
-                        // Store in page cache
-                        self.carousel_pages.insert(
-                            (self.carousel_filter, page),
-                            carousel_images
-                        );
+                        // For progressive loading, append to all_images instead of page cache
+                        self.carousel_all_images
+                            .entry(self.carousel_filter)
+                            .or_insert_with(Vec::new)
+                            .extend(carousel_images);
+
                         self.carousel_total_count = Some(total_count);
-                        self.carousel_loading = false;
+
+                        // Check if we need to load more pages
+                        let current_loaded = self.carousel_all_images
+                            .get(&self.carousel_filter)
+                            .map(|v| v.len())
+                            .unwrap_or(0);
+
+                        if current_loaded < total_count {
+                            // Load next page
+                            let next_page = page + 1;
+                            log::info!("Auto-loading next page {}: {}/{} images loaded",
+                                      next_page, current_loaded, total_count);
+                            self.load_carousel_page(next_page);
+                        } else {
+                            log::info!("All {} images loaded for filter {:?}",
+                                      current_loaded, self.carousel_filter);
+                            self.carousel_loading = false;
+                        }
                     }
 
                     ViewModelEvent::MainImageLoaded { url, image_bytes, cached } => {
@@ -583,6 +630,7 @@ impl eframe::App for BingtrayApp {
                                    url, image_bytes.len(), cached);
 
                         self.main_image_bytes = Some(image_bytes);
+                        self.main_image_url = Some(url);  // Track which URL these bytes belong to
                         self.main_image_loading = false;
                     }
 
@@ -591,6 +639,7 @@ impl eframe::App for BingtrayApp {
                         // Only update if same image still selected
                         if self.selected_image_url.as_ref() == Some(&url) {
                             self.main_image_bytes = Some(image_bytes);
+                            self.main_image_url = Some(url);
                         }
                     }
 
@@ -603,11 +652,11 @@ impl eframe::App for BingtrayApp {
 
         // Load initial carousel page if not loaded
         if let Some(ref viewmodel) = self.viewmodel {
-            if self.carousel_pages.is_empty() && !self.carousel_loading {
+            if !self.carousel_all_images.contains_key(&self.carousel_filter) && !self.carousel_loading {
                 log::info!("Loading initial carousel page");
                 self.carousel_loading = true;
                 viewmodel.send_command(crate::viewmodel::ViewModelCommand::LoadCarouselPage {
-                    filter: None,  // All
+                    filter: self.carousel_filter.to_image_status(),
                     page: 0,
                 }).ok();
             }
@@ -625,6 +674,7 @@ impl eframe::App for BingtrayApp {
                         title: cached_image.title,
                         copyright: cached_image.copyright,
                         copyright_link: cached_image.copyright_link,
+                        base_url: cached_image.full_url.clone(),  // Use full_url as base for cached images
                         thumbnail_url: cached_image.thumbnail_url.clone(),
                         full_url: cached_image.full_url.clone(),
                         image_bytes: None,
@@ -653,6 +703,7 @@ impl eframe::App for BingtrayApp {
                                     title: carousel_image_clone.title.clone(),
                                     copyright: carousel_image_clone.copyright.clone(),
                                     copyright_link: carousel_image_clone.copyright_link.clone(),
+                                    base_url: carousel_image_clone.base_url.clone(),
                                     thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
                                     full_url: carousel_image_clone.full_url.clone(),
                                     image_bytes: None,
@@ -668,6 +719,7 @@ impl eframe::App for BingtrayApp {
                                 title: carousel_image_clone.title.clone(),
                                 copyright: carousel_image_clone.copyright.clone(),
                                 copyright_link: carousel_image_clone.copyright_link.clone(),
+                                base_url: carousel_image_clone.base_url.clone(),
                                 thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
                                 full_url: carousel_image_clone.full_url.clone(),
                                 image_bytes: Some(image_bytes),
@@ -822,6 +874,11 @@ impl BingtrayApp {
 
         if MENU_QUIT.swap(false, Ordering::Relaxed) {
             info!("Quitting application");
+
+            // Create quit signal file for tray process
+            let quit_signal = std::env::temp_dir().join("bingtray_quit_signal");
+            let _ = std::fs::write(&quit_signal, "quit");
+
             std::process::exit(0);
         }
 
@@ -893,9 +950,9 @@ impl BingtrayApp {
 
                 ui.add_space(10.0);
 
-                // Show total count if loaded
-                if let Some(total) = self.carousel_total_count {
-                    ui.label(format!("({} images)", total));
+                // Show count of loaded images for current filter
+                if let Some(images) = self.carousel_all_images.get(&self.carousel_filter) {
+                    ui.label(format!("({} images)", images.len()));
                 }
 
                 // Loading indicator
@@ -906,38 +963,50 @@ impl BingtrayApp {
 
             ui.add_space(5.0);
 
-            // ==================== NEW CAROUSEL (ViewModel-driven) ====================
-            // Collect all loaded pages for current filter
-            let mut new_carousel_images: Vec<CarouselImage> = Vec::new();
-            let mut page = 0;
-            while let Some(page_images) = self.carousel_pages.get(&(self.carousel_filter, page)) {
-                new_carousel_images.extend(page_images.iter().cloned());
-                page += 1;
+            // ==================== PROGRESSIVE CAROUSEL ====================
+            // Initialize carousel on first load or filter change
+            if self.carousel_loaded_images.is_empty() {
+                if let Some(all_images) = self.carousel_all_images.get(&self.carousel_filter) {
+                    if !all_images.is_empty() {
+                        self.load_initial_carousel();
+                    }
+                }
             }
 
-            // Use new carousel if we have pages loaded, otherwise show empty state or fall back
-            let use_new_carousel = !new_carousel_images.is_empty();
+            // Check scroll position and load more if needed
+            let scroll_center_index = self.get_carousel_scroll_center_index();
+            if scroll_center_index != self.carousel_last_scroll_center {
+                if self.should_load_more_carousel(scroll_center_index) {
+                    log::info!("🔄 Scroll threshold reached at index {}, loading more...", scroll_center_index);
+                    self.load_next_carousel_batch();
+                }
+                self.carousel_last_scroll_center = scroll_center_index;
+            }
+
+            let use_new_carousel = !self.carousel_loaded_images.is_empty();
 
             if use_new_carousel {
-                // Render new ViewModel-driven carousel
+                // Render progressive carousel
+                // Include item count in id_salt to force widget recreation when items change
+                let carousel_id = format!("progressive_carousel_{}", self.carousel_loaded_images.len());
                 let mut carousel_widget = carousel(&mut self.carousel_scroll_offset)
-                    .id_salt("new_bing_carousel")
+                    .id_salt(carousel_id)
                     .item_extent(200.0)
                     .shrink_extent(120.0)
                     .height(180.0)
                     .item_snapping(true);
 
-                for (idx, carousel_img) in new_carousel_images.iter().enumerate() {
+                let num_items = self.carousel_loaded_images.len();
+                for (idx, carousel_img) in self.carousel_loaded_images.iter().enumerate() {
                     let thumbnail_url = carousel_img.thumbnail_url.clone();
                     let title = carousel_img.title.clone();
-                    let full_url = carousel_img.full_url.clone();
-                    let status = carousel_img.status.clone();
+                    let base_url = carousel_img.base_url.clone();
 
                     carousel_widget = carousel_widget.item(Box::new(move |ui: &mut egui::Ui, _rect| {
                         ui.vertical_centered(|ui| {
                             ui.spacing_mut().item_spacing = egui::vec2(0.0, 2.0);
 
-                            // Placeholder image
+                            // Image thumbnail
                             let placeholder = egui::Image::from_uri(&thumbnail_url)
                                 .fit_to_exact_size(egui::vec2(180.0, 120.0))
                                 .sense(Sense::click());
@@ -945,26 +1014,13 @@ impl BingtrayApp {
                             let response = ui.add(placeholder);
 
                             if response.clicked() {
-                                log::info!("New carousel item {} clicked: {}", idx, title);
+                                log::info!("Carousel item {} clicked: {}", idx, title);
                                 ui.ctx().data_mut(|d| {
-                                    d.insert_temp(egui::Id::new("new_carousel_clicked_url"), full_url.clone());
+                                    d.insert_temp(egui::Id::new("carousel_clicked_url"), base_url.clone());
                                 });
                             }
 
-                            // Status icon
-                            if let Some(ref status_str) = status {
-                                let icon = match status_str.as_str() {
-                                    "keepfavorite" => "⭐",
-                                    "blacklisted" => "🚫",
-                                    "unprocessed" => "✨",
-                                    _ => "",
-                                };
-                                if !icon.is_empty() {
-                                    ui.label(icon);
-                                }
-                            }
-
-                            // Title (wrapped)
+                            // Title only (no status icons)
                             ui.set_max_width(180.0);
                             ui.label(egui::RichText::new(&title)
                                 .text_style(egui::TextStyle::Body)
@@ -972,15 +1028,16 @@ impl BingtrayApp {
                         });
                     }));
                 }
+                log::info!("🎨 Rendered carousel: {} items (scroll center: {})", num_items, scroll_center_index);
 
                 ui.add(carousel_widget);
 
                 // Check for carousel clicks
                 if let Some(clicked_url) = ui.ctx().data(|d| {
-                    d.get_temp::<String>(egui::Id::new("new_carousel_clicked_url"))
+                    d.get_temp::<String>(egui::Id::new("carousel_clicked_url"))
                 }) {
                     ui.ctx().data_mut(|d| {
-                        d.remove::<String>(egui::Id::new("new_carousel_clicked_url"));
+                        d.remove::<String>(egui::Id::new("carousel_clicked_url"));
                     });
 
                     // Load image in main panel
@@ -994,19 +1051,7 @@ impl BingtrayApp {
                     }
                 }
 
-                // Lazy load next page
-                let images_per_page = 20;
-                let scroll_items = (self.carousel_scroll_offset / 200.0).floor() as usize;
-                if scroll_items > 0 && scroll_items % images_per_page == images_per_page - 5 && !self.carousel_loading {
-                    let next_page = scroll_items / images_per_page + 1;
-                    if !self.carousel_pages.contains_key(&(self.carousel_filter, next_page)) {
-                        if let Some(total) = self.carousel_total_count {
-                            if new_carousel_images.len() < total {
-                                self.load_carousel_page(next_page);
-                            }
-                        }
-                    }
-                }
+                // Progressive loading is handled above - no need for lazy loading logic here
 
                 // Save scroll position
                 self.carousel_scroll_positions.insert(
@@ -1020,20 +1065,33 @@ impl BingtrayApp {
                 ui.add_space(10.0);
 
                 // Transfer ViewModel data to main_panel_image for compatibility with old code
+                // Only recreate if the URL changed (avoid overwriting status changes)
                 if let Some(ref image_bytes) = self.main_image_bytes {
-                    if let Some(ref url) = self.selected_image_url {
-                        // Find metadata from carousel
-                        if let Some(carousel_img) = new_carousel_images.iter().find(|img| img.full_url == *url) {
-                            // Create/update main_panel_image from ViewModel data
-                            self.main_panel_image = Some(CarouselImage {
-                                title: carousel_img.title.clone(),
-                                copyright: carousel_img.copyright.clone(),
-                                copyright_link: carousel_img.copyright_link.clone(),
-                                thumbnail_url: carousel_img.thumbnail_url.clone(),
-                                full_url: carousel_img.full_url.clone(),
-                                image_bytes: Some(image_bytes.clone()),
-                                status: carousel_img.status.clone(),
-                            });
+                    if let Some(ref url) = self.main_image_url {
+                        let should_recreate = self.main_panel_image.as_ref()
+                            .map(|img| img.base_url != *url)
+                            .unwrap_or(true);
+
+                        if should_recreate {
+                            // Find metadata from carousel using base_url
+                            if let Some(carousel_img) = self.carousel_loaded_images.iter().find(|img| img.base_url == *url) {
+                                // Create/update main_panel_image from ViewModel data
+                                self.main_panel_image = Some(CarouselImage {
+                                    title: carousel_img.title.clone(),
+                                    copyright: carousel_img.copyright.clone(),
+                                    copyright_link: carousel_img.copyright_link.clone(),
+                                    base_url: carousel_img.base_url.clone(),
+                                    thumbnail_url: carousel_img.thumbnail_url.clone(),
+                                    full_url: carousel_img.full_url.clone(),
+                                    image_bytes: Some(image_bytes.clone()),
+                                    status: carousel_img.status.clone(),
+                                });
+                            }
+                        } else {
+                            // Just update the image bytes without overwriting metadata
+                            if let Some(ref mut panel_img) = self.main_panel_image {
+                                panel_img.image_bytes = Some(image_bytes.clone());
+                            }
                         }
                     }
                 }
@@ -1065,8 +1123,8 @@ impl BingtrayApp {
                             let mut is_favorite = main_image.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false);
                             let mut is_blacklisted = main_image.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false);
 
-                            // Extract base URL
-                            let base_url = main_image.full_url.split("&w=").next().unwrap_or(&main_image.full_url).to_string();
+                            // Use the base_url field directly
+                            let base_url = main_image.base_url.clone();
 
                             // Blacklist switch
                             let blacklist_switch = switch(&mut is_blacklisted)
@@ -1074,23 +1132,23 @@ impl BingtrayApp {
                                 .show_track_outline(true);
                             if ui.add(blacklist_switch).changed() {
                                 if let Some(ref viewmodel) = self.viewmodel {
-                                    if is_blacklisted {
+                                    let new_status = if is_blacklisted {
                                         // Set to blacklisted
                                         viewmodel.send_command(
                                             crate::viewmodel::ViewModelCommand::BlacklistImage { url: base_url.clone() }
                                         ).ok();
-                                        // Update local state
-                                        if let Some(ref mut panel_img) = self.main_panel_image {
-                                            panel_img.status = Some("blacklisted".to_string());
-                                        }
+                                        "blacklisted"
                                     } else {
                                         // Remove blacklist (back to unprocessed)
-                                        // Use ToggleFavorite with false to unmark
-                                        // Actually we need an "unmark" command - for now just toggle favorite twice
-                                        log::warn!("Need unmark command - setting to unprocessed");
-                                        if let Some(ref mut panel_img) = self.main_panel_image {
-                                            panel_img.status = Some("unprocessed".to_string());
-                                        }
+                                        viewmodel.send_command(
+                                            crate::viewmodel::ViewModelCommand::UnmarkImage { url: base_url.clone() }
+                                        ).ok();
+                                        "unprocessed"
+                                    };
+
+                                    // Update local main panel status
+                                    if let Some(ref mut panel_img) = self.main_panel_image {
+                                        panel_img.status = Some(new_status.to_string());
                                     }
                                 }
                             }
@@ -1104,23 +1162,23 @@ impl BingtrayApp {
                                 .show_track_outline(true);
                             if ui.add(favorite_switch).changed() {
                                 if let Some(ref viewmodel) = self.viewmodel {
-                                    if is_favorite {
-                                        // Set to favorite (this should auto-remove from blacklist)
+                                    let new_status = if is_favorite {
+                                        // Set to favorite
                                         viewmodel.send_command(
                                             crate::viewmodel::ViewModelCommand::ToggleFavorite { url: base_url.clone() }
                                         ).ok();
-                                        // Update local state
-                                        if let Some(ref mut panel_img) = self.main_panel_image {
-                                            panel_img.status = Some("keepfavorite".to_string());
-                                        }
+                                        "keepfavorite"
                                     } else {
-                                        // Remove favorite (toggle off)
+                                        // Remove favorite
                                         viewmodel.send_command(
                                             crate::viewmodel::ViewModelCommand::ToggleFavorite { url: base_url.clone() }
                                         ).ok();
-                                        if let Some(ref mut panel_img) = self.main_panel_image {
-                                            panel_img.status = Some("unprocessed".to_string());
-                                        }
+                                        "unprocessed"
+                                    };
+
+                                    // Update local main panel status
+                                    if let Some(ref mut panel_img) = self.main_panel_image {
+                                        panel_img.status = Some(new_status.to_string());
                                     }
                                 }
                             }
@@ -1213,11 +1271,30 @@ impl BingtrayApp {
                             }
                         }
 
-                        // More info button
-                        if !main_image.copyright.is_empty() && !main_image.copyright_link.is_empty() {
+                        // More info button - always show if we have a title
+                        if !main_image.title.is_empty() {
                             if ui.button(tr!("button-more-info")).clicked() {
-                                if let Some(copyright_url) = Self::resolve_url(&main_image.copyright_link) {
-                                    let _ = opener::open(&copyright_url);
+                                let info_url = if !main_image.copyright_link.is_empty() {
+                                    // Clean up existing copyright_link
+                                    let mut url = main_image.copyright_link.clone();
+                                    // Remove filters parameter
+                                    if let Some(pos) = url.find("&filters=") {
+                                        url = url[..pos].to_string();
+                                    }
+                                    // Add "bing wallpaper" to search query if it's a Bing search URL
+                                    if url.contains("bing.com") && url.contains("?q=") {
+                                        url = url.replace("?q=", "?q=bing+wallpaper+");
+                                    }
+                                    url
+                                } else {
+                                    // Create Bing search URL from title
+                                    let search_query = format!("{}, bing wallpaper", main_image.title);
+                                    let encoded_query = search_query.replace(' ', "+");
+                                    format!("https://www.bing.com/search?q={}", encoded_query)
+                                };
+
+                                if let Some(resolved_url) = Self::resolve_url(&info_url) {
+                                    let _ = opener::open(&resolved_url);
                                 }
                             }
                         }
@@ -1446,6 +1523,7 @@ impl BingtrayApp {
                                             title: carousel_image_clone.title.clone(),
                                             copyright: carousel_image_clone.copyright.clone(),
                                             copyright_link: carousel_image_clone.copyright_link.clone(),
+                                            base_url: carousel_image_clone.base_url.clone(),
                                             thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
                                             full_url: carousel_image_clone.full_url.clone(),
                                             image_bytes: None,
@@ -1461,6 +1539,7 @@ impl BingtrayApp {
                                         title: carousel_image_clone.title.clone(),
                                         copyright: carousel_image_clone.copyright.clone(),
                                         copyright_link: carousel_image_clone.copyright_link.clone(),
+                                        base_url: carousel_image_clone.base_url.clone(),
                                         thumbnail_url: carousel_image_clone.thumbnail_url.clone(),
                                         full_url: carousel_image_clone.full_url.clone(),
                                         image_bytes: Some(image_bytes),
@@ -1726,6 +1805,7 @@ impl BingtrayApp {
                                 title: display_title.clone(),
                                 copyright: copyright_text,
                                 copyright_link: final_copyright_link,
+                                base_url: full_url.clone(),  // Use full_url as base for old carousel
                                 thumbnail_url: thumbnail_url.clone(),
                                 full_url: full_url.clone(),
                                 image_bytes: None,
@@ -1764,6 +1844,7 @@ impl BingtrayApp {
                                             title: carousel_image.title.clone(),
                                             copyright: carousel_image.copyright.clone(),
                                             copyright_link: carousel_image.copyright_link.clone(),
+                                            base_url: carousel_image.base_url.clone(),
                                             thumbnail_url: carousel_image.thumbnail_url.clone(),
                                             full_url: carousel_image.full_url.clone(),
                                             image_bytes: Some(image_bytes),
@@ -1774,6 +1855,7 @@ impl BingtrayApp {
                                         info!("Failed to load image from {}: status {} - marking for removal", response.url, response.status);
                                         CarouselImage {
                                             title: "REMOVE_ME".to_string(), // Special marker
+                                            base_url: carousel_image.base_url.clone(),
                                             copyright: carousel_image.copyright.clone(),
                                             copyright_link: carousel_image.copyright_link.clone(),
                                             thumbnail_url: carousel_image.thumbnail_url.clone(),
@@ -2614,8 +2696,13 @@ impl BingtrayApp {
             .copied()
             .unwrap_or(0.0);
 
-        // Check if we have cached pages for this filter
-        if !self.carousel_pages.contains_key(&(new_filter, 0)) {
+        // Reset progressive carousel state for new filter
+        self.carousel_loaded_images.clear();
+        self.carousel_next_batch_index = 0;
+        self.carousel_last_scroll_center = 0;
+
+        // Check if we have images for this filter
+        if !self.carousel_all_images.contains_key(&new_filter) {
             // Load first page for this filter
             self.load_carousel_page(0);
         }
@@ -2705,91 +2792,83 @@ fn ui_mainpanel(
         egui::vec2(56.0, 64.0),
     ));
 
-    // Add filter select box and page navigation
-    ui.add_space(10.0);
-    ui.horizontal(|ui| {
-        // Filter select
-        ui.label(tr!("filter"));
-        egui::ComboBox::from_label(tr!("status-filter"))
-            .selected_text(match carousel_filter {
-                Some(0) => tr!("status-all"),
-                Some(1) => tr!("status-keep-favorite"),
-                Some(2) => tr!("status-blacklisted"),
-                Some(3) => tr!("status-unprocessed"),
-                _ => tr!("status-all"),
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(carousel_filter, Some(0), tr!("status-all"));
-                ui.selectable_value(carousel_filter, Some(1), tr!("status-keep-favorite"));
-                ui.selectable_value(carousel_filter, Some(2), tr!("status-blacklisted"));
-                ui.selectable_value(carousel_filter, Some(3), tr!("status-unprocessed"));
-            });
-
-        ui.add_space(5.0);
-
-        // Page navigation
-        // Filter images to get count
-        let filtered_count: usize = carousel_images
-            .iter()
-            .filter(|img| {
-                match *carousel_filter {
-                    Some(0) => true, // All images
-                    Some(1) => img.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false),
-                    Some(2) => img.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false),
-                    Some(3) => img.status.as_ref().map(|s| s == "unprocessed").unwrap_or(false),
-                    _ => true,
-                }
-            })
-            .count();
-
-        let item_extent = 200.0;
-        let total_pages = filtered_count.max(1);
-        let current_page = ((*carousel_scroll_offset / item_extent).round() as usize + 1).min(total_pages);
-
-        // Previous button
-        let prev_button = MaterialButton::filled(ICON_ARROW_BACK.to_string())
-            .small();
-        if ui.add(prev_button).clicked() && current_page > 1 {
-            *carousel_scroll_offset = ((current_page - 2) as f32) * item_extent;
-            *page_input = (current_page - 1).to_string();
-        }
-
-        // Page text input
-        ui.add_space(5.0);
-        let text_edit = egui::TextEdit::singleline(page_input)
-            .desired_width(50.0);
-        let text_response = ui.add(text_edit);
-
-        // Update page_input when not focused to stay in sync
-        if !text_response.has_focus() {
-            *page_input = current_page.to_string();
-        }
-
-        if text_response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            if let Ok(page) = page_input.parse::<usize>() {
-                if page > 0 && page <= total_pages {
-                    *carousel_scroll_offset = ((page - 1) as f32) * item_extent;
-                }
-            }
-        }
-
-        ui.label(format!("/ {}", total_pages));
-        ui.add_space(5.0);
-
-        // Next button
-        let next_button = MaterialButton::filled(ICON_ARROW_FORWARD.to_string())
-            .small();
-        if ui.add(next_button).clicked() && current_page < total_pages {
-            *carousel_scroll_offset = (current_page as f32) * item_extent;
-            *page_input = (current_page + 1).to_string();
-        }
-    });
-    ui.add_space(10.0);
-
     trigger_fetch
 }
 
 impl BingtrayApp {
+    /// Load initial 8 images for carousel
+    fn load_initial_carousel(&mut self) {
+        let all_images = self.carousel_all_images.get(&self.carousel_filter).cloned().unwrap_or_default();
+
+        self.carousel_loaded_images = all_images
+            .iter()
+            .take(8)
+            .cloned()
+            .collect();
+
+        self.carousel_next_batch_index = 8.min(all_images.len());
+        self.carousel_last_scroll_center = 0;
+
+        log::info!("📦 Initial carousel load: {} images (batch size: 8)", self.carousel_loaded_images.len());
+    }
+
+    /// Load next 8 images and append to carousel
+    fn load_next_carousel_batch(&mut self) {
+        let all_images = self.carousel_all_images.get(&self.carousel_filter).cloned().unwrap_or_default();
+
+        let batch: Vec<CarouselImage> = all_images
+            .iter()
+            .skip(self.carousel_next_batch_index)
+            .take(8)
+            .cloned()
+            .collect();
+
+        let loaded_count = batch.len();
+        self.carousel_loaded_images.extend(batch);
+        self.carousel_next_batch_index += loaded_count;
+
+        log::info!("📦 Loaded carousel batch: {} images (total: {})", loaded_count, self.carousel_loaded_images.len());
+    }
+
+    /// Check if we should load more images based on scroll position
+    /// Returns true if scroll center has passed threshold (5, 13, 21, 29, ...)
+    fn should_load_more_carousel(&self, scroll_center_index: usize) -> bool {
+        let all_images = self.carousel_all_images.get(&self.carousel_filter).cloned().unwrap_or_default();
+
+        // Don't load if we've already loaded all images
+        if self.carousel_next_batch_index >= all_images.len() {
+            return false;
+        }
+
+        // Thresholds: 5, 13, 21, 29, ...
+        if scroll_center_index < 5 {
+            return false;
+        }
+
+        // Check if we're at a threshold
+        let offset_from_first_threshold = scroll_center_index.saturating_sub(5);
+        let is_at_threshold = offset_from_first_threshold % 8 == 0;
+
+        if !is_at_threshold {
+            return false;
+        }
+
+        // Calculate how many items we should have loaded by this threshold
+        let batches_needed = 1 + (offset_from_first_threshold / 8);
+        let items_needed = 8 + (batches_needed * 8);
+
+        // Load more if we don't have enough items yet
+        self.carousel_loaded_images.len() < items_needed
+    }
+
+    /// Get scroll center index from carousel scroll offset
+    fn get_carousel_scroll_center_index(&self) -> usize {
+        let item_extent = 200.0; // Same as carousel item_extent
+        // Carousel typically shows ~4 items, so center is ~2 items from left edge
+        let visible_items_half = 2.0;
+        ((self.carousel_scroll_offset / item_extent) + visible_items_half).floor() as usize
+    }
+
     pub fn set_wallpaper_setter(&mut self, setter: Arc<dyn WallpaperSetter + Send + Sync>) {
         self.wallpaper_setter = Some(setter);
     }
@@ -3524,6 +3603,7 @@ impl BingtrayApp {
                             title: carousel_img.title.clone(),
                             copyright: carousel_img.copyright.clone(),
                             copyright_link: carousel_img.copyright_link.clone(),
+                            base_url: carousel_img.base_url.clone(),
                             thumbnail_url: carousel_img.thumbnail_url.clone(),
                             full_url: carousel_img.full_url.clone(),
                             image_bytes: Some(image_bytes.clone()),
@@ -3532,12 +3612,14 @@ impl BingtrayApp {
                     } else {
                         // Fallback: create from file if no matching carousel image found
                         info!("No matching carousel image found for '{}', using file:// URL", filename_stem);
+                        let file_url = format!("file://{}", current_path.display());
                         CarouselImage {
                             title: title.clone(),
                             copyright: String::new(),
                             copyright_link: String::new(),
+                            base_url: file_url.clone(),
                             thumbnail_url: String::new(),
-                            full_url: format!("file://{}", current_path.display()),
+                            full_url: file_url,
                             image_bytes: Some(image_bytes.clone()),
                             status: None,
                         }

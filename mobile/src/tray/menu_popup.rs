@@ -98,6 +98,16 @@ impl MenuPopup {
         // Calculate size
         let (width, height) = calculate_menu_size(&items);
 
+        // Adjust position to keep menu on screen
+        // If menu would go off bottom, open upward instead
+        let screen_height = screen.height_in_pixels as i16;
+        let menu_y = if y + height as i16 > screen_height {
+            // Open upward from click position
+            y - height as i16
+        } else {
+            y
+        };
+
         // Create popup window
         let window = conn.generate_id()?;
         conn.create_window(
@@ -105,7 +115,7 @@ impl MenuPopup {
             window,
             screen.root,
             x,
-            y,
+            menu_y,
             width,
             height,
             1, // 1px border
@@ -125,8 +135,16 @@ impl MenuPopup {
     }
 
     pub fn render(&mut self, conn: &RustConnection) -> Result<()> {
+        // Load a basic X11 font
+        let font_id = conn.generate_id()?;
+        if let Err(e) = conn.open_font(font_id, b"fixed") {
+            log::warn!("Failed to load 'fixed' font: {}", e);
+            // Try fallback font
+            conn.open_font(font_id, b"-*-*-*-*-*-*-14-*-*-*-*-*-*-*")?;
+        }
+
         let gc = conn.generate_id()?;
-        conn.create_gc(gc, self.window, &CreateGCAux::new())?;
+        conn.create_gc(gc, self.window, &CreateGCAux::new().font(font_id))?;
 
         let mut y: i16 = 5;
 

@@ -4,18 +4,24 @@ use anyhow::Result;
 use image::RgbaImage;
 use x11rb::protocol::xproto::{self, *};
 use x11rb::protocol::Event;
+use x11rb::protocol::shape;
 use x11rb::rust_connection::RustConnection;
 use x11rb::connection::Connection;
 use xproto::ConnectionExt as _;
 use x11rb::wrapper::ConnectionExt as _;
+use shape::ConnectionExt as ShapeConnectionExt;
 
 use super::{TrayBackend, TrayExitAction};
 use super::logic::TrayLogic;
 
 const SYSTEM_TRAY_REQUEST_DOCK: u32 = 0;
 
+use std::sync::{Arc, Mutex};
+use std::process::Child;
+
 pub struct XEmbedTrayBackend {
     logic: TrayLogic,
+    gui_process: Arc<Mutex<Option<Child>>>,
 }
 
 impl TrayBackend for XEmbedTrayBackend {
@@ -24,13 +30,51 @@ impl TrayBackend for XEmbedTrayBackend {
         let (conn, screen_num) = RustConnection::connect(None)
             .map_err(|e| anyhow::anyhow!("X11 connection failed: {}", e))?;
 
+        log::info!("XEmbed: Connected to X11, screen number: {}", screen_num);
+
         // Verify system tray manager exists
         let atoms = Atoms::new(&conn, screen_num)?;
+        let selection_name = format!("_NET_SYSTEM_TRAY_S{}", screen_num);
+        log::info!("XEmbed: Looking for tray selection: {}", selection_name);
+
         let tray_manager = conn
             .get_selection_owner(atoms.tray_selection)?
             .reply()?
             .owner;
 
+        log::info!("XEmbed: Selection owner window ID: {} (0 means not found)", tray_manager);
+
+        if tray_manager == x11rb::NONE {
+            return Err(anyhow::anyhow!(
+                "No system tray manager found.\n\
+                 The selection {} has no owner.\n\
+                 \n\
+                 JWM tray may not support the freedesktop.org System Tray Protocol.\n\
+                 Install: i3bar, polybar, tint2, or other tray-enabled panel",
+                selection_name
+            ));
+        }
+
+        Ok(Self {
+            logic,
+            gui_process: Arc::new(Mutex::new(None)),
+        })
+    }
+
+    fn run(mut self) -> Result<TrayExitAction> {
+        log::info!("=== Starting XEmbed tray backend ===");
+
+        let (conn, screen_num) = RustConnection::connect(None)?;
+        log::info!("Connected to X11, screen number: {}", screen_num);
+        let screen = &conn.setup().roots[screen_num];
+
+        // Get atoms
+        let atoms = Atoms::new(&conn, screen_num)?;
+        log::info!("Interned atoms - looking for tray on _NET_SYSTEM_TRAY_S{}", screen_num);
+
+        // Find tray manager
+        let tray_manager = conn.get_selection_owner(atoms.tray_selection)?.reply()?.owner;
+        log::info!("Tray selection owner: {} (NONE={})", tray_manager, x11rb::NONE);
         if tray_manager == x11rb::NONE {
             return Err(anyhow::anyhow!(
                 "No system tray manager found.\n\
@@ -38,25 +82,7 @@ impl TrayBackend for XEmbedTrayBackend {
             ));
         }
 
-        Ok(Self { logic })
-    }
-
-    fn run(mut self) -> Result<TrayExitAction> {
-        log::info!("=== Starting XEmbed tray backend ===");
-
-        let (conn, screen_num) = RustConnection::connect(None)?;
-        let screen = &conn.setup().roots[screen_num];
-
-        // Get atoms
-        let atoms = Atoms::new(&conn, screen_num)?;
-
-        // Find tray manager
-        let tray_manager = conn.get_selection_owner(atoms.tray_selection)?.reply()?.owner;
-        if tray_manager == x11rb::NONE {
-            return Err(anyhow::anyhow!("No system tray manager found"));
-        }
-
-        // Create icon window
+        // Create icon window with white background (simple, visible)
         let icon_window = conn.generate_id()?;
         conn.create_window(
             x11rb::COPY_FROM_PARENT as u8,
@@ -70,7 +96,7 @@ impl TrayBackend for XEmbedTrayBackend {
             WindowClass::INPUT_OUTPUT,
             screen.root_visual,
             &CreateWindowAux::new()
-                .background_pixel(screen.black_pixel)
+                .background_pixel(screen.white_pixel) // White background for now
                 .event_mask(EventMask::EXPOSURE | EventMask::BUTTON_PRESS),
         )?;
 
@@ -84,11 +110,16 @@ impl TrayBackend for XEmbedTrayBackend {
             &xembed_info,
         )?;
 
+        // Map the window to make it visible
+        conn.map_window(icon_window)?;
+        conn.flush()?;
+        log::info!("Window mapped: {}", icon_window);
+
         // Send dock request
         send_dock_request(&conn, tray_manager, icon_window, &atoms)?;
         conn.flush()?;
 
-        log::info!("XEmbed icon window created: {}", icon_window);
+        log::info!("XEmbed icon window created and docked: {}", icon_window);
 
         // Enter event loop
         self.event_loop(conn, icon_window, screen_num)
@@ -97,60 +128,91 @@ impl TrayBackend for XEmbedTrayBackend {
 
 impl XEmbedTrayBackend {
     fn event_loop(
-        mut self,
+        self,
         conn: RustConnection,
         icon_window: Window,
         screen_num: usize,
     ) -> Result<TrayExitAction> {
-        use super::menu_popup::MenuPopup;
-
         let screen = &conn.setup().roots[screen_num];
-        let mut menu_popup: Option<MenuPopup> = None;
+        let gui_process = self.gui_process.clone();
 
         loop {
-            let event = conn.wait_for_event()
-                .map_err(|e| {
-                    log::error!("X11 connection error: {}", e);
-                    anyhow::anyhow!("X11 connection lost")
-                })?;
+            // Check for quit signal file
+            let quit_signal = std::env::temp_dir().join("bingtray_quit_signal");
+            if quit_signal.exists() {
+                log::info!("Quit signal detected, exiting tray");
+                let _ = std::fs::remove_file(&quit_signal);
+                return Ok(TrayExitAction::Quit);
+            }
+
+            // Poll for events (non-blocking)
+            let event = match conn.poll_for_event()? {
+                Some(event) => event,
+                None => {
+                    // No event, sleep briefly and continue
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                    continue;
+                }
+            };
 
             match event {
                 Event::Expose(e) if e.window == icon_window => {
                     render_icon(&conn, icon_window, screen)?;
                 }
-                Event::Expose(e) if menu_popup.as_ref().map(|m| m.window == e.window).unwrap_or(false) => {
-                    if let Some(ref mut menu) = menu_popup {
-                        menu.render(&conn)?;
-                    }
-                }
                 Event::ButtonPress(e) if e.event == icon_window => {
                     match e.detail {
-                        1 => {
-                            // Left click - close menu
-                            menu_popup = None;
-                        }
-                        3 => {
-                            // Right click - show menu
-                            log::info!("Right-click at ({}, {})", e.root_x, e.root_y);
-                            menu_popup = Some(MenuPopup::new(
-                                &conn,
-                                screen,
-                                e.root_x,
-                                e.root_y,
-                                &mut self.logic,
-                            )?);
+                        1 | 3 => {
+                            // Left or right click - open/focus GUI
+                            log::info!("Click on tray icon");
+
+                            let mut process_guard = gui_process.lock().unwrap();
+
+                            // Check if GUI is already running
+                            let is_running = if let Some(ref mut child) = *process_guard {
+                                match child.try_wait() {
+                                    Ok(Some(_)) => {
+                                        // Process exited
+                                        log::info!("GUI process exited");
+                                        false
+                                    }
+                                    Ok(None) => {
+                                        // Process still running
+                                        log::info!("GUI already running, attempting to focus");
+                                        true
+                                    }
+                                    Err(e) => {
+                                        log::error!("Error checking GUI process: {}", e);
+                                        false
+                                    }
+                                }
+                            } else {
+                                false
+                            };
+
+                            if is_running {
+                                // Try to focus the existing window using wmctrl or xdotool
+                                // For now, just log - window should auto-focus when activated
+                                let _ = std::process::Command::new("wmctrl")
+                                    .args(&["-a", "BingTray"])
+                                    .spawn();
+                            } else {
+                                // Spawn new GUI process
+                                match std::process::Command::new(std::env::current_exe()?)
+                                    .arg("--gui")
+                                    .spawn()
+                                {
+                                    Ok(child) => {
+                                        log::info!("Spawned GUI process");
+                                        *process_guard = Some(child);
+                                    }
+                                    Err(e) => {
+                                        log::error!("Failed to spawn GUI: {}", e);
+                                    }
+                                }
+                            }
                         }
                         _ => {}
                     }
-                }
-                Event::ButtonPress(e) if menu_popup.as_ref().map(|m| m.window == e.event).unwrap_or(false) => {
-                    // Menu clicked
-                    if let Some(ref mut menu) = menu_popup {
-                        if let Some(action) = menu.handle_click(e.event_x, e.event_y, &mut self.logic)? {
-                            return Ok(action);
-                        }
-                    }
-                    menu_popup = None;
                 }
                 _ => {}
             }
@@ -219,44 +281,53 @@ fn render_icon(
     window: Window,
     screen: &Screen,
 ) -> Result<()> {
-    // Load embedded icon
+    log::info!("render_icon called for window {}", window);
+
+    // Load embedded PNG icon
     let icon_bytes = include_bytes!("../../resources/logo.png");
     let image = image::load_from_memory(icon_bytes)?;
     let rgba = image.to_rgba8();
 
-    // Create pixmap
-    let pixmap = conn.generate_id()?;
-    conn.create_pixmap(screen.root_depth, pixmap, window, 24, 24)?;
+    // Resize to 24x24
+    let rgba = image::imageops::resize(&rgba, 24, 24, image::imageops::FilterType::Lanczos3);
+    let (width, height) = (rgba.width() as u16, rgba.height() as u16);
 
-    // Create GC
+    // Convert RGBA to BGRA format for X11
+    let bgra_pixels: Vec<u8> = rgba.pixels()
+        .flat_map(|p| {
+            let [r, g, b, a] = p.0;
+            [b, g, r, a] // RGBA -> BGRA
+        })
+        .collect();
+
+    log::debug!("Rendering PNG icon: {}x{}, {} bytes", width, height, bgra_pixels.len());
+
+    // Create GC for drawing
     let gc = conn.generate_id()?;
-    conn.create_gc(gc, pixmap, &CreateGCAux::new())?;
+    conn.create_gc(gc, window, &CreateGCAux::new())?;
 
-    // Convert and draw
-    let image_data = rgba_to_x11_format(&rgba);
+    // Draw image directly to window
     conn.put_image(
         ImageFormat::Z_PIXMAP,
-        pixmap,
+        window,
         gc,
-        24,
-        24,
-        0,
-        0,
-        0,
+        width,
+        height,
+        0, 0, 0,
         screen.root_depth,
-        &image_data,
+        &bgra_pixels,
     )?;
 
-    // Copy to window
-    conn.copy_area(pixmap, window, gc, 0, 0, 0, 0, 24, 24)?;
+    conn.free_gc(gc)?;
     conn.flush()?;
 
+    log::info!("PNG icon rendered successfully");
     Ok(())
 }
 
-/// Convert RGBA image to X11 BGRA format
+/// Convert RGBA image to X11 BGR format (24-bit, no alpha)
 pub fn rgba_to_x11_format(rgba: &RgbaImage) -> Vec<u8> {
     rgba.pixels()
-        .flat_map(|p| [p[2], p[1], p[0], p[3]]) // RGBA -> BGRA
+        .flat_map(|p| [p[2], p[1], p[0]]) // RGBA -> BGR (drop alpha)
         .collect()
 }

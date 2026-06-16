@@ -57,23 +57,80 @@ impl CacheManager {
         }
     }
 
-    /// Initialize cache on app startup (download 3 images synchronously)
-    pub fn initialize(&self) -> Result<usize> {
-        log::info!("Initializing cache (target: 3 images)");
+    /// Populate database with all historical images from GitHub archive (public/sync)
+    pub fn populate_historical_images_sync(&self) -> Result<()> {
+        self.populate_historical_images()
+    }
 
-        // Check current cached count
+    /// Cache initial images without downloading historical data (for background use)
+    pub fn cache_initial_images(&self) -> Result<usize> {
         let cached_count = self.get_cached_count()?;
 
         if cached_count >= 3 {
-            log::info!("Cache already has {} images, skipping initial download", cached_count);
+            log::info!("Cache already has {} images", cached_count);
             return Ok(cached_count);
         }
 
         let needed = 3 - cached_count;
-        log::info!("Need to download {} images", needed);
+        log::info!("Need to cache {} images", needed);
 
         // Download and cache images
         self.download_and_cache(needed)
+    }
+
+    /// Populate database with all historical images from GitHub archive
+    fn populate_historical_images(&self) -> Result<()> {
+        let mut conn = crate::db::establish_connection(&self.db_path);
+
+        // Check if we already have historical images (>30 means we've done this before)
+        use diesel::prelude::*;
+        use crate::schema::bing_images;
+        let existing_count: i64 = bing_images::table.count().get_result(&mut conn)?;
+
+        if existing_count > 30 {
+            log::info!("Database already has {} images, skipping historical download", existing_count);
+            return Ok(());
+        }
+
+        log::info!("Downloading all historical images from sources...");
+
+        let sources = self.sources.as_ref()
+            .context("No image sources available")?;
+
+        // Get existing URLs to skip
+        let existing_urls: Vec<String> = bing_images::table
+            .select(bing_images::url)
+            .load(&mut conn)?;
+
+        // Fetch ALL available images (GitHub archive has ~1800 images)
+        // Request a large count to get everything
+        let images = sources.fetch_images(10000, &existing_urls)?;
+
+        log::info!("Downloaded {} new images, inserting into database...", images.len());
+
+        // Insert all images into database (without caching the files yet)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i32;
+
+        for image in &images {
+            let new_image = crate::db::models::NewBingImage {
+                url: &image.url,
+                title: &image.title,
+                copyright: image.copyright.as_deref(),
+                copyright_link: image.copyright_link.as_deref(),
+                market_code: "en-US",
+                fetched_at: now,
+                status: "unprocessed",
+                created_at: now,
+                updated_at: now,
+            };
+            crate::db::operations::upsert_image(&mut conn, &new_image)?;
+        }
+
+        log::info!("Successfully inserted {} historical images into database", images.len());
+        Ok(())
     }
 
     /// Download and cache N images
@@ -128,7 +185,27 @@ impl CacheManager {
 
                     log::info!("Cached image: {} ({} bytes)", image.title, bytes.len());
 
-                    // Update database
+                    // Insert/update image in database first
+                    use crate::db::models::NewBingImage;
+                    let now = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs() as i32;
+
+                    let new_image = NewBingImage {
+                        url: &image.url,
+                        title: &image.title,
+                        copyright: image.copyright.as_deref(),
+                        copyright_link: image.copyright_link.as_deref(),
+                        market_code: "en-US",  // Default market code
+                        fetched_at: now,
+                        status: "unprocessed",  // Default status
+                        created_at: now,
+                        updated_at: now,
+                    };
+                    crate::db::operations::upsert_image(&mut conn, &new_image)?;
+
+                    // Then mark as cached
                     self.mark_as_cached(&mut conn, &image.url)?;
 
                     downloaded += 1;

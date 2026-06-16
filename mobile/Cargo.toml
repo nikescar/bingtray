@@ -105,7 +105,7 @@ eframe = { workspace = true, default-features = false, features = ["default_font
 
 # Unix-specific dependencies (Linux, BSDs, etc.)
 [target.'cfg(unix)'.dependencies]
-x11rb = { version = "0.13", features = ["allow-unsafe-code"] }
+x11rb = { version = "0.13", features = ["allow-unsafe-code", "shape"] }
 
 # WASM-specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]

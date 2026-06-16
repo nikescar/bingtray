@@ -22,16 +22,15 @@ mod backend_xembed_tests {
     }
 
     #[test]
-    fn test_rgba_to_x11_format_converts_bgra() {
+    fn test_rgba_to_x11_format_converts_bgr() {
         let rgba = RgbaImage::from_pixel(1, 1, Rgba([255, 128, 64, 32]));
         let x11_data = bingtray::tray::backend_xembed::rgba_to_x11_format(&rgba);
 
-        // X11 expects BGRA format
-        assert_eq!(x11_data.len(), 4);
+        // X11 expects BGR format (24-bit, no alpha)
+        assert_eq!(x11_data.len(), 3);
         assert_eq!(x11_data[0], 64);  // B
         assert_eq!(x11_data[1], 128); // G
         assert_eq!(x11_data[2], 255); // R
-        assert_eq!(x11_data[3], 32);  // A
     }
 
     #[test]
@@ -42,17 +41,15 @@ mod backend_xembed_tests {
 
         let x11_data = bingtray::tray::backend_xembed::rgba_to_x11_format(&rgba);
 
-        assert_eq!(x11_data.len(), 8);
-        // First pixel: red -> BGRA
+        assert_eq!(x11_data.len(), 6); // 2 pixels * 3 bytes
+        // First pixel: red -> BGR
         assert_eq!(x11_data[0], 0);   // B
         assert_eq!(x11_data[1], 0);   // G
         assert_eq!(x11_data[2], 255); // R
-        assert_eq!(x11_data[3], 255); // A
-        // Second pixel: green -> BGRA
-        assert_eq!(x11_data[4], 0);   // B
-        assert_eq!(x11_data[5], 255); // G
-        assert_eq!(x11_data[6], 0);   // R
-        assert_eq!(x11_data[7], 255); // A
+        // Second pixel: green -> BGR
+        assert_eq!(x11_data[3], 0);   // B
+        assert_eq!(x11_data[4], 255); // G
+        assert_eq!(x11_data[5], 0);   // R
     }
 }
 
@@ -96,7 +93,7 @@ mod menu_popup_tests {
         let (width, height) = calculate_menu_size(&items);
 
         assert!(width >= 100); // Minimum width
-        assert_eq!(height, 30); // 5px top + 25px item
+        assert_eq!(height, 35); // 5px top + 25px item + 5px bottom
     }
 
     #[test]

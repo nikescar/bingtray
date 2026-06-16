@@ -48,6 +48,13 @@ pub fn blacklist_image_sync(conn: &mut SqliteConnection, url: &str) -> Result<()
     Ok(())
 }
 
+/// Unmark an image (set back to Unprocessed)
+pub fn unmark_image_sync(conn: &mut SqliteConnection, url: &str) -> Result<()> {
+    use crate::db::operations;
+    operations::update_image_status(conn, url, ImageStatus::Unprocessed)?;
+    Ok(())
+}
+
 // ============================================================================
 // Image Cache Helpers
 // ============================================================================
