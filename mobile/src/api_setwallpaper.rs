@@ -8,7 +8,7 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+#[cfg(target_os = "linux")]
 use std::process::Command;
 
 /// Detect the desktop environment (Linux only)

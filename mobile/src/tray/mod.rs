@@ -70,6 +70,7 @@ pub fn init_tray_event_handlers() {
 
 /// Run the system tray mode
 pub fn run_tray_mode() -> Result<TrayExitAction> {
+    #[cfg_attr(target_os = "macos", allow(unused_variables))]
     let logic = logic::TrayLogic::new()?;
 
     #[cfg(target_os = "linux")]
