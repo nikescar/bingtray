@@ -122,3 +122,23 @@ mod menu_popup_tests {
         assert!(width > 200); // Should be wider than minimum
     }
 }
+
+#[cfg(target_os = "linux")]
+mod integration_tests {
+    #[test]
+    fn test_fallback_error_message_quality() {
+        use bingtray::tray::run_tray_mode;
+
+        // Remove DISPLAY to force both backends to fail
+        std::env::remove_var("DISPLAY");
+
+        let result = run_tray_mode();
+
+        assert!(result.is_err());
+        let error_msg = result.unwrap_err().to_string();
+
+        // Should mention both backends and give helpful hint
+        assert!(error_msg.contains("GTK") || error_msg.contains("XEmbed"));
+        assert!(error_msg.contains("Try:") || error_msg.contains("Install"));
+    }
+}
