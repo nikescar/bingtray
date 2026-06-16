@@ -1,6 +1,6 @@
 use diesel::prelude::*;
 use anyhow::Result;
-use crate::schema::{bing_images, market_codes, config_kv};
+use crate::schema::{bing_images, config_kv};
 use super::models::*;
 use std::time::{SystemTime, UNIX_EPOCH};
 

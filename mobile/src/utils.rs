@@ -2,7 +2,6 @@
 
 use crate::Config;
 use anyhow::Result;
-use std::path::PathBuf;
 
 /// Clean and sanitize a filename to ensure filesystem compatibility
 pub fn sanitize_filename(filename: &str) -> String {

@@ -23,8 +23,6 @@ use egui_material3::material_symbol::{
     ICON_STAR,
     ICON_STAR_OUTLINE,
     ICON_BLOCK,
-    ICON_ARROW_BACK,
-    ICON_ARROW_FORWARD,
 };
 use eframe::egui::{Color32};
 // Theme loading is done in main.rs, not here
@@ -1223,7 +1221,7 @@ impl BingtrayApp {
                                         (1920, 1080)
                                     };
 
-                                    if let Some(display_rect) = self.image_display_rect {
+                                    if let Some(_display_rect) = self.image_display_rect {
                                         let left = (self.square_corners[0].x.max(0.0) as i32).max(0).min(bitmap_width - 1);
                                         let top = (self.square_corners[0].y.max(0.0) as i32).max(0).min(bitmap_height - 1);
                                         let right = bitmap_width;
@@ -1981,7 +1979,7 @@ impl BingtrayApp {
 
                     // Extract base URL (remove size parameters) for database operations
                     // The database stores using base URLs without &w=1920&h=1080 parameters
-                    let base_url = main_image.full_url
+                    let _base_url = main_image.full_url
                         .split("&w=").next()
                         .unwrap_or(&main_image.full_url)
                         .to_string();
@@ -2758,10 +2756,10 @@ fn open_directory(path: &std::path::Path) -> Result<(), String> {
 fn ui_mainpanel(
     ui: &mut egui::Ui,
     menu_anchor_rect: &mut Option<Rect>,
-    carousel_filter: &mut Option<usize>,
-    carousel_scroll_offset: &mut f32,
-    page_input: &mut String,
-    carousel_images: &[CarouselImage],
+    _carousel_filter: &mut Option<usize>,
+    _carousel_scroll_offset: &mut f32,
+    _page_input: &mut String,
+    _carousel_images: &[CarouselImage],
 ) -> bool {
     let trigger_fetch = false;
 
@@ -3427,7 +3425,7 @@ impl BingtrayApp {
         if corners_in_screen.len() == 4 {
             let rect = Rect::from_two_pos(corners_in_screen[0], corners_in_screen[2]);
             let square_fill = egui::Color32::from_rgb(50, 100, 150).linear_multiply(0.3);
-            let square_stroke = Stroke::new(2.0, egui::Color32::from_rgb(25, 200, 100));
+            let square_stroke = Stroke::new(2.0_f32, egui::Color32::from_rgb(25, 200, 100));
             
             // Draw filled rectangle
             painter.add(Shape::rect_filled(rect, 2.0, square_fill));

@@ -2,7 +2,6 @@ use crate::{BingImage, BingResponse};
 use anyhow::{Context, Result};
 use std::sync::Arc;
 use std::sync::mpsc;
-use regex::Regex;
 
 /// Extract identifier from Bing URL (e.g., "OHR.Hnausapollur" from full URL)
 pub fn extract_identifier(url: &str) -> Option<String> {

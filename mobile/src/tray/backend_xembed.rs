@@ -7,9 +7,7 @@ use x11rb::protocol::Event;
 use x11rb::protocol::shape;
 use x11rb::rust_connection::RustConnection;
 use x11rb::connection::Connection;
-use xproto::ConnectionExt as _;
 use x11rb::wrapper::ConnectionExt as _;
-use shape::ConnectionExt as ShapeConnectionExt;
 
 use super::{TrayBackend, TrayExitAction};
 use super::logic::TrayLogic;
@@ -61,7 +59,7 @@ impl TrayBackend for XEmbedTrayBackend {
         })
     }
 
-    fn run(mut self) -> Result<TrayExitAction> {
+    fn run(self) -> Result<TrayExitAction> {
         log::info!("=== Starting XEmbed tray backend ===");
 
         let (conn, screen_num) = RustConnection::connect(None)?;

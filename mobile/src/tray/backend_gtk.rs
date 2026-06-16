@@ -3,7 +3,6 @@
 use anyhow::Result;
 use egui_i18n::tr;
 use std::sync::{Arc, Mutex};
-use crossbeam_queue::SegQueue;
 use tao::{
     event::Event,
     event_loop::{ControlFlow, EventLoopBuilder},
@@ -37,9 +36,9 @@ impl TrayBackend for GtkTrayBackend {
         let mut event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
 
         // Get global event queues
-        let tray_queue = super::super::TRAY_ICON_EVENTS.get()
+        let tray_queue = super::TRAY_ICON_EVENTS.get()
             .expect("Tray event handlers not initialized");
-        let menu_queue = super::super::MENU_EVENTS.get()
+        let menu_queue = super::MENU_EVENTS.get()
             .expect("Menu event handlers not initialized");
 
         let exit_action = Arc::new(Mutex::new(TrayExitAction::Quit));
@@ -126,9 +125,10 @@ impl TrayBackend for GtkTrayBackend {
 }
 
 fn is_gtk_available() -> bool {
-    EventLoopBuilder::<UserEvent>::with_user_event()
-        .build()
-        .is_ok()
+    // Try to build an event loop to check if GTK is available
+    std::panic::catch_unwind(|| {
+        let _event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
+    }).is_ok()
 }
 
 #[derive(Debug)]

@@ -1,7 +1,6 @@
 //! Tray business logic shared between backends
 
 use anyhow::Result;
-use diesel::prelude::*;
 
 pub struct TrayLogic {
     conn: diesel::SqliteConnection,

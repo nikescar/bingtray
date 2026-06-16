@@ -9,7 +9,6 @@
 use crate::viewmodel::ViewModel;
 use anyhow::{Context, Result};
 use std::io::{self, Write};
-use std::path::PathBuf;
 
 /// Run the CLI mode with a REPL loop
 pub fn run_cli_mode() -> Result<()> {
