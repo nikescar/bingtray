@@ -31,11 +31,11 @@ chrono = "0.4"
 # Database
 diesel = { version = "2.3.0", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
 diesel_migrations = "2.3.0"
-asupersync = "0.3.4"
+smol = "2.0"
 
 # UI framework
 egui = { workspace = true }
-eframe = { workspace = true }
+eframe = { workspace = true, features = ["glow", "default_fonts", "wayland", "x11"] }
 egui_extras = { workspace = true }
 egui-material3 = { workspace = true }
 
@@ -59,7 +59,7 @@ regex = "1.10"
 
 # Desktop-only dependencies
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
-tray-icon = { version = "0.18", default-features = false }
+tray-icon = { version = "0.24", default-features = false, features = ["gtk"] }
 tao = "0.33"
 wallpaper = "3.2.0"
 trash = "5.2"

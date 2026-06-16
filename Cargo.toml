@@ -3,6 +3,9 @@ resolver = "2"
 members = [
     "mobile",
 ]
+exclude = [
+    "vendor",
+]
 
 [workspace.package]
 edition = "2021"

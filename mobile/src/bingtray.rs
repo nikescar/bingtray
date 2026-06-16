@@ -9,6 +9,7 @@ use crate::utils::sanitize_filename;
 use image;
 use crate::install;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+#[cfg(target_os = "linux")]
 use crate::api_setwallpaper::check_user_mismatch;
 use eframe::egui;
 use egui_i18n::tr;
@@ -334,8 +335,8 @@ impl Default for BingtrayApp {
         };
         info!("Final market codes: {:?}", current_market_codes);
 
-        // Check for user mismatch (desktop user vs runtime user) - desktop only
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        // Check for user mismatch (desktop user vs runtime user) - Linux only
+        #[cfg(target_os = "linux")]
         let user_mismatch_warning = {
             let (current_user, desktop_user, is_different) = check_user_mismatch();
             if is_different {
@@ -351,7 +352,7 @@ impl Default for BingtrayApp {
             }
         };
 
-        #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+        #[cfg(not(target_os = "linux"))]
         let user_mismatch_warning = None;
 
         // Get actual screen size for rectangle calculation

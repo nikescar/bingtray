@@ -10,30 +10,21 @@ pub fn run_background_loop(
 ) {
     log::info!("ViewModel background thread started");
 
-    // Create Asupersync runtime
-    let runtime = match asupersync::runtime::RuntimeBuilder::current_thread().build() {
-        Ok(rt) => rt,
-        Err(e) => {
-            log::error!("Failed to create Asupersync runtime: {}", e);
-            evt_tx.send(ViewModelEvent::Error {
-                message: format!("Runtime error: {}", e)
-            }).ok();
-            return;
-        }
-    };
+    // Create executor for async operations (using smol)
+    let ex = smol::Executor::new();
 
     let mut conn = crate::db::establish_connection(&db_path);
 
     // Message loop
     for cmd in cmd_rx {
-        handle_command(&runtime, &mut conn, &evt_tx, cmd);
+        handle_command(&ex, &mut conn, &evt_tx, cmd);
     }
 
     log::info!("ViewModel background thread stopped");
 }
 
 fn handle_command(
-    _runtime: &asupersync::runtime::Runtime,
+    _ex: &smol::Executor,
     conn: &mut diesel::SqliteConnection,
     evt_tx: &Sender<ViewModelEvent>,
     cmd: ViewModelCommand,
