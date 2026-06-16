@@ -7,10 +7,10 @@ pub mod logic;
 #[cfg(target_os = "linux")]
 pub mod backend_gtk;
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 pub mod backend_xembed;
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 pub mod menu_popup;
 
 #[cfg(target_os = "linux")]
@@ -105,7 +105,7 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
         }
     }
 
-    #[cfg(all(unix, not(target_os = "linux")))]
+    #[cfg(all(unix, not(target_os = "linux"), not(target_os = "macos")))]
     {
         use backend_xembed::XEmbedTrayBackend;
 
@@ -126,7 +126,7 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
         }
     }
 
-    #[cfg(not(unix))]
+    #[cfg(any(not(unix), target_os = "macos"))]
     {
         Err(anyhow::anyhow!("Tray not implemented for this platform"))
     }

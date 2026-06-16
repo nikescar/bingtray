@@ -1935,7 +1935,7 @@ impl BingtrayApp {
 
         // Remove completed promises in reverse order to maintain indices
         for idx in completed_promises.iter().rev() {
-            self.carousel_promises.remove(*idx);
+            let _ = self.carousel_promises.remove(*idx);
         }
 
         // Request repaint if we updated any images

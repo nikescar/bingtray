@@ -103,8 +103,8 @@ tray-icon = { version = "0.24", default-features = false, features = ["gtk"] }
 tao = "0.33"
 eframe = { workspace = true, default-features = false, features = ["default_fonts","glow","x11", "wayland"] }
 
-# Unix-specific dependencies (Linux, BSDs, etc.)
-[target.'cfg(unix)'.dependencies]
+# Unix X11-specific dependencies (Linux, BSDs, etc. - excludes macOS)
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 x11rb = { version = "0.13", features = ["allow-unsafe-code", "shape"] }
 
 # WASM-specific dependencies
