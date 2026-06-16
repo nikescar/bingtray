@@ -59,8 +59,6 @@ regex = "1.10"
 
 # Desktop-only dependencies
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
-tray-icon = { version = "0.24", default-features = false, features = ["gtk"] }
-tao = "0.33"
 wallpaper = "3.2.0"
 trash = "5.2"
 env_logger = { version = "0.11", default-features = false }
@@ -101,8 +99,13 @@ eframe = { workspace = true, default-features = false, features = ["default_font
 # Linux-specific dependencies
 [target.'cfg(target_os = "linux")'.dependencies]
 gtk = "0.18"
-x11rb = { version = "0.13", features = ["allow-unsafe-code"] }
+tray-icon = { version = "0.24", default-features = false, features = ["gtk"] }
+tao = "0.33"
 eframe = { workspace = true, default-features = false, features = ["default_fonts","glow","x11", "wayland"] }
+
+# Unix-specific dependencies (Linux, BSDs, etc.)
+[target.'cfg(unix)'.dependencies]
+x11rb = { version = "0.13", features = ["allow-unsafe-code"] }
 
 # WASM-specific dependencies
 [target.'cfg(target_arch = "wasm32")'.dependencies]

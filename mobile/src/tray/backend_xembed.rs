@@ -2,9 +2,12 @@
 
 use anyhow::Result;
 use image::RgbaImage;
-use x11rb::protocol::xproto::*;
+use x11rb::protocol::xproto::{self, *};
+use x11rb::protocol::Event;
 use x11rb::rust_connection::RustConnection;
 use x11rb::connection::Connection;
+use xproto::ConnectionExt as _;
+use x11rb::wrapper::ConnectionExt as _;
 
 use super::{TrayBackend, TrayExitAction};
 use super::logic::TrayLogic;
@@ -88,7 +91,7 @@ impl TrayBackend for XEmbedTrayBackend {
         log::info!("XEmbed icon window created: {}", icon_window);
 
         // Enter event loop
-        self.event_loop(conn, icon_window, screen)
+        self.event_loop(conn, icon_window, screen_num)
     }
 }
 
@@ -97,10 +100,11 @@ impl XEmbedTrayBackend {
         mut self,
         conn: RustConnection,
         icon_window: Window,
-        screen: &Screen,
+        screen_num: usize,
     ) -> Result<TrayExitAction> {
         use super::menu_popup::MenuPopup;
 
+        let screen = &conn.setup().roots[screen_num];
         let mut menu_popup: Option<MenuPopup> = None;
 
         loop {
@@ -119,7 +123,7 @@ impl XEmbedTrayBackend {
                         menu.render(&conn)?;
                     }
                 }
-                Event::ButtonPress(e) if e.window == icon_window => {
+                Event::ButtonPress(e) if e.event == icon_window => {
                     match e.detail {
                         1 => {
                             // Left click - close menu
@@ -139,7 +143,7 @@ impl XEmbedTrayBackend {
                         _ => {}
                     }
                 }
-                Event::ButtonPress(e) if menu_popup.as_ref().map(|m| m.window == e.window).unwrap_or(false) => {
+                Event::ButtonPress(e) if menu_popup.as_ref().map(|m| m.window == e.event).unwrap_or(false) => {
                     // Menu clicked
                     if let Some(ref mut menu) = menu_popup {
                         if let Some(action) = menu.handle_click(e.event_x, e.event_y, &mut self.logic)? {

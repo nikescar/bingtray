@@ -99,7 +99,8 @@ fn main() -> Result<()> {
         log::error!("Failed to initialize i18n: {}", e);
     }
 
-    // Initialize global tray event handlers (one-time setup)
+    // Initialize global tray event handlers (one-time setup, Linux only for GTK backend)
+    #[cfg(target_os = "linux")]
     bingtray::tray::init_tray_event_handlers();
 
     let force_gui = args.iter().any(|arg| arg == "--gui");

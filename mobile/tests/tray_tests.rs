@@ -1,6 +1,6 @@
 //! Tray module tests
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 mod backend_xembed_tests {
     use image::{Rgba, RgbaImage};
 
@@ -56,7 +56,7 @@ mod backend_xembed_tests {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 mod menu_popup_tests {
     use bingtray::tray::menu_popup::{Rect, MenuItem, MenuAction, calculate_menu_size};
 
@@ -123,7 +123,7 @@ mod menu_popup_tests {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 mod integration_tests {
     #[test]
     fn test_fallback_error_message_quality() {

@@ -1,28 +1,36 @@
 //! System tray backend abstraction and public API
 
 use anyhow::Result;
-use std::sync::{Arc, OnceLock};
-use crossbeam_queue::SegQueue;
-use tray_icon::{TrayIconEvent, menu::MenuEvent};
 
 pub mod logic;
 
 #[cfg(target_os = "linux")]
 pub mod backend_gtk;
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub mod backend_xembed;
 
-#[cfg(target_os = "linux")]
+#[cfg(unix)]
 pub mod menu_popup;
+
+#[cfg(target_os = "linux")]
+use std::sync::{Arc, OnceLock};
+
+#[cfg(target_os = "linux")]
+use crossbeam_queue::SegQueue;
+
+#[cfg(target_os = "linux")]
+use tray_icon::{TrayIconEvent, menu::MenuEvent};
 
 #[cfg(target_os = "linux")]
 use backend_gtk::GtkTrayBackend;
 
-/// Global queue for tray icon events
+/// Global queue for tray icon events (Linux only - used by GTK backend)
+#[cfg(target_os = "linux")]
 pub(crate) static TRAY_ICON_EVENTS: OnceLock<Arc<SegQueue<TrayIconEvent>>> = OnceLock::new();
 
-/// Global queue for menu events
+/// Global queue for menu events (Linux only - used by GTK backend)
+#[cfg(target_os = "linux")]
 pub(crate) static MENU_EVENTS: OnceLock<Arc<SegQueue<MenuEvent>>> = OnceLock::new();
 
 /// Action to take after tray mode exits
@@ -39,6 +47,8 @@ pub trait TrayBackend {
 }
 
 /// Initialize global event handlers (call once at startup)
+/// Linux only - used by GTK backend
+#[cfg(target_os = "linux")]
 pub fn init_tray_event_handlers() {
     log::info!("Initializing global tray event handlers");
 
@@ -66,6 +76,7 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
     {
         use backend_xembed::XEmbedTrayBackend;
 
+        // On Linux: Try GTK first, fall back to XEmbed
         match GtkTrayBackend::new(logic.clone()) {
             Ok(backend) => {
                 log::info!("Using GTK tray backend");
@@ -94,7 +105,28 @@ pub fn run_tray_mode() -> Result<TrayExitAction> {
         }
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(all(unix, not(target_os = "linux")))]
+    {
+        use backend_xembed::XEmbedTrayBackend;
+
+        // On non-Linux Unix (BSDs, etc.): Use XEmbed only
+        match XEmbedTrayBackend::new(logic) {
+            Ok(backend) => {
+                log::info!("Using XEmbed tray backend");
+                backend.run()
+            }
+            Err(e) => {
+                Err(anyhow::anyhow!(
+                    "XEmbed tray backend failed: {}\n\
+                     \n\
+                     Try: Ensure X11 is running",
+                    e
+                ))
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
     {
         Err(anyhow::anyhow!("Tray not implemented for this platform"))
     }
