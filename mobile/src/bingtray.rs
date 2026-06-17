@@ -1103,27 +1103,31 @@ impl BingtrayApp {
                     let main_image = self.main_panel_image.as_ref().unwrap().clone();
 
                     // Title and status toggles
-                    ui.horizontal(|ui| {
-                        let total_available_width = ui.available_width();
-                        let button_area_width = 250.0;
-                        let title_max_width = (total_available_width - button_area_width).max(100.0);
+                    // Use responsive layout: horizontal for wide screens, vertical for narrow
+                    let total_available_width = ui.available_width();
+                    let use_horizontal = total_available_width >= 900.0;
 
-                        // Title
-                        ui.allocate_ui_with_layout(
-                            egui::vec2(title_max_width, ui.available_height()),
-                            egui::Layout::left_to_right(egui::Align::Center),
-                            |ui| {
-                                ui.label(&main_image.title);
-                            }
-                        );
+                    // Get current status (needed for both layouts)
+                    let mut is_favorite = main_image.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false);
+                    let mut is_blacklisted = main_image.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false);
+                    let base_url = main_image.base_url.clone();
 
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            // Get current status
-                            let mut is_favorite = main_image.status.as_ref().map(|s| s == "keepfavorite").unwrap_or(false);
-                            let mut is_blacklisted = main_image.status.as_ref().map(|s| s == "blacklisted").unwrap_or(false);
+                    if use_horizontal {
+                        // Wide screen: horizontal layout with title on left, toggles on right
+                        ui.horizontal(|ui| {
+                            let button_area_width = 250.0;
+                            let title_max_width = (total_available_width - button_area_width).max(100.0);
 
-                            // Use the base_url field directly
-                            let base_url = main_image.base_url.clone();
+                            // Title
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(title_max_width, ui.available_height()),
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    ui.label(&main_image.title);
+                                }
+                            );
+
+                            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 
                             // Blacklist switch
                             let blacklist_switch = switch(&mut is_blacklisted)
@@ -1149,6 +1153,13 @@ impl BingtrayApp {
                                     if let Some(ref mut panel_img) = self.main_panel_image {
                                         panel_img.status = Some(new_status.to_string());
                                     }
+
+                                    // Invalidate carousel cache and reload to reflect status change
+                                    self.carousel_all_images.clear();
+                                    self.carousel_loaded_images.clear();
+                                    self.carousel_next_batch_index = 0;
+                                    self.carousel_total_count = None;
+                                    self.load_carousel_page(0);
                                 }
                             }
                             ui.label(tr!("switch-blacklist"));
@@ -1179,11 +1190,94 @@ impl BingtrayApp {
                                     if let Some(ref mut panel_img) = self.main_panel_image {
                                         panel_img.status = Some(new_status.to_string());
                                     }
+
+                                    // Invalidate carousel cache and reload to reflect status change
+                                    self.carousel_all_images.clear();
+                                    self.carousel_loaded_images.clear();
+                                    self.carousel_next_batch_index = 0;
+                                    self.carousel_total_count = None;
+                                    self.load_carousel_page(0);
                                 }
                             }
                             ui.label(tr!("switch-favorite"));
                         });
                     });
+                    } else {
+                        // Narrow screen: vertical layout with title on top, toggles below
+                        ui.vertical(|ui| {
+                            // Title (full width, wrapping enabled)
+                            ui.label(&main_image.title);
+
+                            ui.add_space(5.0);
+
+                            // Toggles row
+                            ui.horizontal(|ui| {
+                                // Favorite switch
+                                let favorite_switch = switch(&mut is_favorite)
+                                    .with_icons(ICON_STAR, ICON_STAR_OUTLINE)
+                                    .show_track_outline(true);
+                                if ui.add(favorite_switch).changed() {
+                                    if let Some(ref viewmodel) = self.viewmodel {
+                                        let new_status = if is_favorite {
+                                            viewmodel.send_command(
+                                                crate::viewmodel::ViewModelCommand::ToggleFavorite { url: base_url.clone() }
+                                            ).ok();
+                                            "keepfavorite"
+                                        } else {
+                                            viewmodel.send_command(
+                                                crate::viewmodel::ViewModelCommand::ToggleFavorite { url: base_url.clone() }
+                                            ).ok();
+                                            "unprocessed"
+                                        };
+
+                                        if let Some(ref mut panel_img) = self.main_panel_image {
+                                            panel_img.status = Some(new_status.to_string());
+                                        }
+
+                                        self.carousel_all_images.clear();
+                                        self.carousel_loaded_images.clear();
+                                        self.carousel_next_batch_index = 0;
+                                        self.carousel_total_count = None;
+                                        self.load_carousel_page(0);
+                                    }
+                                }
+                                ui.label(tr!("switch-favorite"));
+
+                                ui.add_space(10.0);
+
+                                // Blacklist switch
+                                let blacklist_switch = switch(&mut is_blacklisted)
+                                    .with_icons(ICON_BLOCK, ICON_BLOCK)
+                                    .show_track_outline(true);
+                                if ui.add(blacklist_switch).changed() {
+                                    if let Some(ref viewmodel) = self.viewmodel {
+                                        let new_status = if is_blacklisted {
+                                            viewmodel.send_command(
+                                                crate::viewmodel::ViewModelCommand::BlacklistImage { url: base_url.clone() }
+                                            ).ok();
+                                            "blacklisted"
+                                        } else {
+                                            viewmodel.send_command(
+                                                crate::viewmodel::ViewModelCommand::UnmarkImage { url: base_url.clone() }
+                                            ).ok();
+                                            "unprocessed"
+                                        };
+
+                                        if let Some(ref mut panel_img) = self.main_panel_image {
+                                            panel_img.status = Some(new_status.to_string());
+                                        }
+
+                                        self.carousel_all_images.clear();
+                                        self.carousel_loaded_images.clear();
+                                        self.carousel_next_batch_index = 0;
+                                        self.carousel_total_count = None;
+                                        self.load_carousel_page(0);
+                                    }
+                                }
+                                ui.label(tr!("switch-blacklist"));
+                            });
+                        });
+                    }
 
                     // Copyright
                     if !main_image.copyright.is_empty() {
@@ -1208,7 +1302,7 @@ impl BingtrayApp {
                         // Cropped wallpaper button
                         if ui.button(tr!("button-set-cropped-wallpaper")).clicked() {
                             if let Some(bytes) = &main_image.image_bytes {
-                                // Use square_corners for crop
+                                // Use square_corners for crop - transform from display to bitmap coordinates
                                 let crop_rect = {
                                     let (bitmap_width, bitmap_height) = if let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(bytes))
                                         .with_guessed_format()
@@ -1222,11 +1316,62 @@ impl BingtrayApp {
                                         (1920, 1080)
                                     };
 
-                                    if let Some(_display_rect) = self.image_display_rect {
-                                        let left = (self.square_corners[0].x.max(0.0) as i32).max(0).min(bitmap_width - 1);
-                                        let top = (self.square_corners[0].y.max(0.0) as i32).max(0).min(bitmap_height - 1);
-                                        let right = bitmap_width;
-                                        let bottom = (self.square_corners[2].y.max(0.0) as i32).max(top + 1).min(bitmap_height);
+                                    if let Some(display_rect) = self.image_display_rect {
+                                        // Transform coordinates from display space to bitmap space
+                                        let display_width = display_rect.width();
+                                        let display_height = display_rect.height();
+
+                                        // Calculate the actual image dimensions as displayed (considering aspect ratio)
+                                        let image_aspect_ratio = bitmap_width as f32 / bitmap_height as f32;
+                                        let display_aspect_ratio = display_width / display_height;
+
+                                        // Determine actual image display area within the display_rect
+                                        let (actual_img_width, actual_img_height) = if image_aspect_ratio > display_aspect_ratio {
+                                            // Image is wider - letterboxed top/bottom
+                                            let actual_width = display_width;
+                                            let actual_height = display_width / image_aspect_ratio;
+                                            (actual_width, actual_height)
+                                        } else {
+                                            // Image is taller - letterboxed left/right
+                                            let actual_height = display_height;
+                                            let actual_width = display_height * image_aspect_ratio;
+                                            (actual_width, actual_height)
+                                        };
+
+                                        // Convert square corners from display coordinates to image display coordinates
+                                        let img_relative_top_left_x = self.square_corners[0].x;
+                                        let img_relative_top_left_y = self.square_corners[0].y;
+                                        let img_relative_bottom_right_x = self.square_corners[2].x;
+                                        let img_relative_bottom_right_y = self.square_corners[2].y;
+
+                                        // Clamp coordinates to image display area
+                                        let clamped_top_left_x = img_relative_top_left_x.max(0.0).min(actual_img_width);
+                                        let clamped_top_left_y = img_relative_top_left_y.max(0.0).min(actual_img_height);
+                                        let clamped_bottom_right_x = img_relative_bottom_right_x.max(0.0).min(actual_img_width);
+                                        let clamped_bottom_right_y = img_relative_bottom_right_y.max(0.0).min(actual_img_height);
+
+                                        // Convert to relative coordinates within the actual image area (0.0 to 1.0)
+                                        let rel_left = if actual_img_width > 0.0 { clamped_top_left_x / actual_img_width } else { 0.0 };
+                                        let rel_top = if actual_img_height > 0.0 { clamped_top_left_y / actual_img_height } else { 0.0 };
+                                        let rel_right = if actual_img_width > 0.0 { clamped_bottom_right_x / actual_img_width } else { 1.0 };
+                                        let rel_bottom = if actual_img_height > 0.0 { clamped_bottom_right_y / actual_img_height } else { 1.0 };
+
+                                        // Convert relative coordinates to bitmap pixel coordinates
+                                        let left = ((rel_left * bitmap_width as f32).max(0.0)).min(bitmap_width as f32 - 1.0) as i32;
+                                        let top = ((rel_top * bitmap_height as f32).max(0.0)).min(bitmap_height as f32 - 1.0) as i32;
+                                        let right = ((rel_right * bitmap_width as f32).max(0.0)).min(bitmap_width as f32) as i32;
+                                        let bottom = ((rel_bottom * bitmap_height as f32).max(0.0)).min(bitmap_height as f32) as i32;
+
+                                        // Ensure coordinates are valid
+                                        let left = left.max(0).min(bitmap_width - 1);
+                                        let top = top.max(0).min(bitmap_height - 1);
+                                        let right = right.max(left + 1).min(bitmap_width);
+                                        let bottom = bottom.max(top + 1).min(bitmap_height);
+
+                                        info!("Desktop crop: display {}x{}, bitmap {}x{}, crop ({},{} {}x{})",
+                                              display_width, display_height, bitmap_width, bitmap_height,
+                                              left, top, right - left, bottom - top);
+
                                         Some((left, top, right, bottom))
                                     } else {
                                         None
@@ -1950,47 +2095,51 @@ impl BingtrayApp {
         }
 
         // Display main panel image (high resolution from selected carousel image)
-        let has_main_image = self.main_panel_image.is_some();
+        // Only show old main panel if not using new carousel (to avoid duplicate)
+        if !use_new_carousel {
+            let has_main_image = self.main_panel_image.is_some();
 
-        if has_main_image {
+            if has_main_image {
             // Clone the necessary data to avoid borrowing conflicts
             let main_image = self.main_panel_image.as_ref().unwrap().clone();
 
             ui.separator();
 
-            // Add favorite and blacklist toggle switches at the right-top
-            ui.horizontal(|ui| {
-                // Get available width inside this horizontal layout (updates on resize)
-                let total_available_width = ui.available_width();
-                // Reserve approximately 250px for the two switches and labels on the right
-                let button_area_width = 250.0;
-                let title_max_width = (total_available_width - button_area_width).max(100.0); // At least 100px
+            // Add favorite and blacklist toggle switches
+            // Use responsive layout: horizontal for wide screens, vertical for narrow
+            let total_available_width = ui.available_width();
+            let use_horizontal = total_available_width >= 900.0;
 
-                // Title with dynamic width and text wrapping
-                ui.allocate_ui_with_layout(
-                    egui::vec2(title_max_width, ui.available_height()),
-                    egui::Layout::left_to_right(egui::Align::Center),
-                    |ui| {
-                        ui.label(tr!("image-title-label", { title: &main_image.title }));
-                    }
-                );
+            // Get current status (needed for both layouts)
+            let mut is_favorite = self.main_panel_image.as_ref()
+                .and_then(|img| img.status.as_ref().map(|s| s == "keepfavorite"))
+                .unwrap_or(false);
+            let mut is_blacklisted = self.main_panel_image.as_ref()
+                .and_then(|img| img.status.as_ref().map(|s| s == "blacklisted"))
+                .unwrap_or(false);
 
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    // Determine current status - read from self.main_panel_image, not the cloned main_image
-                    // to avoid stale status values after updates
-                    let mut is_favorite = self.main_panel_image.as_ref()
-                        .and_then(|img| img.status.as_ref().map(|s| s == "keepfavorite"))
-                        .unwrap_or(false);
-                    let mut is_blacklisted = self.main_panel_image.as_ref()
-                        .and_then(|img| img.status.as_ref().map(|s| s == "blacklisted"))
-                        .unwrap_or(false);
+            // Extract base URL (remove size parameters) for database operations
+            let _base_url = main_image.full_url
+                .split("&w=").next()
+                .unwrap_or(&main_image.full_url)
+                .to_string();
 
-                    // Extract base URL (remove size parameters) for database operations
-                    // The database stores using base URLs without &w=1920&h=1080 parameters
-                    let _base_url = main_image.full_url
-                        .split("&w=").next()
-                        .unwrap_or(&main_image.full_url)
-                        .to_string();
+            if use_horizontal {
+                // Wide screen: horizontal layout with title on left, toggles on right
+                ui.horizontal(|ui| {
+                    let button_area_width = 250.0;
+                    let title_max_width = (total_available_width - button_area_width).max(100.0);
+
+                    // Title with dynamic width and text wrapping
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(title_max_width, ui.available_height()),
+                        egui::Layout::left_to_right(egui::Align::Center),
+                        |ui| {
+                            ui.label(tr!("image-title-label", { title: &main_image.title }));
+                        }
+                    );
+
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
 
                     // Blacklist switch
                     let blacklist_switch = switch(&mut is_blacklisted)
@@ -2015,6 +2164,40 @@ impl BingtrayApp {
                     ui.label(tr!("switch-favorite"));
                 });
             });
+            } else {
+                // Narrow screen: vertical layout with title on top, toggles below
+                ui.vertical(|ui| {
+                    // Title (full width, wrapping enabled)
+                    ui.label(tr!("image-title-label", { title: &main_image.title }));
+
+                    ui.add_space(5.0);
+
+                    // Toggles row
+                    ui.horizontal(|ui| {
+                        // Favorite switch
+                        let favorite_switch = switch(&mut is_favorite)
+                            .with_icons(ICON_STAR, ICON_STAR_OUTLINE)
+                            .show_track_outline(true);
+                        if ui.add(favorite_switch).changed() {
+                            // TODO: Implement favorite switch using ViewModel
+                            warn!("Favorite switch disabled - tray_logic removed");
+                        }
+                        ui.label(tr!("switch-favorite"));
+
+                        ui.add_space(10.0);
+
+                        // Blacklist switch
+                        let blacklist_switch = switch(&mut is_blacklisted)
+                            .with_icons(ICON_BLOCK, ICON_BLOCK)
+                            .show_track_outline(true);
+                        if ui.add(blacklist_switch).changed() {
+                            // TODO: Implement blacklist switch using ViewModel
+                            warn!("Blacklist switch disabled - tray_logic removed");
+                        }
+                        ui.label(tr!("switch-blacklist"));
+                    });
+                });
+            }
 
             // show copyright if available
             if !main_image.copyright.is_empty() {
@@ -2165,7 +2348,7 @@ impl BingtrayApp {
                                     // Convert relative coordinates to bitmap pixel coordinates
                                     let left = ((rel_left * bitmap_width as f32).max(0.0)).min(bitmap_width as f32 - 1.0) as i32;
                                     let top = ((rel_top * bitmap_height as f32).max(0.0)).min(bitmap_height as f32 - 1.0) as i32;
-                                    let right = bitmap_width; // Always extend to image's right edge as requested
+                                    let right = ((rel_right * bitmap_width as f32).max(0.0)).min(bitmap_width as f32) as i32;
                                     let bottom = ((rel_bottom * bitmap_height as f32).max(0.0)).min(bitmap_height as f32) as i32;
                                     
                                     // Ensure bottom is greater than top to avoid zero-height rectangles
@@ -2195,7 +2378,7 @@ impl BingtrayApp {
                                     // Assume square corners are already in image coordinate space
                                     let left = (self.square_corners[0].x.max(0.0)).min(bitmap_width as f32 - 1.0) as i32;
                                     let top = (self.square_corners[0].y.max(0.0)).min(bitmap_height as f32 - 1.0) as i32;
-                                    let right = bitmap_width; // Always extend to image's right edge as requested
+                                    let right = (self.square_corners[2].x.max(0.0)).min(bitmap_width as f32) as i32;
                                     let bottom = (self.square_corners[2].y.max(0.0)).min(bitmap_height as f32) as i32;
                                     (left, top, bottom, right)
                                 };
@@ -2203,7 +2386,7 @@ impl BingtrayApp {
                                 // Ensure coordinates are within image bounds
                                 let left = left.max(0).min(bitmap_width - 1);
                                 let top = top.max(0).min(bitmap_height - 1);
-                                let right = right.min(bitmap_width);
+                                let right = right.max(left + 1).min(bitmap_width);
                                 let bottom = bottom.max(top + 1).min(bitmap_height);
                                 
                                 let crop = (left, top, right, bottom);
@@ -2396,11 +2579,12 @@ impl BingtrayApp {
             } else {
                 // Main panel image bytes is None
             }
-        } else if let Some(_selected_image) = &self.selected_carousel_image {
-            ui.separator();
-            ui.label(tr!("status-loading-high-res"));
-            ui.spinner();
-        }
+            } else if let Some(_selected_image) = &self.selected_carousel_image {
+                ui.separator();
+                ui.label(tr!("status-loading-high-res"));
+                ui.spinner();
+            }
+        } // end if !use_new_carousel
 
         // Display user mismatch warning (persistent)
         if let Some(warning) = &self.user_mismatch_warning {
@@ -2701,6 +2885,12 @@ impl BingtrayApp {
             .get(&new_filter)
             .copied()
             .unwrap_or(0.0);
+
+        // Clear main image panel when filter changes
+        self.main_panel_image = None;
+        self.main_image_bytes = None;
+        self.selected_image_url = None;
+        self.main_image_loading = false;
 
         // Reset progressive carousel state for new filter
         self.carousel_loaded_images.clear();
