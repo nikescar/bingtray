@@ -3,9 +3,6 @@ resolver = "2"
 members = [
     "mobile",
 ]
-exclude = [
-    "vendor",
-]
 
 [workspace.package]
 edition = "2021"
@@ -26,7 +23,6 @@ rand = "0.8"
 regex = "1.12"
 scraper = "0.20"
 log = { version = "0.4", default-features = false }
-tokio = { version = "1.49", features = ["rt", "rt-multi-thread"] }
 
 # i18n dependencies
 egui-i18n = { version = "0.2", features = ["fluent"], default-features = false }
