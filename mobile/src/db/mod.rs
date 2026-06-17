@@ -40,17 +40,30 @@ pub fn establish_connection(db_path: &Path) -> SqliteConnection {
     let mut conn = SqliteConnection::establish(url)
         .unwrap_or_else(|_| panic!("Error connecting to {}", url));
 
-    // Enable WAL mode for better concurrent access
-    diesel::sql_query("PRAGMA journal_mode=WAL;")
-        .execute(&mut conn)
-        .expect("Failed to set WAL mode");
-
-    // Set busy timeout to 30 seconds
+    // Set busy timeout FIRST (before any other operations)
+    // This allows subsequent operations to wait instead of failing immediately
     diesel::sql_query("PRAGMA busy_timeout=30000;")
         .execute(&mut conn)
         .expect("Failed to set busy timeout");
 
-    // Run migrations
+    // Enable WAL mode for better concurrent access
+    // Retry logic handles race conditions during rapid connection creation
+    let mut retries = 0;
+    loop {
+        match diesel::sql_query("PRAGMA journal_mode=WAL;").execute(&mut conn) {
+            Ok(_) => break,
+            Err(e) => {
+                retries += 1;
+                if retries >= 5 {
+                    panic!("Failed to set WAL mode after {} retries: {}", retries, e);
+                }
+                log::warn!("WAL mode attempt {} failed ({}), retrying...", retries, e);
+                std::thread::sleep(std::time::Duration::from_millis(100 * retries));
+            }
+        }
+    }
+
+    // Run migrations (only the first connection will actually run them)
     conn.run_pending_migrations(MIGRATIONS)
         .expect("Failed to run database migrations");
 
