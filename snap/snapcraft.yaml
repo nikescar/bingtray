@@ -5,13 +5,14 @@ description: |
   Select Wallpaper from Bing Images of the Day.
   Open source, cross-platform, written in Rust.
 
-base: core20
+base: core22
 confinement: strict
+grade: stable
 
 architectures:
-  - build-on: amd64
-  - build-on: arm64
-  - build-on: armhf
+  - build-on: [amd64]
+  - build-on: [arm64]
+  - build-on: [armhf]
 
 apps:
   bingtray:
@@ -36,7 +37,7 @@ parts:
       # so just copy the binary to the snap install directory
 
       # Set version from git
-      snapcraftctl set-version $(git describe --tags --always 2>/dev/null || echo "0.0.6")
+      craftctl set version="$(git describe --tags --always 2>/dev/null || echo "0.0.6")"
 
       # Use TARGET_ARCH from environment if set, otherwise fall back to SNAPCRAFT_TARGET_ARCH
       ARCH="${TARGET_ARCH:-$SNAPCRAFT_TARGET_ARCH}"
