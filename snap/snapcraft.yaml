@@ -1,5 +1,5 @@
 name: bingtray
-version: 0.0.6
+version: git
 summary: cross-platform bing daily image wallpaper downloader.
 description: |
   Select Wallpaper from Bing Images of the Day.
@@ -8,6 +8,7 @@ description: |
 base: core22
 confinement: strict
 grade: stable
+adopt-info: bingtray
 
 architectures:
   - build-on: [amd64]
