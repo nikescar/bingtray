@@ -283,8 +283,31 @@ jobs:
           # Clean up
           Remove-Item windows.pfx
 
-      - name: Upload Binary Artifact (non-Android)
-        if: (!contains(matrix.platform.name, 'Android APK arm64')) && (!contains(matrix.platform.target, 'android'))
+      - name: Windows - Rename Binary by Architecture
+        if: contains(matrix.platform.target, 'windows')
+        shell: pwsh
+        run: |
+          $arch = "${{ matrix.platform.target }}".Split('-')[0]
+          $src = "target/release/bingtray.exe"
+          $dst = "target/release/bingtray-$arch.exe"
+          if (Test-Path $src) {
+            Move-Item -Force $src $dst
+            Write-Host "Renamed $src -> $dst"
+          } else {
+            Write-Host "::error:: $src not found"
+            exit 1
+          }
+
+      - name: Upload Binary Artifact (Windows)
+        if: contains(matrix.platform.target, 'windows')
+        uses: actions/upload-artifact@v4
+        with:
+          name: bingtray-${{ matrix.platform.target }}
+          path: target/release/bingtray-*.exe
+          retention-days: 3
+
+      - name: Upload Binary Artifact (non-Android, non-Windows)
+        if: (!contains(matrix.platform.name, 'Android APK arm64')) && (!contains(matrix.platform.target, 'android')) && (!contains(matrix.platform.target, 'windows'))
         uses: actions/upload-artifact@v4
         with:
           # Finally, we store the binary as GitHub artifact for later usage
@@ -341,7 +364,7 @@ jobs:
             "./artifacts/bingtray-armv7-unknown-linux-musleabihf/bingtray"
             "./artifacts/bingtray-x86_64-apple-darwin/bingtray"
             "./artifacts/bingtray-x86_64-unknown-linux-musl/bingtray"
-            "./artifacts/bingtray-x86_64-pc-windows-msvc/bingtray.exe"
+            "./artifacts/bingtray-x86_64-pc-windows-msvc/bingtray-x86_64.exe"
           )
 
           HASH_OUTPUT=""
@@ -377,7 +400,7 @@ jobs:
             ./artifacts/bingtray-armv7-unknown-linux-musleabihf/bingtray
             ./artifacts/bingtray-x86_64-apple-darwin/bingtray
             ./artifacts/bingtray-x86_64-unknown-linux-musl/bingtray
-            ./artifacts/bingtray-x86_64-pc-windows-msvc/bingtray.exe
+            ./artifacts/bingtray-x86_64-pc-windows-msvc/bingtray-x86_64.exe
 
       - name: Parse Analysis Results
         id: parse_results
