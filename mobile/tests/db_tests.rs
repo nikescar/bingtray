@@ -43,17 +43,17 @@ fn test_upsert_updates_existing_image() {
     let new_img = create_test_image(url, ImageStatus::Unprocessed);
     db::operations::upsert_image(&mut conn, &new_img).unwrap();
 
-    // Update with different title and status
+    // Update with different title (status is preserved on update)
     let updated_img = NewBingImage {
         title: "Updated Title",
-        status: ImageStatus::KeepFavorite.as_str(),
         ..new_img
     };
     db::operations::upsert_image(&mut conn, &updated_img).unwrap();
 
     let retrieved = db::operations::get_image(&mut conn, url).unwrap().unwrap();
     assert_eq!(retrieved.title, "Updated Title");
-    assert_eq!(retrieved.status, "keepfavorite");
+    // Status should be preserved (not updated) to protect user's keep/blacklist choices
+    assert_eq!(retrieved.status, "unprocessed");
 }
 
 #[test]

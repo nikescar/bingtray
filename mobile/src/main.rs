@@ -239,10 +239,10 @@ fn run_gui_mode() -> Result<()> {
                 load_fonts, load_themes,
                 setup_local_fonts_from_bytes, setup_local_theme,
             };
-            // Prepare local fonts including Material Symbols (using include_bytes!)
+            // Prepare local fonts including Material Symbols (subset: 6 icons, 12.8KB vs 9.6MB)
             setup_local_fonts_from_bytes(
                 "MaterialSymbolsOutlined",
-                include_bytes!("../resources/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf"),
+                include_bytes!("../resources/MaterialSymbolsOutlined_subset.ttf"),
             );
             setup_local_fonts_from_bytes("NotoSansKr", include_bytes!("../resources/noto-sans-kr.ttf"));
 
