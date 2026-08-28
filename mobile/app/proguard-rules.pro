@@ -19,3 +19,21 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# ====================================================================
+# R8 rules for Rust Native Activity
+# ====================================================================
+
+# Keep android-activity native entry point
+-keep class android.app.NativeActivity { *; }
+
+# Keep all native methods (JNI)
+-keepclasseswithmembernames class * {
+    native <methods>;
+}
+
+# Keep application package classes that may be called from native code
+-keep class pe.nikescar.bingtray.** { *; }
+
+# Keep attributes for native code debugging
+-keepattributes SourceFile,LineNumberTable,*Annotation*

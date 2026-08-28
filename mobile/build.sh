@@ -245,6 +245,20 @@ if [[ -n "${GITHUB_ACTIONS}" ]] || [[ -n "${CI}" ]]; then
     ANDROID_SPLIT_BUILD=1 gradle bundleRelease
 fi
 
+# ====================================================================
+# R8 Configuration Analyzer (optional)
+# ====================================================================
+# To analyze R8 optimization and shrinking effectiveness, run:
+#   gradle :app:analyzeReleaseR8Config
+#
+# Report will be generated at:
+#   app/build/reports/r8/r8-config-analyzer-release.pb
+#
+# This helps identify:
+#   - Redundant keep rules
+#   - NDK/JNI visibility boundaries affected by optimization
+#   - Overall shrinking and optimization scores
+
 # adb commands
 # adb devices
 # adb install app/bulid/outputs/apk/release/app-release.apk

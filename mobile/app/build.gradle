@@ -72,9 +72,10 @@ android {
         //     //}
         //     //debuggable true
         // }
-        
+
         release {
-            minifyEnabled false
+            minifyEnabled true
+            shrinkResources true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             if (keystorePropertiesFile.exists() || (System.getenv("KEYSTORE_PASSWORD") && System.getenv("KEY_PASSWORD"))) {
                 signingConfig signingConfigs.release
