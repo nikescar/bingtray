@@ -64,14 +64,14 @@ fn copy_fonts_to_android_assets() -> Result<(), Box<dyn Error>> {
     use std::fs;
     use std::path::PathBuf;
 
-    let out_dir = env::var("OUT_DIR")?;
-    let assets_dir = PathBuf::from(&out_dir)
-        .parent()
-        .and_then(|p| p.parent())
-        .and_then(|p| p.parent())
-        .map(|p| p.join("assets"))
-        .ok_or("Failed to construct assets directory path")?;
+    // Use CARGO_MANIFEST_DIR to find project root, then navigate to Android assets
+    // This ensures fonts are copied to app/src/main/assets/ (Gradle source directory)
+    // not target/.../assets/ (Cargo build directory)
+    let manifest_dir = env::var("CARGO_MANIFEST_DIR")?;
+    let assets_dir = PathBuf::from(&manifest_dir)
+        .join("app/src/main/assets");
 
+    // Create assets directory if it doesn't exist
     fs::create_dir_all(&assets_dir)?;
 
     // Copy subset Material Symbols (50KB vs 9.6MB)
