@@ -2,7 +2,6 @@
 
 use std::error::Error;
 use std::path::Path;
-use std::process::Command;
 
 fn main() -> Result<(), Box<dyn Error>> {
     // Windows icon setup (existing)
@@ -25,46 +24,33 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 fn subset_material_symbols() -> Result<(), Box<dyn Error>> {
+    use std::collections::HashSet;
+    use std::fs;
+
     let source_font = Path::new("resources/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf");
     let subset_font = Path::new("resources/MaterialSymbolsOutlined_subset.ttf");
 
-    // Unicode codepoints for the 6 icons we actually use
-    let codepoints = [
-        "U+E8B8", // ICON_SETTINGS
-        "U+E5D2", // ICON_MENU
-        "U+E88E", // ICON_INFO
-        "U+E838", // ICON_STAR
-        "U+F06F", // ICON_STAR_OUTLINE
-        "U+E14B", // ICON_BLOCK
-    ];
+    // Load original font binary data
+    let font_data = fs::read(source_font)?;
 
-    // Verify pyftsubset is available
-    let pyftsubset_path = if cfg!(target_os = "openbsd") || cfg!(target_os = "freebsd") {
-        "/usr/local/bin/pyftsubset"
-    } else {
-        "pyftsubset"
-    };
+    // Define the 6 Material Icons we actually use
+    let chars_to_keep: HashSet<char> = [
+        '\u{E8B8}', // ICON_SETTINGS
+        '\u{E5D2}', // ICON_MENU
+        '\u{E88E}', // ICON_INFO
+        '\u{E838}', // ICON_STAR
+        '\u{F06F}', // ICON_STAR_OUTLINE
+        '\u{E14B}', // ICON_BLOCK
+    ]
+    .iter()
+    .copied()
+    .collect();
 
-    let check = Command::new(pyftsubset_path).arg("--help").output();
+    // Perform font subsetting using fontcull (no OpenType features needed)
+    let subsetted_bytes = fontcull::subset_font_data(&font_data, &chars_to_keep, &[])?;
 
-    if check.is_err() {
-        eprintln!("ERROR: pyftsubset not found. Install fonttools:");
-        eprintln!("  - Debian/Ubuntu: apt install python3-fonttools");
-        eprintln!("  - macOS: pip3 install fonttools");
-        eprintln!("  - OpenBSD: pkg_add py3-fonttools");
-        return Err("pyftsubset not available".into());
-    }
-
-    // Run font subsetting
-    let status = Command::new(pyftsubset_path)
-        .arg(source_font)
-        .arg(format!("--unicodes={}", codepoints.join(",")))
-        .arg(format!("--output-file={}", subset_font.display()))
-        .status()?;
-
-    if !status.success() {
-        return Err(format!("pyftsubset failed with status: {}", status).into());
-    }
+    // Write the subsetted font
+    fs::write(subset_font, subsetted_bytes)?;
 
     // Rebuild if source font changes
     println!("cargo:rerun-if-changed={}", source_font.display());
