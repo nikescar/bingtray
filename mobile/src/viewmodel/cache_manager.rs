@@ -57,9 +57,15 @@ impl CacheManager {
         }
     }
 
-    /// Populate database with all historical images from GitHub archive (public/sync)
+    /// Populate database with historical images AND fetch weekly updates (public/sync)
     pub fn populate_historical_images_sync(&self) -> Result<()> {
-        self.populate_historical_images()
+        // Step 1: One-time bulk historical download (skip if already done)
+        self.populate_historical_once()?;
+
+        // Step 2: Weekly new images check (always run, respects 7-day throttle)
+        self.fetch_weekly_updates()?;
+
+        Ok(())
     }
 
     /// Cache initial images without downloading historical data (for background use)
@@ -78,8 +84,9 @@ impl CacheManager {
         self.download_and_cache(needed)
     }
 
-    /// Populate database with all historical images from GitHub archive
-    fn populate_historical_images(&self) -> Result<()> {
+    /// ONE-TIME: Populate database with all historical images from GitHub archive
+    /// Skips if database already has >30 images (already populated)
+    fn populate_historical_once(&self) -> Result<()> {
         let mut conn = crate::db::establish_connection(&self.db_path);
 
         // Check if we already have historical images (>30 means we've done this before)
@@ -130,6 +137,83 @@ impl CacheManager {
         }
 
         log::info!("Successfully inserted {} historical images into database", images.len());
+        Ok(())
+    }
+
+    /// WEEKLY: Fetch new images from Bing API (checks every 7 days)
+    /// Always runs, but respects 7-day throttle using config_kv table
+    fn fetch_weekly_updates(&self) -> Result<()> {
+        let mut conn = crate::db::establish_connection(&self.db_path);
+
+        // Check if 7 days have passed since last Bing API fetch
+        if !crate::db::operations::should_download_manifest(&mut conn, "bing_api") {
+            log::info!("Weekly update check: less than 7 days since last fetch, skipping");
+            return Ok(());
+        }
+
+        log::info!("Weekly update check: fetching latest images from Bing API...");
+
+        let sources = self.sources.as_ref()
+            .context("No image sources available")?;
+
+        // Get existing URLs to avoid duplicates
+        use diesel::prelude::*;
+        use crate::schema::bing_images;
+        let existing_urls: Vec<String> = bing_images::table
+            .select(bing_images::url)
+            .load(&mut conn)?;
+
+        // Fetch ONLY from Bing API (latest 8 images)
+        let images = match sources.fetch_bing_api_only() {
+            Ok(imgs) => imgs,
+            Err(e) => {
+                log::warn!("Bing API fetch failed: {}, will retry next time", e);
+                return Ok(()); // Don't update timestamp on failure
+            }
+        };
+
+        // Filter out existing URLs
+        let new_images: Vec<_> = images
+            .into_iter()
+            .filter(|img| !existing_urls.contains(&img.url))
+            .collect();
+
+        if new_images.is_empty() {
+            log::info!("No new images from Bing API");
+        } else {
+            log::info!("Found {} new images from Bing API, inserting...", new_images.len());
+
+            // Insert new images with current timestamp (so they sort first)
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i32;
+
+            for image in &new_images {
+                let new_image = crate::db::models::NewBingImage {
+                    url: &image.url,
+                    title: &image.title,
+                    copyright: image.copyright.as_deref(),
+                    copyright_link: image.copyright_link.as_deref(),
+                    market_code: "en-US",
+                    fetched_at: now,  // Current time - will sort FIRST
+                    status: "unprocessed",
+                    created_at: now,
+                    updated_at: now,
+                };
+                crate::db::operations::upsert_image(&mut conn, &new_image)?;
+            }
+
+            log::info!("Successfully inserted {} new images", new_images.len());
+        }
+
+        // Update last download timestamp (even if no new images found)
+        let now_i64 = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
+        crate::db::operations::set_last_download_timestamp(&mut conn, "bing_api", now_i64)?;
+
         Ok(())
     }
 

@@ -347,6 +347,11 @@ impl ImageSource {
         }
     }
 
+    /// Fetch ONLY from Bing API (for weekly updates)
+    pub fn fetch_bing_api_only(&self) -> Result<Vec<BingImage>> {
+        self.bing_api.fetch(8)
+    }
+
     /// Fetch images from both sources, merge and deduplicate
     ///
     /// # Arguments
