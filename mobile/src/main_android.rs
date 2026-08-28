@@ -19,12 +19,11 @@ impl WallpaperSetter for AndroidWallpaperService {
 }
 
 /// Load font file from Android assets at runtime
-fn load_font_from_assets(filename: &str) -> Vec<u8> {
+fn load_font_from_assets(app: &AndroidApp, filename: &str) -> Vec<u8> {
     use std::ffi::CString;
 
-    // Get AssetManager from ndk-context
-    let asset_manager = ndk_context::android_context()
-        .asset_manager();
+    // Get AssetManager from AndroidApp (android-activity 0.6+)
+    let asset_manager = app.asset_manager();
 
     // Open asset file
     let filename_cstr = CString::new(filename).expect("CString::new failed");
@@ -120,8 +119,8 @@ pub fn android_main(app: AndroidApp) {
                 setup_local_fonts_from_bytes, setup_local_theme,
             };
             // Load fonts from APK assets at runtime (not embedded in .so)
-            let material_symbols_data = load_font_from_assets("MaterialSymbolsOutlined_subset.ttf");
-            let noto_sans_kr_data = load_font_from_assets("noto-sans-kr.ttf");
+            let material_symbols_data = load_font_from_assets(&app, "MaterialSymbolsOutlined_subset.ttf");
+            let noto_sans_kr_data = load_font_from_assets(&app, "noto-sans-kr.ttf");
 
             setup_local_fonts_from_bytes(
                 "MaterialSymbolsOutlined",
