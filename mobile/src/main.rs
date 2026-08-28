@@ -240,17 +240,21 @@ fn run_gui_mode() -> Result<()> {
                 setup_local_fonts_from_bytes, setup_local_theme,
             };
             // Prepare local fonts including Material Symbols (using include_bytes!)
-            setup_local_fonts_from_bytes(
-                "MaterialSymbolsOutlined",
-                include_bytes!("../resources/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf"),
-            );
-            setup_local_fonts_from_bytes("NotoSansKr", include_bytes!("../resources/noto-sans-kr.ttf"));
+            // NOTE: each font file is embedded via `include_bytes!` exactly once and the
+            // resulting byte slice is reused everywhere it's needed, to avoid duplicating
+            // several megabytes of font data in the compiled binary.
+            const MATERIAL_SYMBOLS_BYTES: &[u8] =
+                include_bytes!("../resources/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf");
+            const NOTO_SANS_KR_BYTES: &[u8] = include_bytes!("../resources/noto-sans-kr.ttf");
+
+            setup_local_fonts_from_bytes("MaterialSymbolsOutlined", MATERIAL_SYMBOLS_BYTES);
+            setup_local_fonts_from_bytes("NotoSansKr", NOTO_SANS_KR_BYTES);
 
             // Register Korean font with egui for proper text rendering
             let mut fonts = egui::FontDefinitions::default();
             fonts.font_data.insert(
                 "NotoSansKr".to_owned(),
-                std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../resources/noto-sans-kr.ttf"))),
+                std::sync::Arc::new(egui::FontData::from_static(NOTO_SANS_KR_BYTES)),
             );
             // Put Korean font first in proportional and monospace families
             fonts.families
