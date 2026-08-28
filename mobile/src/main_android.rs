@@ -18,6 +18,50 @@ impl WallpaperSetter for AndroidWallpaperService {
     }
 }
 
+/// Load font file from Android assets at runtime
+fn load_font_from_assets(filename: &str) -> Vec<u8> {
+    use std::ffi::CString;
+
+    // Get AssetManager from ndk-context
+    let asset_manager = ndk_context::android_context()
+        .asset_manager();
+
+    // Open asset file
+    let filename_cstr = CString::new(filename).expect("CString::new failed");
+
+    unsafe {
+        let asset = ndk_sys::AAssetManager_open(
+            asset_manager.ptr().as_ptr() as *mut _,
+            filename_cstr.as_ptr(),
+            ndk_sys::AASSET_MODE_BUFFER as i32,
+        );
+
+        if asset.is_null() {
+            panic!("Failed to open asset: {}", filename);
+        }
+
+        // Get asset length
+        let length = ndk_sys::AAsset_getLength64(asset) as usize;
+
+        // Read asset data
+        let mut buffer = vec![0u8; length];
+        let bytes_read = ndk_sys::AAsset_read(
+            asset,
+            buffer.as_mut_ptr() as *mut _,
+            length,
+        );
+
+        // Close asset
+        ndk_sys::AAsset_close(asset);
+
+        if bytes_read != length as i32 {
+            panic!("Failed to read complete asset: {}", filename);
+        }
+
+        buffer
+    }
+}
+
 /// Android entry point
 #[no_mangle]
 pub fn android_main(app: AndroidApp) {
@@ -75,18 +119,21 @@ pub fn android_main(app: AndroidApp) {
                 load_fonts, load_themes,
                 setup_local_fonts_from_bytes, setup_local_theme,
             };
-            // Prepare local fonts including Material Symbols (using include_bytes!)
+            // Load fonts from APK assets at runtime (not embedded in .so)
+            let material_symbols_data = load_font_from_assets("MaterialSymbolsOutlined_subset.ttf");
+            let noto_sans_kr_data = load_font_from_assets("noto-sans-kr.ttf");
+
             setup_local_fonts_from_bytes(
                 "MaterialSymbolsOutlined",
-                include_bytes!("../resources/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf"),
+                &material_symbols_data,
             );
-            setup_local_fonts_from_bytes("NotoSansKr", include_bytes!("../resources/noto-sans-kr.ttf"));
+            setup_local_fonts_from_bytes("NotoSansKr", &noto_sans_kr_data);
 
             // Register Korean font with egui for proper text rendering
             let mut fonts = egui::FontDefinitions::default();
             fonts.font_data.insert(
                 "NotoSansKr".to_owned(),
-                std::sync::Arc::new(egui::FontData::from_static(include_bytes!("../resources/noto-sans-kr.ttf"))),
+                std::sync::Arc::new(egui::FontData::from_owned(noto_sans_kr_data.clone())),
             );
             // Put Korean font first in proportional and monospace families
             fonts.families
