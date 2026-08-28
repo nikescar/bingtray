@@ -242,6 +242,33 @@ jobs:
           }
           echo "Signing $EXE_PATH..."
 
+          # Validate the certificate before signing so a bad pfx fails with a clear reason
+          # instead of the opaque "No certificates were found that met all the given criteria."
+          try {
+            $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2(
+              "windows.pfx", $env:WINDOWS_CERT_PASSWORD,
+              [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]::EphemeralKeySet)
+          } catch {
+            echo "::error:: Failed to load windows.pfx - likely wrong WINDOWS_CERT_PASSWORD or a corrupted/invalid certificate file: $_"
+            exit 1
+          }
+          echo "Certificate Subject: $($cert.Subject)"
+          echo "Certificate Thumbprint: $($cert.Thumbprint)"
+          echo "Certificate NotAfter: $($cert.NotAfter)"
+          echo "Certificate HasPrivateKey: $($cert.HasPrivateKey)"
+          $eku = $cert.Extensions | Where-Object { $_.Oid.FriendlyName -eq 'Enhanced Key Usage' }
+          if ($eku) {
+            echo "Certificate EKU: $($eku.Format($false))"
+          }
+          if (-Not $cert.HasPrivateKey) {
+            echo "::error:: windows.pfx has no private key - re-export the certificate with 'Include all certificates in the certification path if possible' and the private key included"
+            exit 1
+          }
+          if ($cert.NotAfter -lt (Get-Date)) {
+            echo "::error:: Certificate expired on $($cert.NotAfter)"
+            exit 1
+          }
+
           # Find signtool.exe (it's part of the Windows SDK)
           $SIGNTOOL_PATH = (Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse | Sort-Object VersionInfo -Descending | Select-Object -First 1).FullName
           if ($null -eq $SIGNTOOL_PATH) {
