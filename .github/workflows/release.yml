@@ -157,11 +157,6 @@ jobs:
         run: |
           cargo install cross --git https://github.com/cross-rs/cross
 
-      - name: MacOS - Install Build Dependencies
-        if: contains(matrix.platform.target, 'apple')
-        run: |
-          pip3 install fonttools
-
       - name: Android - Build Release APK
         if: (contains(matrix.platform.name, 'Android APK arm64'))
         run: | 
