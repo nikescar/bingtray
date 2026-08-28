@@ -103,6 +103,9 @@ pub fn android_main(app: AndroidApp) {
         }
     }));
 
+    // Clone app for use in closure (AndroidApp is cheap to clone - wraps Arc internally)
+    let app_for_closure = app.clone();
+
     let options = NativeOptions {
         android_app: Some(app),
         renderer: eframe::Renderer::Glow,
@@ -119,8 +122,8 @@ pub fn android_main(app: AndroidApp) {
                 setup_local_fonts_from_bytes, setup_local_theme,
             };
             // Load fonts from APK assets at runtime (not embedded in .so)
-            let material_symbols_data = load_font_from_assets(&app, "MaterialSymbolsOutlined_subset.ttf");
-            let noto_sans_kr_data = load_font_from_assets(&app, "noto-sans-kr.ttf");
+            let material_symbols_data = load_font_from_assets(&app_for_closure, "MaterialSymbolsOutlined_subset.ttf");
+            let noto_sans_kr_data = load_font_from_assets(&app_for_closure, "noto-sans-kr.ttf");
 
             setup_local_fonts_from_bytes(
                 "MaterialSymbolsOutlined",
