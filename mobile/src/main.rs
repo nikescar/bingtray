@@ -240,9 +240,9 @@ fn run_gui_mode() -> Result<()> {
                 setup_local_fonts_from_bytes, setup_local_theme,
             };
             // Prepare local fonts including Material Symbols (using include_bytes!)
-            // NOTE: each font file is embedded via `include_bytes!` exactly once and the
-            // resulting byte slice is reused everywhere it's needed, to avoid duplicating
-            // several megabytes of font data in the compiled binary.
+            // NOTE: each font file is loaded via `include_bytes!` exactly once and the
+            // resulting byte slice reused everywhere it's needed, as a single source of
+            // truth (rather than relying on the compiler to fold identical literals).
             const MATERIAL_SYMBOLS_BYTES: &[u8] =
                 include_bytes!("../resources/MaterialSymbolsOutlined[FILL,GRAD,opsz,wght].ttf");
             const NOTO_SANS_KR_BYTES: &[u8] = include_bytes!("../resources/noto-sans-kr.ttf");
