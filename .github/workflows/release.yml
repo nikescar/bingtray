@@ -34,9 +34,9 @@ jobs:
             target: aarch64-unknown-linux-musl
             build-args: "--release"
 
-          - name: Linux armv7hf
-            target: armv7-unknown-linux-musleabihf
-            build-args: "--release"
+          # - name: Linux armv7hf
+          #   target: armv7-unknown-linux-musleabihf
+          #   build-args: "--release"
 
           # - name: Linux armv6
           #   target: arm-unknown-linux-musleabihf
@@ -51,17 +51,17 @@ jobs:
           #   target: i686-unknown-freebsd
           #   build-args: "--release"
 
-          - name: Android aarch64
-            target: aarch64-linux-android
-            build-args: "--release"
+          # - name: Android aarch64
+          #   target: aarch64-linux-android
+          #   build-args: "--release"
 
-          - name: Android APK arm64
-            target: aarch64-linux-android
-            build-args: "--release"
+          # - name: Android APK arm64
+          #   target: aarch64-linux-android
+          #   build-args: "--release"
 
-          - name: Android armv7
-            target: armv7-linux-androideabi
-            build-args: "--release"
+          # - name: Android armv7
+          #   target: armv7-linux-androideabi
+          #   build-args: "--release"
 
           #- name: Linux mips
           #  target: mips-unknown-linux-musl
@@ -357,11 +357,11 @@ jobs:
 
           FILES=(
             "./artifacts/bingtray-aarch64-apple-darwin/bingtray"
-            "./artifacts/bingtray-aarch64-linux-android/bingtray"
+            # "./artifacts/bingtray-aarch64-linux-android/bingtray"
             "./artifacts/bingtray-aarch64-unknown-linux-musl/bingtray"
-            "./artifacts/bingtray-all-signed.apk/bingtray-all-signed.apk"
-            "./artifacts/bingtray-armv7-linux-androideabi/bingtray"
-            "./artifacts/bingtray-armv7-unknown-linux-musleabihf/bingtray"
+            # "./artifacts/bingtray-all-signed.apk/bingtray-all-signed.apk"
+            # "./artifacts/bingtray-armv7-linux-androideabi/bingtray"
+            # "./artifacts/bingtray-armv7-unknown-linux-musleabihf/bingtray"
             "./artifacts/bingtray-x86_64-apple-darwin/bingtray"
             "./artifacts/bingtray-x86_64-unknown-linux-musl/bingtray"
             "./artifacts/bingtray-x86_64-pc-windows-msvc/bingtray-x86_64.exe"
@@ -393,11 +393,7 @@ jobs:
           request_rate: 4
           files: |
             ./artifacts/bingtray-aarch64-apple-darwin/bingtray
-            ./artifacts/bingtray-aarch64-linux-android/bingtray
             ./artifacts/bingtray-aarch64-unknown-linux-musl/bingtray
-            ./artifacts/bingtray-all-signed.apk/bingtray-all-signed.apk
-            ./artifacts/bingtray-armv7-linux-androideabi/bingtray
-            ./artifacts/bingtray-armv7-unknown-linux-musleabihf/bingtray
             ./artifacts/bingtray-x86_64-apple-darwin/bingtray
             ./artifacts/bingtray-x86_64-unknown-linux-musl/bingtray
             ./artifacts/bingtray-x86_64-pc-windows-msvc/bingtray-x86_64.exe
