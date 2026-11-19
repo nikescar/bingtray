@@ -2,16 +2,16 @@
 
 Similar App : [Bigwallpaper Desktop](https://bingwallpaper.microsoft.com/Windows/bing/bing-wallpaper/)
 
-<img src="./bingtray/resources/logo.png" alt="drawing" width="120"/>
+<img src="./imgs/logo.png" alt="BingTray Logo" width="120"/>
 
 A cross-platform wallpaper manager that downloads and manages Bing's weekly wallpapers. bing wallpapers are updated weekly in 43 global stores. each store has different sets of 8 images many of them are shared beween markets. We are visiting random market wallpaper list and download new images if we dont have them. If you exhausted all market images, you have wait for a week to get new images. 
 
 ## Download
 
 | Arch          | Windows        | MacOS         | Linux        | Android        | IOS         |
-|:--------------|:--------------:|:-------------:|:------------:|:--------------:|--------------:|
-| X86_64(AMD64) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray.exe) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-apple-darwin.tar.gz) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-unknown-linux-musl.tar.gz) [SNAP](https://snapcraft.io/bingtray) | [APK](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk) [Play Store](https://play.google.com/store/apps/details?id=pe.nikescar.bingtray) | - |
-| AARCH64(ARM64)| - | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-apple-darwin.tar.gz) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-unknown-linux-musl.tar.gz) [SNAP](https://snapcraft.io/bingtray) | [APK](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk) [Play Store](https://play.google.com/store/apps/details?id=pe.nikescar.bingtray) | - |
+|:--------------|:--------------:|:-------------:|:------------:|:--------------:|:-----------:|
+| X86_64 (AMD64) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray.exe) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-apple-darwin.tar.gz) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-x86_64-unknown-linux-musl.tar.gz)<br/>[SNAP](https://snapcraft.io/bingtray) | [APK](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk)<br/>[Play Store](https://play.google.com/store/apps/details?id=pe.nikescar.bingtray) | - |
+| AARCH64 (ARM64) | - | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-apple-darwin.tar.gz) | [CLI+GUI](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-aarch64-unknown-linux-musl.tar.gz)<br/>[SNAP](https://snapcraft.io/bingtray) | [APK](https://github.com/nikescar/bingtray/releases/latest/download/bingtray-all-signed.apk)<br/>[Play Store](https://play.google.com/store/apps/details?id=pe.nikescar.bingtray) | - |
 
 [Latest Release](https://github.com/nikescar/bingtray/releases)<br/>
 <br/>

@@ -1,344 +1,167 @@
 # BingTray - Project Guide
 
-## 1. Overview
+## Quick Start
 
-BingTray downloads and displays weekly wallpapers from Bing.com for desktop (Windows, Mac, Linux), CLI, and Android platforms.
+**What**: Cross-platform Bing wallpaper manager  
+**Platforms**: Windows, macOS, Linux, Android  
+**Architectures**: aarch64, armv7, x86_64
 
-## 2. Features
-
-Three entry points: CLI, GUI, TRAY
-- **Common**: Download & Set Next Wallpaper, Keep Current Image, Blacklist Current Image, Set Random Favorite
-- **CLI**: Menu-driven navigation, no preview, background wallpaper changes
-- **GUI (egui)**: Carousel view with image selection, favorite/blacklist controls
-- **TRAY**: Same functionality as CLI
-
-## 3. Supported Architectures
-
-- **Platforms**: Windows, macOS, Linux, Android, iOS (planned)
-- **Architectures**: aarch64 (arm64), armv7, x86_64
-
-## 4. Repository Structure
-
-```
-bingtray/
-├── mobile/                          # Main application workspace
-│   ├── src/
-│   │   ├── db/                      # Database layer (Diesel SQLite)
-│   │   │   ├── mod.rs              # Connection & migrations
-│   │   │   ├── models.rs           # BingImage, MarketCode, ConfigKv models
-│   │   │   └── operations.rs      # CRUD operations
-│   │   ├── viewmodel/              # ViewModel layer (MVVM architecture)
-│   │   │   ├── mod.rs              # Message types & ViewModel struct
-│   │   │   ├── commands.rs         # Command handlers
-│   │   │   └── background.rs       # Asupersync background thread
-│   │   ├── bingtray.rs             # Main GUI application
-│   │   ├── main.rs                 # Desktop entry point
-│   │   ├── main_android.rs         # Android entry point
-│   │   ├── cli.rs                  # CLI entry point
-│   │   ├── tray.rs                 # System tray functionality
-│   │   ├── api_bingimage.rs        # Bing API client
-│   │   ├── api_setwallpaper.rs     # Wallpaper setting (desktop)
-│   │   ├── calc_bingimage.rs       # Image processing logic
-│   │   └── schema.rs               # Diesel schema (generated)
-│   ├── migrations/                  # Diesel SQL migrations
-│   ├── tests/                       # Unit & integration tests
-│   │   ├── db_tests.rs
-│   │   ├── viewmodel_tests.rs
-│   │   └── integration_tests.rs
-│   └── Cargo.toml
-├── reference/                       # Reference implementations
-│   ├── uad-shizuku/                # Diesel ORM examples
-│   ├── asupersync/                 # Async runtime examples
-│   └── mvvm.rs                     # MVVM pattern reference
-├── docs/
-│   └── superpowers/
-│       ├── specs/                  # Design specifications
-│       └── plans/                  # Implementation plans
-└── IMPLEMENTATION_SUMMARY.txt      # Recent changes summary
+**Run modes**:
+```bash
+cargo run              # CLI (terminal detected)
+cargo run -- --gui     # GUI window
+cargo run -- --tray    # System tray only
 ```
 
-## 5. Architecture
+**Features**: Download/set wallpapers, carousel view (20/page), favorites, blacklist, crop controls
 
-### Database Layer (Diesel + SQLite)
+## Architecture
 
-**Location**: `mobile/src/db/`
+See **[ARCH.sudolang.md](ARCH.sudolang.md)** for complete architecture specification.
 
-- **Migrations**: Embedded diesel migrations in `mobile/migrations/`
-- **Schema**: Auto-generated `schema.rs` from migrations
-- **Models**: Queryable and Insertable structs
-  - `BingImage`: Image metadata with URL, title, copyright, status
-  - `MarketCode`: Market tracking (en-US, ja-JP, etc.)
-  - `ConfigKv`: Key-value configuration storage
-- **Operations**: CRUD functions for all tables
-- **Storage**: SQLite with WAL mode, stored in system config directory
+**Core pattern**: MVVM (Model-View-ViewModel)
+- **Database** → SQLite + Diesel ORM
+- **ViewModel** → Message-passing with async (GUI) or sync (CLI) modes
+- **UI** → egui (Desktop/Android), terminal (CLI), tray icon
 
-**Database Path**:
+**Key constraint**: Historical data loads sync BEFORE UI renders. Cache manager populates 3 images in background.
+
+## Repository Structure
+
+```
+mobile/
+├── src/
+│   ├── db/                      # Database layer (Diesel SQLite)
+│   │   ├── mod.rs              # Connection & migrations
+│   │   ├── models.rs           # BingImage, MarketCode, ConfigKv
+│   │   └── operations.rs       # CRUD operations
+│   ├── viewmodel/              # ViewModel layer (MVVM)
+│   │   ├── mod.rs              # Command/Event types, ViewModel struct
+│   │   ├── commands.rs         # Command handlers
+│   │   ├── background.rs       # Async background thread
+│   │   ├── sources.rs          # Image sources (Bing API, GitHub archive)
+│   │   └── cache_manager.rs   # Image caching & historical data
+│   ├── bingtray.rs             # Main GUI (egui + Material3)
+│   ├── main.rs                 # Desktop entry point
+│   ├── main_android.rs         # Android entry point
+│   ├── cli.rs                  # CLI entry point
+│   ├── tray.rs                 # System tray (GTK + XEmbed fallback)
+│   ├── api_bingimage.rs        # Bing API client
+│   ├── api_setwallpaper.rs     # Wallpaper setter (desktop)
+│   ├── utils.rs                # Utilities (sanitize_filename, etc.)
+│   ├── i18n.rs                 # Internationalization
+│   └── schema.rs               # Diesel schema (auto-generated)
+├── migrations/                  # Diesel SQL migrations
+├── tests/                       # Unit & integration tests
+└── Cargo.toml
+reference/                       # Reference implementations
+└── ARCH.sudolang.md            # Complete architecture specification
+```
+
+## Database Layer
+
+**ORM**: Diesel SQLite with embedded migrations  
+**Models**: `BingImage`, `MarketCode`, `ConfigKv`  
+**Path**:
 - Desktop: `~/.config/bingtray/bingtray.db`
 - Android: `/data/data/pe.nikescar.bingtray/files/bingtray.db`
 
-### ViewModel Layer (MVVM Pattern)
+**Features**: WAL mode, 30s busy timeout, auto-migrations on first connection
 
-**Location**: `mobile/src/viewmodel/`
-
-**Architecture**: Three-layer separation (Database → ViewModel → UI)
-
-**Conditional Threading**:
-- **GUI/Android**: Async mode with background thread
-  - Uses `std::sync::mpsc` channels for UI communication
-  - Asupersync runtime for I/O tasks
-  - Non-blocking UI updates via event polling
-- **CLI**: Sync mode, direct function calls
-  - No background thread overhead
-  - Blocking operations acceptable for CLI use case
-
-**Message Types**:
-- `ViewModelCommand`: UI → Background thread (DownloadImages, SetWallpaper, etc.)
-- `ViewModelEvent`: Background thread → UI (DownloadComplete, ImagesLoaded, etc.)
-
-**Reference Implementation**: See `reference/mvvm.rs` for message-passing pattern
-
-### UI Layer
-
-- **Desktop GUI**: egui-based with Material3 design
-- **Android**: Native activity using egui
-- **CLI**: Text-based menu system
-- **Tray**: System tray icon with context menu
-
-## 6. Entry Points
-
-All entry points are available in a single binary. The mode is determined at runtime:
-
-1. **Desktop GUI App**: `cargo run -- --gui`
-   - Tray icon + egui window
-   - ViewModel in async mode
-
-2. **Tray Mode**: `cargo run -- --tray` (or default when no terminal)
-   - System tray icon only
-   - ViewModel in async mode
-
-3. **CLI**: `cargo run` (when run from terminal)
-   - Terminal-only interface
-   - ViewModel in sync mode (no background thread overhead)
-
-4. **Android**: Built via gradle
-   - Native activity
-   - ViewModel in async mode
-
-## 7. Local Database and Configuration
-
-### Database
-
-Uses Diesel SQLite ORM saved in platform-specific directories:
-- **Desktop**: `~/.config/bingtray/` (Linux), `%APPDATA%\bingtray\` (Windows)
-- **Android**: Application private data directory
-
-### Diesel References
-
-Example implementations in `reference/uad-shizuku/mobile/src/`:
-- `db.rs` - Connection setup with migrations
-- `db_package_cache.rs` - CRUD operations pattern
-- Other `db_*.rs` files - Various query patterns
-
-### Schema Migration
-
-Migrations are embedded in the binary and run automatically on first connection.
-To create new migrations:
+**Create migration**:
 ```bash
 cd mobile
-diesel migration generate <migration_name>
-# Edit up.sql and down.sql
-# Schema will auto-update on next connection
+diesel migration generate <name>
+# Edit up.sql/down.sql
 ```
 
-## 8. Async Support
+## ViewModel Layer
 
-### Asupersync
+**Pattern**: MVVM with message-passing
 
-Used for structured concurrency in I/O tasks:
-- Download operations
-- Database writes (in future iterations)
-- Background image processing
+**Threading modes**:
+- **Async** (GUI/Android/Tray): Background thread + `std::sync::mpsc` + asupersync runtime
+- **Sync** (CLI): Direct calls, no threading overhead
 
-**Reference**: `reference/asupersync/README.md`
+**Messages**:
+- `ViewModelCommand`: UI → Background (DownloadImages, SetWallpaper, ToggleFavorite, etc.)
+- `ViewModelEvent`: Background → UI (DownloadComplete, ImagesLoaded, WallpaperSet, etc.)
 
-**Pattern**: Tasks spawned with `Cx::spawn` in scopes, guaranteed cleanup on cancel
+**Cache Manager**:
+- Populates historical data sync BEFORE UI loads
+- Caches 3 images in background for wallpaper
+- Stores in `~/.config/bingtray/cache/images`
 
-### ViewModel Threading
+## UI Layer
 
-**Runtime Mode Selection**:
-- **GUI/Tray/Android**: `ViewModel::new_async()` - Uses background thread with async runtime
-- **CLI**: `ViewModel::new_sync()` - Direct synchronous calls, no threading overhead
+| Platform | Framework | Entry Point | ViewModel Mode |
+|----------|-----------|-------------|----------------|
+| Desktop GUI | eframe + egui | `main.rs` | Async |
+| Desktop Tray | GTK/XEmbed | `tray.rs` | Async |
+| Desktop CLI | Terminal | `cli.rs` | Sync |
+| Android | Native activity + egui | `main_android.rs` | Async |
 
-Background thread pattern (GUI/Android) from `reference/mvvm.rs`:
-- UI thread: egui rendering + event polling
-- Background thread: Asupersync runtime processing ViewModelCommands
-- Communication: `std::sync::mpsc` channels
+**GUI features**: Carousel (20/page), filters (All/Favorites/Blacklisted/Unprocessed), crop controls, Material3 theme
 
-CLI mode uses direct function calls with no message passing.
+**Tray backends**: GTK (`tray-icon`) → XEmbed (`x11rb`) fallback
 
-## 9. Testing
+## Build & Test
 
-### Unit Tests
+**Build**:
+```bash
+cargo build              # Dev (opt-level 0)
+cargo build --release    # Release (LTO + stripped)
+```
 
-**Database tests** (`mobile/tests/db_tests.rs`):
-- CRUD operations
-- Pagination
-- SQL injection protection
-- Config operations
-
-**ViewModel tests** (`mobile/tests/viewmodel_tests.rs`):
-- Message passing
-- Command handling
-- Sync vs async modes
-
-### Integration Tests
-
-**Entry point tests** (`mobile/tests/integration_tests.rs`):
-- Desktop initialization
-- CLI sync mode
-- Database persistence
-
-Run tests:
+**Test**:
 ```bash
 cargo test --manifest-path mobile/Cargo.toml
 ```
 
-## 10. Build
-
-### Single Binary for All Modes
-
-A single `cargo build` produces a binary that supports all modes (GUI, tray, CLI):
-
+**Format & Lint**:
 ```bash
-# Development build (all modes included)
-cargo build
-
-# Release build (all modes included)
-cargo build --release
+cargo fmt
+cargo clippy
 ```
 
-### Build Profiles
+**Run modes**: Binary auto-detects mode at runtime (terminal/flags/double-click)
 
-- `dev`: Fast incremental builds (opt-level 0)
-- `dev-release`: Optimized without LTO for iteration
-- `release`: Full optimization with LTO and symbol stripping
+## Dependencies
 
-### Runtime Mode Selection
+**Core**: eframe, egui, diesel, diesel_migrations, asupersync, anyhow, serde, image, ehttp  
+**Desktop**: tray-icon, x11rb (XEmbed fallback), wallpaper  
+**Android**: ndk-context, jni, android-activity  
+**UI**: egui_material3, egui_i18n
 
-The binary automatically selects the appropriate mode:
-- **Terminal detected**: CLI mode (sync ViewModel)
-- **`--gui` flag**: GUI window mode (async ViewModel)
-- **`--tray` flag**: Tray mode (async ViewModel)
-- **Double-click / no terminal**: Tray mode (async ViewModel)
+## Development Workflow
 
-## 11. Dependencies
+1. Edit code in `mobile/src/`
+2. Run: `cargo run [--gui|--tray]` or just `cargo run` (CLI)
+3. Test: `cargo test --manifest-path mobile/Cargo.toml`
+4. Format/lint: `cargo fmt && cargo clippy`
 
-### Core
+## Platform-Specific Notes
 
-- **egui** + **eframe**: Cross-platform GUI
-- **diesel** + **diesel_migrations**: SQLite ORM
-- **asupersync**: Structured concurrency runtime
-- **tokio**: Async runtime (workspace dependency)
-- **anyhow**: Error handling
+**Linux tray**: Requires `libayatana-appindicator3` (GTK) or X11 (XEmbed fallback)  
+**Android build**: Via gradle in Android Studio  
+**CLI detection**: `std::io::stdout().is_terminal()`
 
-### Platform-Specific
+## Recent Changes
 
-- **Desktop**: tray-icon, wallpaper, trash
-- **Android**: ndk-context, jni, android-activity
-- **WASM**: wasm-bindgen (planned)
+**2026-06-16 - XEmbed Tray Fallback**:
+- ✅ GTK → XEmbed runtime fallback for minimal X11 systems
+- ✅ Trait-based backend abstraction
+- Impact: Works without GTK, +1.5MB binary size
 
-### Linux Tray Icon
-
-**Primary**: GTK backend via `tray-icon` crate
-- Requires: `libayatana-appindicator3`
-
-**Fallback**: XEmbed protocol via `x11rb`
-- Activates when GTK unavailable
-- Requires: X11 display + system tray manager (i3bar, polybar, etc.)
-
-## 12. Recent Changes
-
-### XEmbed Tray Fallback (2026-06-16)
-
-**Completed**:
-- ✅ Trait-based tray backend abstraction
-- ✅ XEmbed protocol implementation using x11rb
-- ✅ Runtime fallback (GTK → XEmbed)
-- ✅ X11 popup menu system
-- ✅ Full feature parity between backends
-
-**Impact**:
-- Tray icon works on minimal X11 systems without GTK
-- Clear error messages when both backends fail
-- ~1.5MB binary size increase (x11rb dependency)
-
-**Documentation**:
-- Design spec: `docs/superpowers/specs/2026-06-16-xembed-tray-fallback-design.md`
-- Implementation plan: `docs/superpowers/plans/2026-06-16-xembed-tray-fallback.md`
-
-### Diesel SQLite + MVVM Implementation (2026-06-12)
-
-**Completed**:
-- ✅ Migrated from DataFusion/Parquet to Diesel/SQLite
-- ✅ Implemented MVVM architecture with ViewModel layer
-- ✅ Conditional threading (async for GUI/Android, sync for CLI)
-- ✅ Comprehensive unit and integration tests
+**2026-06-12 - Diesel + MVVM Migration**:
+- ✅ DataFusion/Parquet → Diesel/SQLite
+- ✅ MVVM architecture with conditional threading
 - ✅ Removed 1,323 lines of DataFusion code
+- Impact: Standard SQL, clear separation, non-blocking UI
 
-**Impact**:
-- Database operations now use standard SQL patterns
-- Clear separation between UI and business logic
-- Non-blocking UI during downloads
-- Easier to test and maintain
+## Future Work
 
-**Documentation**:
-- Design spec: `docs/superpowers/specs/2026-06-12-diesel-mvvm-design.md`
-- Implementation plan: `docs/superpowers/plans/2026-06-12-diesel-mvvm-implementation.md`
-- Summary: `IMPLEMENTATION_SUMMARY.txt`
-
-### Known Limitations
-
-- Status icons temporarily disabled (migrating to ViewModel)
-- Android/CLI ViewModel integration pending
-- Async download tasks still use placeholder stubs
-
-## 13. Development Workflow
-
-1. **Start development**: Edit code in `mobile/src/`
-2. **Run locally**:
-   - GUI mode: `cargo run -- --gui`
-   - Tray mode: `cargo run -- --tray`
-   - CLI mode: `cargo run` (from terminal)
-3. **Test**: `cargo test --manifest-path mobile/Cargo.toml`
-4. **Build release**: `cargo build --release`
-5. **Format**: `cargo fmt`
-6. **Lint**: `cargo clippy`
-
-## 14. Platform-Specific Notes
-
-### Android
-
-- Entry point: `mobile/src/main_android.rs`
-- Build: Via gradle in Android Studio
-- ViewModel: Uses async mode with background thread
-
-### CLI
-
-- Entry point: `mobile/src/cli.rs`
-- Detection: Terminal detected via `std::io::stdout().is_terminal()`
-- ViewModel: Uses sync mode (no background thread)
-
-### Desktop
-
-- Entry point: `mobile/src/main.rs`
-- Features: Tray icon, GUI window
-- ViewModel: Uses async mode with background thread
-
-## 15. Future Work
-
-- [ ] Complete Android ViewModel integration
-- [ ] Complete CLI ViewModel integration
-- [ ] Implement async download tasks with Asupersync
-- [ ] Restore status icon functionality via ViewModel
-- [ ] iOS support
-- [ ] WASM browser support
+- [ ] Complete Android/CLI ViewModel integration
+- [ ] Implement async download tasks
+- [ ] Restore status icons
+- [ ] iOS/WASM support
